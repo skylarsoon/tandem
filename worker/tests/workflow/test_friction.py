@@ -76,7 +76,7 @@ def test_declined_concession_with_no_alternative_explains_the_arrival_gap(setup_
     worker.run_one(job)
     answer_all(backend, "p4", False)
     assert worker.reconcile()[0]["outcome"] == "NO_FEASIBLE_CANDIDATE"
-    [event] = backend.shared_report()["events"]
+    [event] = [e for e in backend.shared_report()["events"] if e["kind"] == "NO_FEASIBLE_PLAN"]
     assert event["payload"]["closest_spread_seconds"] == 5 * 3600
     assert "No combination of flights lands everyone within 2h; the closest is 5h apart." in event["payload"]["text"]
     assert backend.shared_report()["proposals"] == {}
@@ -94,7 +94,7 @@ def test_budget_below_every_fare_gets_a_private_note_and_a_neutral_room_event(se
         "Raising your limit to at least $290.00 would unblock the plan."]
     for owner in ("p2", "p3", "p4"):
         assert backend.owner_view(owner)["notes"] == []
-    [event] = backend.shared_report()["events"]
+    [event] = [e for e in backend.shared_report()["events"] if e["kind"] == "NO_FEASIBLE_PLAN"]
     assert event["kind"] == "NO_FEASIBLE_PLAN"
     assert event["payload"]["blocked_travellers"] == {"HARD_LIMIT": 1}
     assert "p1" not in json.dumps(event) and "250" not in json.dumps(event) and "290" not in json.dumps(event)
@@ -105,7 +105,7 @@ def test_impossible_arrival_window_reports_the_closest_spread(setup_worker):
     backend, worker, job, model, research, _ = setup_worker("arrival-impossible")
     assert worker.run_one(job)["outcome"] == "NO_FEASIBLE_CANDIDATE"
     assert research.requests[1]["blocker_code"] == "ARRIVAL_OVERLAP"
-    [event] = backend.shared_report()["events"]
+    [event] = [e for e in backend.shared_report()["events"] if e["kind"] == "NO_FEASIBLE_PLAN"]
     assert (event["payload"]["closest_spread_seconds"], event["payload"]["required_seconds"]) == (3.5 * 3600, 7200)
     assert all(backend.owner_view(o)["notes"] == [] for o in ("p1", "p2", "p3", "p4"))
 
@@ -207,7 +207,7 @@ def test_refused_room_request_explains_the_clash_to_both_sides_only(setup_worker
             "No plan fits yet: the stay that meets your own-room request costs enough that the trip goes over another "
             "traveller's limit. Sharing a room would unblock the plan."]
     assert backend.owner_view("p3")["notes"] == []
-    [event] = backend.shared_report()["events"]
+    [event] = [e for e in backend.shared_report()["events"] if e["kind"] == "NO_FEASIBLE_PLAN"]
     assert event["payload"]["text"] == ("No plan fits yet. 1 traveller: the cheapest trip found is above a private limit. "
                                         "Each affected traveller has a private note from their agent.")
     assert_room_safe(backend)
@@ -227,7 +227,7 @@ def test_unmeetable_rating_asks_only_the_person_who_set_it(setup_worker, answer,
         assert backend.owner_view("p3")["notes"] == [
             "No stay found meets your minimum rating of 4.95. Lowering it, or another search, would unblock the plan."]
         assert any(r["categories"] == ["STAY"] for r in research.requests[1:]), "targeted searches look for other stays"
-        [event] = backend.shared_report()["events"]
+        [event] = [e for e in backend.shared_report()["events"] if e["kind"] == "NO_FEASIBLE_PLAN"]
         assert "No stay found meets the group's minimum rating." in event["payload"]["text"]
     assert_room_safe(backend)
 
@@ -298,3 +298,17 @@ def test_a_vague_objection_becomes_one_question_to_the_owner_not_endless_researc
     assert len(research.requests) == 1, "no research a search can't act on"
     assert settle(backend, worker, {"p3": answer})["outcome"] == outcome
     assert not any(m["type"] == "CLARIFY" for m in backend.shared_report()["messages"])
+
+
+def test_declined_fare_survives_another_owners_permission_generation(setup_worker):
+    from tandem_worker.fixtures import scenario_inputs
+
+    _, briefs = scenario_inputs("concession-declined")
+    briefs[0] = briefs[0].model_copy(update={"preferences": briefs[0].preferences.model_copy(update={"ask_me_first": True})})
+    backend, worker, job, *_ = setup_worker("concession-declined", briefs=briefs)
+    assert worker.run_one(job)["outcome"] == "WAITING_FOR_INPUT"
+    answer_all(backend, "p4", False)
+    assert worker.reconcile()[0]["outcome"] == "WAITING_FOR_INPUT"
+    answer_all(backend, "p1", True)  # permission change starts a fresh graph
+    assert worker.reconcile()[0]["outcome"] == "AWAITING_REVIEW"
+    assert selected(backend) == ["p1-late", "p2-late", "p3-late", "p4-redeye"]

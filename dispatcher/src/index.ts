@@ -7,14 +7,17 @@
 //   STDB_URL         SpacetimeDB host (default http://127.0.0.1:3000)
 //   STDB_DB          database name (default tandem-dev)
 //   STDB_TOKEN       long-lived token of an identity registered with add_worker
+//   WORKER_WAKE_TOKEN shared private secret for the worker endpoint
 //   WORKER_WAKE_URL  optional; POST {"job_id", "room_id", "kind"} here per job
 
 import { DbConnection } from './module_bindings';
 
 const STDB_URL = process.env.STDB_URL ?? 'http://127.0.0.1:3000';
 const STDB_DB = process.env.STDB_DB ?? 'tandem-dev';
-const STDB_TOKEN = process.env.STDB_TOKEN;
+// Local development shares the root private env file with the Python worker.
+const STDB_TOKEN = process.env.STDB_TOKEN ?? process.env.STDB_WORKER_TOKEN;
 const WORKER_WAKE_URL = process.env.WORKER_WAKE_URL;
+const WORKER_WAKE_TOKEN = process.env.WORKER_WAKE_TOKEN;
 
 type PendingJob = { id: bigint; roomId: bigint; kind: string };
 
@@ -27,10 +30,11 @@ async function wake(job: PendingJob): Promise<void> {
   try {
     const res = await fetch(WORKER_WAKE_URL, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(WORKER_WAKE_TOKEN ? { authorization: `Bearer ${WORKER_WAKE_TOKEN}` } : {}) },
+      signal: AbortSignal.timeout(5000),
       body: JSON.stringify(body),
     });
-    console.log(`[dispatcher] woke worker for job ${body.job_id}: HTTP ${res.status}`);
+    console.log(`[dispatcher] woke worker for job ${body.job_id} (${body.kind}): HTTP ${res.status}`);
   } catch (err) {
     // The worker's reconciliation scan picks the job up later.
     console.warn(`[dispatcher] wake for job ${body.job_id} failed: ${(err as Error).message}`);

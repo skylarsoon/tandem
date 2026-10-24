@@ -275,3 +275,19 @@ All 22 views are per-caller and update live.
 - live Claude and Apify runs
 - leaving a room
 - a real auth provider
+
+### Worker receiver (implemented)
+
+`tandem-worker serve --config live.json --env-file ../.env.local --state-dir ... --room N`
+provides authenticated `POST /wake` (default localhost:8080). The dispatcher sends
+its existing `{job_id, room_id, kind}` payload plus `Authorization: Bearer <WORKER_WAKE_TOKEN>`.
+The secret is shared privately between these two services; it never reaches the
+frontend. A hint only wakes the worker's authoritative DB scan. Invalid auth,
+room or payload cannot run work. Unsupported job kinds are ignored.
+
+The receiver also scans at startup and every five seconds without notifications.
+Both paths use the same runner, transactional claims, independent heartbeats,
+checkpoints and durable spending limits. A two-second quiet window coalesces input
+writes; pending human consent is never changed by time. The browser directly
+writes authorized backend inputs/answers and subscribes to progress; it does not
+launch Python or maintain another execution queue.

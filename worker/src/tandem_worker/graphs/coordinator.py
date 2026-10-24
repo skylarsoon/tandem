@@ -7,6 +7,7 @@ from langgraph.types import interrupt
 
 from ..contracts import Act, Candidate, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
+from ..progress import activity, report as progress
 from ..solver import RELAXABLE, relax_ref, relaxed
 from .personal import build_personal, question_for, send_message
 
@@ -128,17 +129,26 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
     def solve(state):
         snapshot = current()
         excluded = set(state.get("excluded", ()))
-        candidates = [Candidate.model_validate(c) for c in state["candidates"] if c["valid_until"] > clock.now() and c["id"] not in excluded]
         briefs = briefs_for(snapshot)
         relaxations = digest([b.model_dump(mode="json") for b in briefs])[:12]
-        key = f"solve:{state['round']}:{len(excluded)}:{relaxations}"
-        request = {"snapshot": claim.snapshot_ref, "candidates": digest(candidates_data(candidates)), "briefs": relaxations}
-        raw = backend.operation(claim, key, request, "local", lambda: solver.solve(snapshot, briefs, candidates))
-        result = SolverResult.model_validate(raw)
-        draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
+        # A different owner's grant can restart the graph. Reapply recorded
+        # refusals to that same draft instead of asking the first person again.
+        while True:
+            candidates = [Candidate.model_validate(c) for c in state["candidates"]
+                          if c["valid_until"] > clock.now() and c["id"] not in excluded]
+            key = f"solve:{state['round']}:{len(excluded)}:{relaxations}"
+            request = {"snapshot": claim.snapshot_ref, "candidates": digest(candidates_data(candidates)), "briefs": relaxations}
+            raw = backend.operation(claim, key, request, "local", lambda: solver.solve(snapshot, briefs, candidates))
+            result = SolverResult.model_validate(raw)
+            draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
+            declined = set(backend.declined_concession_owners(claim, draft)) if result.selected else set()
+            refused = {c.id for c in candidates if c.id in result.selected and c.owner in declined}
+            if not refused:
+                break
+            excluded.update(refused)
         outcome = "" if result.status in {"OPTIMAL", "FEASIBLE", "INFEASIBLE"} else result.status
         update = {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome,
-                  "solve_key": key, "solve_request": request, "resolve": False, "group_window": []}
+                  "solve_key": key, "solve_request": request, "resolve": False, "group_window": [], "excluded": sorted(excluded)}
         if result.group:
             zone = next(c.arrival_timezone for c in candidates if c.id == result.selected[0])
             update["group_window"] = [result.group.earliest_arrival, result.group.latest_arrival, zone]
@@ -221,6 +231,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
     def await_owner(state):
         # No side effects before interrupt. Resume data is only a wake-up signal;
         # all decisions are loaded from authoritative question records below.
+        progress(backend, claim, "AGENTS", "PAUSED", round=state.get("round", 0), cycle=state.get("cycle", 0))
+        activity(backend, claim, "mediator", "WAITING_FOR_OWNER")
         interrupt({"question_refs": state["questions"]})
         current()
         questions = [backend.get_question(claim, q) for q in state["questions"]]
@@ -254,6 +266,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             return {"outcome": "EXPLORATORY_ONLY" if evidence_only else "VALIDATION_FAILED", "validation_checks": list(report.checks)}
         result = solution(state)
         zone = state["group_window"][2] if state.get("group_window") else None
+        progress(backend, claim, "VALIDATE", "COMPLETED", round=state["round"], cycle=state["cycle"])
+        progress(backend, claim, "PUBLISH", "STARTED", round=state["round"], cycle=state["cycle"])
+        activity(backend, claim, "mediator", "WRITING")
         ref = backend.publish_proposal(claim, tuple(state["selected"]), candidates, report, "publish",
             explanation(result.group, result.impacts, zone, candidates) if result.group else None)
         return {"proposal_ref": ref, "outcome": "AWAITING_REVIEW"}
@@ -288,11 +303,29 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             return "next_round" if state["round"] + 1 < limits.rounds else "exhausted"
         return "validate_publish"
 
+    def observed(name, fn):
+        stages = {"load_snapshot": ("LOAD", "CHECKING"), "discover": ("RESEARCH", "SEARCHING"),
+                  "solve": ("SOLVE", "CHECKING"), "dialogue": ("AGENTS", "THINKING"),
+                  "validate_publish": ("VALIDATE", "CHECKING")}
+        if name not in stages:
+            return fn
+        stage, value = stages[name]
+        def call(state):
+            stamp = dict(round=state.get("round", 0), cycle=state.get("cycle", 0), draft_ref=state.get("draft_ref", ""),
+                         step_ref=digest([name, state.get("round", 0), state.get("cycle", 0), state.get("selected", []), state.get("excluded", [])])[:20])
+            activity(backend, claim, "mediator", value)
+            progress(backend, claim, stage, "STARTED", **stamp)
+            result = fn(state)
+            if name != "validate_publish":
+                progress(backend, claim, stage, "COMPLETED", **{**stamp, "draft_ref": result.get("draft_ref", stamp["draft_ref"])})
+            return result
+        return call
+
     builder = StateGraph(CoordinatorState)
     for name, fn in [("load_snapshot", load), ("discover", discover), ("solve", solve), ("dialogue", dialogue),
                      ("await_owner", await_owner), ("next_round", next_round), ("validate_publish", validate_publish),
                      ("exhausted", exhausted)]:
-        builder.add_node(name, fn)
+        builder.add_node(name, observed(name, fn))
     builder.add_edge(START, "load_snapshot")
     builder.add_conditional_edges("load_snapshot", lambda s: "await_owner" if s["questions"] else "discover")
     builder.add_edge("discover", "solve")

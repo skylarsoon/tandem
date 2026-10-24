@@ -278,6 +278,13 @@ class LocalBackend:
             self._checked(state, claim)
             return self._has_grant(state, owner, kind, action_ref)
 
+    def declined_concession_owners(self, claim, draft_ref):
+        with self._tx() as state:
+            self._checked(state, claim)
+            revisions = [state["snapshot"]["input_revision"], state["snapshot"]["membership_revision"]]
+            return tuple(owner for owner in state["snapshot"]["members"]
+                if state.get("refusals", {}).get(f"{owner}:{draft_ref}") == revisions)
+
     def answer_question(self, owner, question_id, version, answer, request_key):
         if not isinstance(answer, bool):
             raise ContractError("INVALID_ANSWER")
@@ -295,6 +302,9 @@ class LocalBackend:
             if question["answer"] is not None:
                 raise ContractError("ALREADY_ANSWERED")
             question["answer"] = answer
+            if not answer and question["kind"] == "CONSULTATION":
+                state.setdefault("refusals", {})[f"{owner}:{question['action_ref']}"] = [
+                    state["snapshot"]["input_revision"], state["snapshot"]["membership_revision"]]
             # Disclosure/consultation answers are action grants. They invalidate
             # old execution authority, never create final proposal consent.
             if answer and question["kind"] in {"DISCLOSURE", "CONSULTATION", "EXPLORE", "PARTICIPATION"}:
@@ -381,6 +391,13 @@ class LocalBackend:
             if owner not in state["snapshot"]["members"]:
                 raise ContractError("NOT_AUTHORIZED")
             state["notes"].setdefault(owner, {})[f"{claim.generation}:{key}"] = text
+
+    def set_agent_activity(self, claim, owner, activity):
+        with self._tx() as state:
+            self._checked(state, claim)
+            if owner != "mediator" and owner not in state["snapshot"]["members"]:
+                raise ContractError("NOT_AUTHORIZED")
+            state.setdefault("activities", {})[owner] = activity
 
     def room_event(self, claim, kind, payload, key):
         with self._tx() as state:

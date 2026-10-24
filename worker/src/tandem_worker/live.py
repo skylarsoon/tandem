@@ -288,6 +288,45 @@ def _room_report(backend, room_id):
             "consent_count": sum(c["accepted"] for c in counts)}
 
 
+def bind_room(directory, room_id):
+    """Do not let --room silently repurpose a directory's provider budgets/receipts."""
+    path = Path(directory) / "app-room.json"
+    value = {"room_id": str(room_id)}
+    if path.exists():
+        if json.loads(path.read_text()) != value:
+            raise ContractError("LIVE_STATE_ROOM_MISMATCH")
+        return
+    try:
+        with path.open("x") as handle:
+            json.dump(value, handle)
+    except FileExistsError:
+        if json.loads(path.read_text()) != value:
+            raise ContractError("LIVE_STATE_ROOM_MISMATCH") from None
+
+
+def validate_app_room(config, context):
+    """Check operator search configuration against authoritative membership, before providers."""
+    names = [m["display_name"] for m in context["members"] if m["active"]]
+    if len(names) != len(set(names)) or "mediator" in names:
+        raise ContractError("ROOM_DISPLAY_NAMES_NOT_UNIQUE")
+    expected = {b.owner for b in config.briefs}
+    if set(names) != expected or {s.owner for s in config.searches} != expected or len(config.searches) != len(names):
+        raise ContractError("ROOM_CONFIG_MEMBER_MISMATCH")
+    settings = context["room"].get("settings") or {}
+    components = {"FLIGHT"}
+    if config.trip and config.trip.stay:
+        components.add("STAY")
+    if config.trip and config.trip.transfer:
+        components.add("TRANSFER")
+    if set(settings.get("components", ["FLIGHT"])) != components:
+        raise ContractError("ROOM_CONFIG_COMPONENT_MISMATCH")
+    if any(not m["participation_preferences"]["confirmed"] for m in context["members"] if m["active"]):
+        raise ContractError("ROOM_PARTICIPATION_NOT_CONFIRMED")
+    flight_inputs = {c["member_id"] for c in context.get("constraints", []) if c["key"] == "flight_budget_total"}
+    if any(m["member_id"] not in flight_inputs for m in context["members"] if m["active"]):
+        raise ContractError("ROOM_CONSTRAINTS_NOT_CONFIRMED")
+
+
 def run_live(config, settings, directory, *, room_id=None, clock=None, claude_client=None, apify_client=None):
     """Run the worker with live Claude and Apify against SpacetimeDB. Plans the
     newest pending job of the seeded room (see seed_live_room) or of `room_id`."""
@@ -302,6 +341,7 @@ def run_live(config, settings, directory, *, room_id=None, clock=None, claude_cl
     # config.limits.actor_runs in the provider budget (one per flight + one per shared search).
     limits = Limits(model_calls=config.limits.model_calls)
     backend, room_id = _spacetime(settings, directory, clock, limits, room_id)
+    bind_room(directory, room_id)
     jobs = backend.pending_jobs()
     if not jobs:
         return {"mode": "LIVE_PROVIDERS", "backend": "SPACETIMEDB", "room_id": room_id,
@@ -313,9 +353,13 @@ def run_live(config, settings, directory, *, room_id=None, clock=None, claude_cl
         members=tuple(b.owner for b in config.briefs))
     providers = make_providers(config.model_copy(update={"room_id": str(room_id)}), settings, directory, clock=clock,
         claude_client=claude_client, apify_client=apify_client, snapshot=snapshot)
-    providers.preflight()
+    def before_run(claim):
+        context = backend._context(claim)
+        validate_app_room(config, context)
+        providers.preflight()
+
     worker = Worker(backend, providers.model, providers.research, directory / "checkpoints.sqlite", clock=clock, limits=limits,
-                    worker_id="live-worker-" + uuid.uuid4().hex[:8])
+                    worker_id="live-worker-" + uuid.uuid4().hex[:8], before_run=before_run)
     result = worker.run_one(str(job["id"]))
     return {"mode": "LIVE_PROVIDERS", "room_id": room_id, "result": result, "report": _room_report(backend, room_id),
             **providers.report(backend="SPACETIMEDB")}

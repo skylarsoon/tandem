@@ -87,6 +87,15 @@ def _main():
     run.add_argument("--env-file", type=Path, default=Path(".env"))
     run.add_argument("--state-dir", type=Path, required=True)
     run.add_argument("--room", type=int, help="Plan an existing app room instead of the room seeded in --state-dir")
+    service = sub.add_parser("serve", help="Persistent live worker: subscription wake endpoint plus polling fallback")
+    service.add_argument("--config", type=Path, required=True)
+    service.add_argument("--env-file", type=Path, default=Path(".env"))
+    service.add_argument("--state-dir", type=Path, required=True)
+    service.add_argument("--room", type=int, required=True)
+    service.add_argument("--host", default="127.0.0.1")
+    service.add_argument("--port", type=int, default=8080)
+    service.add_argument("--poll-interval", type=float, default=5)
+    service.add_argument("--settle-seconds", type=float, default=2)
     live_room = sub.add_parser("live-room", help="Seeded SpacetimeDB room for live demos without the frontend")
     room_actions = live_room.add_subparsers(dest="room_action", required=True)
     for name in ("seed", "questions", "answer"):
@@ -102,6 +111,12 @@ def _main():
             command_parser.add_argument("--version", type=int, default=1)
             command_parser.add_argument("--response", choices=["yes", "no"], required=True)
     args = parser.parse_args()
+    if args.command == "serve":
+        from .config import load_config, load_settings
+        from .service import serve
+        serve(load_config(args.config), load_settings(args.env_file), args.state_dir, args.room,
+              host=args.host, port=args.port, poll_interval=args.poll_interval, settle_seconds=args.settle_seconds)
+        return
     if args.command == "live-room":
         from .config import load_config, load_settings
         from .live import live_answer, live_questions, seed_live_room

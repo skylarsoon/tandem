@@ -347,6 +347,14 @@ class SpacetimeBackend:
             g["member_id"] == member["member_id"] and g["kind"] == KINDS[kind] and g["action_ref"] == action_ref and g["granted"]
             for g in ctx["grants"])
 
+    def declined_concession_owners(self, claim, draft_ref):
+        ctx = self._context(claim)
+        owners = {m["member_id"]: name for name, m in self._members(ctx).items()}
+        # Context already filters grants to the current input/membership revisions.
+        return tuple(sorted({owners[g["member_id"]] for g in ctx["grants"]
+            if g["member_id"] in owners and g["kind"] == KINDS["CONSULTATION"]
+            and g["action_ref"] == draft_ref and g["granted"] is False}))
+
     def answer_question(self, owner, question_id, version, answer, request_key):
         """Answers as the owner (fixtures/demos). Requires their token."""
         if not isinstance(answer, bool):
@@ -478,6 +486,11 @@ class SpacetimeBackend:
             raise ContractError("NOT_AUTHORIZED")
         self.http.call(self.token, "reply_to_owner", request_key=f"job{claim.generation}:note:{key}",
             member_id=member["member_id"], body=text, **self._attempt(claim))
+
+    def set_agent_activity(self, claim, owner, activity):
+        ctx = self._context(claim)
+        self.http.call(self.token, "set_agent_activity", agent_id=self._agent(ctx, owner),
+                       activity=activity, thread_id=None, **self._attempt(claim))
 
     def room_event(self, claim, kind, payload, key):
         self.http.call(self.token, "emit_event", request_key=f"job{claim.generation}:event:{key}",

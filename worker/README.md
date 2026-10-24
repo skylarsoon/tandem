@@ -264,3 +264,37 @@ SpacetimeDB security. Real backend integration, subscription dispatcher, human
 consent/UI checks, full solver policy and credentialed live provider validation remain team
 integration gates beyond the one-person smoke scenario above. No placeholder
 tests claim those broader gates passed.
+
+## Persistent worker service and subscription wake-ups
+
+The production trigger path is SpacetimeDB -> TypeScript dispatcher -> Python
+`POST /wake`. The same service scans at startup and polls as a fallback; there is
+no separate Next.js worker launcher or controller queue.
+
+```bash
+.venv/bin/tandem-worker serve --config live.json --env-file ../.env.local \
+  --state-dir ./live-state/browser-demo --room <room-id> --port 8080
+```
+
+Add `WORKER_WAKE_TOKEN` privately to the worker environment. Export the same value
+for the dispatcher, together with `WORKER_WAKE_URL=http://127.0.0.1:8080/wake` and
+its existing STDB_URL / STDB_DB / registered STDB_TOKEN. See dispatcher/.env.example.
+The endpoint returns 202 for valid PLAN hints; hints neither claim nor execute a
+job directly. Unauthorized requests receive 403, other rooms 404, malformed
+requests 400, and unsupported job kinds are ignored. `GET /health` is a small
+liveness check, not an execution or approval API.
+
+Defaults: localhost:8080, fallback scan every 5 seconds, a 2-second input settling
+window, one synchronous execution, and one service process per state directory
+(Unix/macOS file lock). Flags: --host, --port, --poll-interval, --settle-seconds.
+Both notification and polling paths re-read the durable queue and use existing
+transactional claims, leases, checkpoints and provider budgets. Incoming job IDs
+are hints only. Keep the same directory on restart; do not run the one-shot live
+command concurrently with this service. Plain owner answers resume eligible work
+automatically. Configuration/permission changes start new generations as before.
+
+Starting serve enables paid execution for eligible jobs in the configured room.
+Every active member needs confirmed participation settings and a flight-budget
+input before provider preflight; the operator config cannot supply missing owner
+authority. Future dates, matching owner names/searches and trip components, pinned
+Actors and existing durable limits still apply. INTERPRET jobs remain unsupported.

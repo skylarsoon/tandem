@@ -90,6 +90,7 @@ class Settings(Record):
     stdb_url: str | None = None
     stdb_database: str | None = None
     stdb_worker_token: SecretStr | None = None
+    worker_wake_token: SecretStr | None = None
 
     def missing(self):
         return [name for name, value in (("ANTHROPIC_API_KEY", self.anthropic_api_key), ("CLAUDE_MODEL", self.claude_model), ("APIFY_TOKEN", self.apify_token)) if not value]
@@ -132,7 +133,7 @@ def load_settings(env_file: str | Path = ".env"):
         claude_model=setting("CLAUDE_MODEL"), apify_token=setting("APIFY_TOKEN", "APIFY_API_KEY"),
         apify_actor_build=setting("APIFY_ACTOR_BUILD") or ACTOR_BUILD,
         stdb_url=setting("STDB_URL"), stdb_database=setting("STDB_DB", "STDB_DATABASE"),
-        stdb_worker_token=setting("STDB_WORKER_TOKEN"))
+        stdb_worker_token=setting("STDB_WORKER_TOKEN"), worker_wake_token=setting("WORKER_WAKE_TOKEN"))
 
 
 def load_config(path):
