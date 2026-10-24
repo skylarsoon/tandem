@@ -7,4 +7,5 @@ export * from './questions';
 export * from './jobs';
 export * from './dialogue';
 export * from './proposals';
+export * from './live';
 export * from './views';

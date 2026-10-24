@@ -1,3 +1,5 @@
+import { ScheduleAt } from 'spacetimedb';
+import type { Identity } from 'spacetimedb';
 import {
   type Ctx,
   HARDNESS,
@@ -145,4 +147,20 @@ export function recomputeAgreement(ctx: Ctx, proposalId: bigint): void {
     version: p.version,
     stage: p.stage,
   });
+}
+
+// Reviewers who confirmed "give me time" never get reminders; everyone else
+// gets one private nudge after the configured delay if still pending.
+export function scheduleReviewReminders(ctx: Ctx, proposalId: bigint, reviewers: Identity[]): void {
+  const delay = BigInt(ctx.db.config.id.find(0)?.reminderDelaySeconds ?? 600) * 1_000_000n;
+  for (const member of reviewers) {
+    const prefs = ctx.db.participationPreferences.owner.find(member);
+    if (!prefs || !prefs.confirmed || prefs.giveMeTime) continue;
+    ctx.db.reviewReminder.insert({
+      scheduledId: 0n,
+      scheduledAt: ScheduleAt.time(ctx.timestamp.microsSinceUnixEpoch + delay),
+      proposalId,
+      member,
+    });
+  }
 }

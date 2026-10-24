@@ -53,7 +53,9 @@ import RejectConstraintPatchReducer from "./reject_constraint_patch_reducer";
 import RenewLeaseReducer from "./renew_lease_reducer";
 import ReplyToOwnerReducer from "./reply_to_owner_reducer";
 import RespondToProposalReducer from "./respond_to_proposal_reducer";
+import SetAgentActivityReducer from "./set_agent_activity_reducer";
 import SetConstraintReducer from "./set_constraint_reducer";
+import SetReminderDelayReducer from "./set_reminder_delay_reducer";
 import SubmitAgentMessageReducer from "./submit_agent_message_reducer";
 import SubmitPrivateMessageReducer from "./submit_private_message_reducer";
 import UpsertProfileReducer from "./upsert_profile_reducer";
@@ -75,6 +77,7 @@ import MyProfileRow from "./my_profile_table";
 import MyProposalImpactsRow from "./my_proposal_impacts_table";
 import MyQuestionsRow from "./my_questions_table";
 import MyRoomsRow from "./my_rooms_table";
+import RoomAgentActivityRow from "./room_agent_activity_table";
 import RoomAgentsRow from "./room_agents_table";
 import RoomCandidatesRow from "./room_candidates_table";
 import RoomConsentCountsRow from "./room_consent_counts_table";
@@ -82,6 +85,7 @@ import RoomEventsRow from "./room_events_table";
 import RoomMembersRow from "./room_members_table";
 import RoomMessagesRow from "./room_messages_table";
 import RoomMilestonesRow from "./room_milestones_table";
+import RoomPresenceRow from "./room_presence_table";
 import RoomProposalsRow from "./room_proposals_table";
 import RoomThreadsRow from "./room_threads_table";
 import WorkerPendingJobsRow from "./worker_pending_jobs_table";
@@ -160,6 +164,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyRoomsRow),
+  roomAgentActivity: __table({
+    name: 'room_agent_activity',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, RoomAgentActivityRow),
   roomAgents: __table({
     name: 'room_agents',
     indexes: [
@@ -209,6 +220,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, RoomMilestonesRow),
+  roomPresence: __table({
+    name: 'room_presence',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, RoomPresenceRow),
   roomProposals: __table({
     name: 'room_proposals',
     indexes: [
@@ -253,7 +271,9 @@ const reducersSchema = __reducers(
   __reducerSchema("renew_lease", RenewLeaseReducer),
   __reducerSchema("reply_to_owner", ReplyToOwnerReducer),
   __reducerSchema("respond_to_proposal", RespondToProposalReducer),
+  __reducerSchema("set_agent_activity", SetAgentActivityReducer),
   __reducerSchema("set_constraint", SetConstraintReducer),
+  __reducerSchema("set_reminder_delay", SetReminderDelayReducer),
   __reducerSchema("submit_agent_message", SubmitAgentMessageReducer),
   __reducerSchema("submit_private_message", SubmitPrivateMessageReducer),
   __reducerSchema("upsert_profile", UpsertProfileReducer),

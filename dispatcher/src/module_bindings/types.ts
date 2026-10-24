@@ -24,6 +24,15 @@ export const ActionGrant = __t.object("ActionGrant", {
 });
 export type ActionGrant = __Infer<typeof ActionGrant>;
 
+export const ActivityRow = __t.object("ActivityRow", {
+  agentId: __t.u64(),
+  roomId: __t.u64(),
+  activity: __t.string(),
+  threadId: __t.option(__t.u64()),
+  updatedAt: __t.timestamp(),
+});
+export type ActivityRow = __Infer<typeof ActivityRow>;
+
 export const Agent = __t.object("Agent", {
   id: __t.u64(),
   roomId: __t.u64(),
@@ -64,6 +73,16 @@ export const AgentMessage = __t.object("AgentMessage", {
   createdAt: __t.timestamp(),
 });
 export type AgentMessage = __Infer<typeof AgentMessage>;
+
+export const AgentStatus = __t.object("AgentStatus", {
+  agentId: __t.u64(),
+  roomId: __t.u64(),
+  jobId: __t.u64(),
+  activity: __t.string(),
+  threadId: __t.option(__t.u64()),
+  updatedAt: __t.timestamp(),
+});
+export type AgentStatus = __Infer<typeof AgentStatus>;
 
 export const Candidate = __t.object("Candidate", {
   id: __t.u64(),
@@ -123,6 +142,7 @@ export type CommandReceipt = __Infer<typeof CommandReceipt>;
 export const Config = __t.object("Config", {
   id: __t.u32(),
   owner: __t.identity(),
+  reminderDelaySeconds: __t.u32(),
 });
 export type Config = __Infer<typeof Config>;
 
@@ -351,6 +371,22 @@ export const ParticipationPreferences = __t.object("ParticipationPreferences", {
 });
 export type ParticipationPreferences = __Infer<typeof ParticipationPreferences>;
 
+export const Presence = __t.object("Presence", {
+  identity: __t.identity(),
+  connections: __t.u32(),
+  online: __t.bool(),
+  lastSeen: __t.timestamp(),
+});
+export type Presence = __Infer<typeof Presence>;
+
+export const PresenceRow = __t.object("PresenceRow", {
+  membershipId: __t.u64(),
+  roomId: __t.u64(),
+  online: __t.bool(),
+  lastSeen: __t.option(__t.timestamp()),
+});
+export type PresenceRow = __Infer<typeof PresenceRow>;
+
 export const PrivateMessage = __t.object("PrivateMessage", {
   id: __t.u64(),
   roomId: __t.u64(),
@@ -430,6 +466,14 @@ export const Question = __t.object("Question", {
 });
 export type Question = __Infer<typeof Question>;
 
+export const ReviewReminder = __t.object("ReviewReminder", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  proposalId: __t.u64(),
+  member: __t.identity(),
+});
+export type ReviewReminder = __Infer<typeof ReviewReminder>;
+
 export const Room = __t.object("Room", {
   id: __t.u64(),
   goal: __t.string(),
@@ -442,6 +486,9 @@ export const Room = __t.object("Room", {
   createdAt: __t.timestamp(),
 });
 export type Room = __Infer<typeof Room>;
+
+export const RoomAgentActivity = __t.object("RoomAgentActivity", {});
+export type RoomAgentActivity = __Infer<typeof RoomAgentActivity>;
 
 export const RoomAgents = __t.object("RoomAgents", {});
 export type RoomAgents = __Infer<typeof RoomAgents>;
@@ -463,6 +510,9 @@ export type RoomMessages = __Infer<typeof RoomMessages>;
 
 export const RoomMilestones = __t.object("RoomMilestones", {});
 export type RoomMilestones = __Infer<typeof RoomMilestones>;
+
+export const RoomPresence = __t.object("RoomPresence", {});
+export type RoomPresence = __Infer<typeof RoomPresence>;
 
 export const RoomProposals = __t.object("RoomProposals", {});
 export type RoomProposals = __Infer<typeof RoomProposals>;

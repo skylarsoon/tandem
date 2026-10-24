@@ -15,6 +15,7 @@ const config = table(
   {
     id: t.u32().primaryKey(),
     owner: t.identity(),
+    reminderDelaySeconds: t.u32(),
   }
 );
 
@@ -102,6 +103,44 @@ const participationPreferences = table(
     confirmedAt: t.option(t.timestamp()),
     proposedBy: t.string(),
     revision: t.u64(),
+  }
+);
+
+// ---------- Live presence and activity ----------
+
+// One row per human identity; `connections` counts open tabs/devices.
+const presence = table(
+  { name: 'presence' },
+  {
+    identity: t.identity().primaryKey(),
+    connections: t.u32(),
+    online: t.bool(),
+    lastSeen: t.timestamp(),
+  }
+);
+
+// What each agent is doing right now, set by the worker under its lease.
+// A normal private table (not an event table) so a per-room view can filter it.
+const agentStatus = table(
+  { name: 'agent_status' },
+  {
+    agentId: t.u64().primaryKey(),
+    roomId: t.u64().index('btree'),
+    jobId: t.u64(),
+    activity: t.string(),
+    threadId: t.option(t.u64()),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// Scheduled nudges for reviewers who did not ask for time.
+export const reviewReminder = table(
+  { name: 'review_reminder' },
+  {
+    scheduledId: t.u64().primaryKey().autoInc(),
+    scheduledAt: t.scheduleAt(),
+    proposalId: t.u64(),
+    member: t.identity(),
   }
 );
 
@@ -470,6 +509,9 @@ const spacetimedb = schema({
   agent,
   profile,
   participationPreferences,
+  presence,
+  agentStatus,
+  reviewReminder,
   participantConstraint,
   constraintPatch,
   privateMessage,

@@ -12,6 +12,7 @@ import {
 } from './guards';
 import { applyParticipationPreferences } from './effects';
 
+const DEFAULT_REMINDER_DELAY_SECONDS = 600;
 const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const INVITE_LENGTH = 8;
 
@@ -68,7 +69,7 @@ function addMember(ctx: Ctx, roomId: bigint, displayName: string, role: string):
 }
 
 export const init = spacetimedb.init(ctx => {
-  ctx.db.config.insert({ id: 0, owner: ctx.sender });
+  ctx.db.config.insert({ id: 0, owner: ctx.sender, reminderDelaySeconds: DEFAULT_REMINDER_DELAY_SECONDS });
 });
 
 // Owner-only: allowlist the worker and dispatcher service identities.

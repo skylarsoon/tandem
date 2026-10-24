@@ -96,6 +96,21 @@ const ImpactRow = t.row('ImpactRow', {
   impactJson: t.string(),
 });
 
+const PresenceRow = t.row('PresenceRow', {
+  membershipId: t.u64().primaryKey(),
+  roomId: t.u64(),
+  online: t.bool(),
+  lastSeen: t.option(t.timestamp()),
+});
+
+const ActivityRow = t.row('ActivityRow', {
+  agentId: t.u64().primaryKey(),
+  roomId: t.u64(),
+  activity: t.string(),
+  threadId: t.option(t.u64()),
+  updatedAt: t.timestamp(),
+});
+
 export const myRooms = spacetimedb.view({ name: 'my_rooms', public: true }, t.array(room.rowType), ctx =>
   myRoomIds(ctx.db, ctx.sender).flatMap(id => {
     const r = ctx.db.room.id.find(id);
@@ -292,6 +307,38 @@ export const roomCandidates = spacetimedb.view({ name: 'room_candidates', public
 
 export const roomMilestones = spacetimedb.view({ name: 'room_milestones', public: true }, t.array(milestone.rowType), ctx =>
   myRoomIds(ctx.db, ctx.sender).flatMap(roomId => [...ctx.db.milestone.byRoomStage.filter(roomId)])
+);
+
+// Who in my rooms has the app open right now (green dots).
+export const roomPresence = spacetimedb.view({ name: 'room_presence', public: true }, t.array(PresenceRow), ctx =>
+  myRoomIds(ctx.db, ctx.sender).flatMap(roomId =>
+    [...ctx.db.membership.byRoomMember.filter(roomId)]
+      .filter(m => m.active)
+      .map(m => {
+        const p = ctx.db.presence.identity.find(m.member);
+        return { membershipId: m.id, roomId, online: p?.online ?? false, lastSeen: p?.lastSeen };
+      })
+  )
+);
+
+// What each agent in my rooms is doing. Anything from a job that is no longer
+// running shows as IDLE, so a crashed worker never leaves agents "thinking".
+export const roomAgentActivity = spacetimedb.view(
+  { name: 'room_agent_activity', public: true },
+  t.array(ActivityRow),
+  ctx =>
+    myRoomIds(ctx.db, ctx.sender).flatMap(roomId =>
+      [...ctx.db.agentStatus.roomId.filter(roomId)].map(a => {
+        const live = ctx.db.job.id.find(a.jobId)?.status === 'CLAIMED';
+        return {
+          agentId: a.agentId,
+          roomId: a.roomId,
+          activity: live ? a.activity : 'IDLE',
+          threadId: live ? a.threadId : undefined,
+          updatedAt: a.updatedAt,
+        };
+      })
+    )
 );
 
 // Only allowlisted worker/dispatcher identities see anything here.

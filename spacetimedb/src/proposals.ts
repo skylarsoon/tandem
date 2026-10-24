@@ -21,7 +21,7 @@ import {
   setMilestone,
   withReceipt,
 } from './guards';
-import { messageOwnAgent, recomputeAgreement } from './effects';
+import { messageOwnAgent, recomputeAgreement, scheduleReviewReminders } from './effects';
 
 const ImpactInput = t.object('ImpactInput', { memberId: t.u64(), impactJson: t.string() });
 
@@ -122,6 +122,7 @@ export const publishProposal = spacetimedb.procedure(
               updatedAt: tx.timestamp,
             });
           }
+          scheduleReviewReminders(tx, p.id, affected);
           setMilestone(tx, r.id, args.stage, 'IN_REVIEW', p.id);
           tx.db.job.id.update({
             ...j,
