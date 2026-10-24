@@ -21,6 +21,12 @@ spacetime.local.json
 # Worker checkpoints and local data
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+.pytest_cache/
+*.egg-info/
 
 # OS / editor
 .DS_Store
