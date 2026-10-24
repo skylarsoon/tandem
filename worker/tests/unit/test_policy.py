@@ -89,3 +89,9 @@ def test_candidate_facts_cite_typed_evidence_fields():
 def test_objections_name_the_kind_of_requirement_never_its_value(act, blocker, sentence):
     facts = permitted_facts(act, Payload(draft_ref="d", evaluation="INELIGIBLE", blocker=blocker))
     assert facts == {f"act:{act.value}": sentence}
+
+
+def test_connectors_read_naturally_without_changing_cited_facts():
+    facts = {"act:EVALUATE": "This works.", "x#price": "The fare is $1.00 including taxes."}
+    draft = VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k, text=v) for k, v in facts.items()), connector=" Also, ")
+    assert validate_voice(draft, facts)[0] == "This works. Also, the fare is $1.00 including taxes."

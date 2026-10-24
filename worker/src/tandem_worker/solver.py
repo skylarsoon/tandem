@@ -45,15 +45,16 @@ def closest_spread(options_by_owner):
     return best
 
 
-def bedrooms_needed(briefs):
-    """Own-room travellers get one each; everyone else shares two to a room."""
+def bedrooms_needed(briefs, per_room=2):
+    """Own-room travellers get one each; everyone else shares `per_room` to a
+    room (the room's people_per_bedroom setting)."""
     own = sum(1 for b in briefs if b.own_bedroom)
-    return own + -(-(len(briefs) - own) // 2)
+    return own + -(-(len(briefs) - own) // per_room)
 
 
-def stay_filters(briefs, relax=()):
+def stay_filters(briefs, relax=(), per_room=2):
     """Room requirements in the order they're explained; `relax` drops some."""
-    n, rooms = len(briefs), bedrooms_needed(briefs) if "BEDROOMS" not in relax else 0
+    n, rooms = len(briefs), bedrooms_needed(briefs, per_room) if "BEDROOMS" not in relax else 0
     rating = max((b.stay_min_rating for b in briefs if b.stay_min_rating is not None), default=None)
     if "RATING" in relax:
         rating = None
@@ -80,7 +81,7 @@ class TripSolver:
         shared, shared_conflicts = {}, []
         if "STAY" in snapshot.components:
             stays = [c for c in priced if c.category == "STAY"]
-            for requirement, ok in stay_filters(briefs):
+            for requirement, ok in stay_filters(briefs, per_room=snapshot.people_per_bedroom):
                 if not stays:
                     break
                 fits = [c for c in stays if ok(c)]
@@ -103,7 +104,7 @@ class TripSolver:
         alone = {o: n * min(c.total_cents for c in flights[o]) + min_shared for o in members}
         over = [o for o in members if by_owner[o].trip_cap_cents is not None and alone[o] > n * by_owner[o].trip_cap_cents]
         if over:
-            cause = self._requirement_cause(over, by_owner, briefs, flights, shared, priced, n)
+            cause = self._requirement_cause(over, by_owner, briefs, flights, shared, priced, n, snapshot.people_per_bedroom)
             return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
                 Conflict(code="TRIP_LIMIT", owner=o, cheapest_cents=-(-alone[o] // n),
                          trip_cap_cents=by_owner[o].trip_cap_cents, requirement=cause) for o in over))
@@ -163,14 +164,14 @@ class TripSolver:
             impacts=impacts, group=self._summary(n, flight_of, shared_of, alone, flights, shared, impacts, window, briefs, priced))
 
     @staticmethod
-    def _requirement_cause(over, by_owner, briefs, flights, shared, priced, n):
+    def _requirement_cause(over, by_owner, briefs, flights, shared, priced, n, per_room):
         """Would dropping one room requirement bring every over-limit trip back
         within its limit? That requirement, not the budget alone, is the clash."""
         if "STAY" not in shared:
             return None
         others = sum(min(c.total_cents for c in options) for k, options in shared.items() if k != "STAY")
         for requirement in ("BEDROOMS", "RATING"):
-            stays = [c for c in priced if c.category == "STAY" and all(ok(c) for _, ok in stay_filters(briefs, (requirement,)))]
+            stays = [c for c in priced if c.category == "STAY" and all(ok(c) for _, ok in stay_filters(briefs, (requirement,), per_room))]
             if stays and min(c.total_cents for c in stays) < min(c.total_cents for c in shared["STAY"]):
                 cheapest = min(c.total_cents for c in stays) + others
                 if all(n * min(c.total_cents for c in flights[o]) + cheapest <= n * by_owner[o].trip_cap_cents for o in over):
@@ -228,8 +229,8 @@ class TripSolver:
         stay, transfer = shared_of.get("STAY"), shared_of.get("TRANSFER")
         premium = 0
         if stay is not None:
-            # Versus the cheapest stay that merely sleeps everyone.
-            sleeps = [c.total_cents for c in priced if c.category == "STAY" and stay_filters(briefs)[0][1](c)]
+            # Versus the cheapest approvable stay that merely sleeps everyone.
+            sleeps = [c.total_cents for c in priced if c.category == "STAY" and c.complete and stay_filters(briefs)[0][1](c)]
             premium = max(0, stay.total_cents - min(sleeps, default=stay.total_cents))
         extras = [i.extra_cents for i in impacts]
         return GroupSummary(total_cents=total, earliest_arrival=min(arrivals), latest_arrival=max(arrivals),
@@ -267,7 +268,7 @@ class TripValidator:
             if brief.baggage_required and candidate.baggage_included is not True:
                 checks.append("BAGGAGE_UNKNOWN" if candidate.baggage_included is None else "BAGGAGE_REQUIRED")
         if "STAY" in shared:
-            if not all(ok(shared["STAY"]) for _, ok in stay_filters(briefs)):
+            if not all(ok(shared["STAY"]) for _, ok in stay_filters(briefs, per_room=snapshot.people_per_bedroom)):
                 checks.append("STAY_REQUIREMENTS")
         if "TRANSFER" in shared and (shared["TRANSFER"].capacity or 0) < n:
             checks.append("TRANSFER_CAPACITY")

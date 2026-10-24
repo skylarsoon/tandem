@@ -77,7 +77,7 @@ def test_budget_and_session_cannot_be_reset_by_changing_config_in_place(live_cas
         smoke(config, live_case.settings, live_case.directory, **kwargs(live_case))
 
 
-@pytest.mark.parametrize("field,value", [("max_charge_usd", 2), ("max_items", 20), ("max_output_tokens", 2048)])
+@pytest.mark.parametrize("field,value", [("max_charge_usd", 2), ("max_items", 20), ("max_output_tokens", 8192)])
 def test_smoke_cannot_exceed_its_advertised_small_limits(live_case, field, value):
     config = live_case.config.model_copy(update={"limits": live_case.config.limits.model_copy(update={field: value})})
     with pytest.raises(ContractError, match="SMOKE_REQUIRES_ONE_PARTICIPANT_AND_SMALL_LIMITS"):

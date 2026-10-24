@@ -58,6 +58,8 @@ class Snapshot(Record):
     policy_version: Literal["flight_cost_v1", "minimax_v1"] = "minimax_v1"
     # Parts the plan must choose. Activities and dinner are suggestions, never required.
     components: tuple[Literal["FLIGHT", "STAY", "TRANSFER"], ...] = ("FLIGHT",)
+    # Travellers without an own-room request share this many to a bedroom.
+    people_per_bedroom: int = Field(default=2, ge=1, le=8)
 
     @model_validator(mode="after")
     def valid_members(self):
@@ -158,6 +160,8 @@ class Decision(Record):
     research: bool = False
     concession: bool = False
     exceeds_exploration: bool = False
+    # With NEEDS_OWNER_INPUT: one short question for the owner only (never the room).
+    owner_question: str = Field(default="", max_length=300)
 
 
 class Payload(Record):

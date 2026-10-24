@@ -162,7 +162,9 @@ def test_ask_first_consultation_resumes_under_new_authority(setup_worker):
 def test_repeating_polite_dialogue_stops_without_research_or_approval(setup_worker):
     class LoopModel(ScriptedModel):
         def decide(self, context):
-            return Decision(act=Act.CLARIFY, evaluation="INCOMPLETE_EVIDENCE", recipient="p2" if context["owner"] == "p1" else "p1")
+            # An actionable question ping-ponged between agents (a vague one goes to the owner instead).
+            return Decision(act=Act.CLARIFY, evaluation="INCOMPLETE_EVIDENCE", blocker="BAGGAGE_UNKNOWN",
+                            recipient="p2" if context["owner"] == "p1" else "p1")
     backend, worker, job, *_ = setup_worker(model=LoopModel())
     assert worker.run_one(job)["outcome"] == "NO_PROGRESS"
     assert not backend.shared_report()["proposals"]

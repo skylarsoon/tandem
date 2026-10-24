@@ -316,7 +316,8 @@ Integrating surfaced real mismatches between the worker's test double and the re
 
 #### Current limits
 
-- **AI and search are still stand-ins.** Integration runs use a scripted model and fixture flights. The Claude and Apify connectors exist but haven't been run live.
+- **Live runs are short on budget.** Claude and Apify run live against Maincloud (flights, Airbnb stays, airport transfers, activities, dinner), but each run is capped (actor runs, model calls, spend), and Apify allows 5 concurrent runs on our account.
+- **Ideas aren't priced exactly.** Activity and dinner prices are per-person estimates, so they're suggestions and never part of what people approve. Car rentals are left out because the source doesn't say whether taxes are included.
 - **The module can't judge semantics.** It checks wording mechanically (cited facts, exact private-text matches); judging meaning stays in the worker.
 - **Not built yet:** leaving a room, and a real auth provider.
 
@@ -378,6 +379,18 @@ Kill the worker mid-negotiation. When its lease expires (8 s in the rehearsal, 6
 **Say:** *"Jobs, leases and fencing are all transactional in SpacetimeDB. The dispatcher is woken by a subscription; nothing is lost and nothing runs twice."*
 
 Rehearse it with the simulator (below): `negotiate --crash-after 1`, then run `negotiate` again.
+
+### 4. Friction, handled fairly and privately (≈45 s)
+Run the fixture scenarios (no keys needed): `cd worker && .venv/bin/tandem-worker scenario <name>`.
+- `group-arrival`: Dave's cheap flight lands 5 h late. His agent privately asks: *"Your flight costs $525: $125 more than your cheapest valid fare, so everyone lands within 2h of each other. May your agent accept this on your behalf?"* He says yes; the room sees a neutral summary, and only Dave sees his $125.
+- `concession-declined`: Dave says no. The plan re-solves and the other three each take a later flight for $150 more, the smallest worst cost anyone carries.
+- `budget-blocked`: Alice's budget is below every fare. The room sees *"1 traveller: every fare found is above a private limit"*. Only Alice sees *"the cheapest complete fare found for you is $290, above your $250 limit"*.
+- `own-room-squeeze`: two own-room requests make the only 3-bedroom stay push Dave $80 over his trip limit. Only the two who asked are consulted; they agree to share and the plan fits everyone.
+- `trip-happy`: flights, a shared stay and an airport transfer split equally, plus activity and dinner ideas.
+
+Real run (live Google Flights, Airbnb, Booking taxis/attractions, Google Maps, Claude; Maincloud room 9). Alice was asked to share a room (no 3-bedroom stay found) and said yes; Dave was asked about $125 extra to land with the group and said yes. Result: a $2,860.88 trip, everyone landing 21:07–21:55, a $1,134.89 Waikiki 2-bedroom, a $46.99 people carrier, and $295.47 each in shared costs. Only Dave sees "$125.00 more than the cheapest trip available to you … so everyone lands within 2h of each other."
+
+**Say:** *"The solver minimizes the worst burden on any one person, not just the total. Every 'no' becomes a new plan or an explanation, and nobody is ever named in the room."*
 
 ## Running it before the real worker exists
 

@@ -230,3 +230,71 @@ def test_unmeetable_rating_asks_only_the_person_who_set_it(setup_worker, answer,
         [event] = backend.shared_report()["events"]
         assert "No stay found meets the group's minimum rating." in event["payload"]["text"]
     assert_room_safe(backend)
+
+
+class RecordingModel:
+    """Scripted decisions that record each private context."""
+    def __init__(self, scenario, ask=None):
+        from tandem_worker.fixtures import ScriptedModel
+        self.inner, self.ask, self.contexts = ScriptedModel(scenario), ask, []
+        self.decisions, self.voices = self.inner.decisions, self.inner.voices
+
+    def decide(self, context):
+        from tandem_worker.contracts import Decision
+        self.contexts.append(context)
+        if self.ask and context["owner"] == "p1" and not context["missing_fact_answered"]:
+            return Decision(evaluation="NEEDS_OWNER_INPUT", blocker="MISSING_FACT", owner_question=self.ask)
+        return self.inner.decide(context)
+
+    def voice(self, context):
+        return self.inner.voice(context)
+
+
+def test_agents_know_what_their_owner_already_set_aside(setup_worker):
+    model = RecordingModel("own-room-squeeze")
+    backend, worker, job, *_ = setup_worker("own-room-squeeze", model=model)
+    worker.run_one(job)
+    assert settle(backend, worker, {"p1": True, "p2": True})["outcome"] == "AWAITING_REVIEW"
+    p1 = [c for c in model.contexts if c["owner"] == "p1"]
+    assert p1 and all(c["set_aside_by_owner"] == ["own_bedroom"] and c["own_bedroom"] is False for c in p1)
+
+
+def test_an_agent_that_needs_input_asks_a_specific_private_question(setup_worker):
+    ask = "Is a 1:30 pm arrival OK, given you said you'd prefer to land before noon?"
+    backend, worker, job, *_ = setup_worker("trip-happy", model=RecordingModel("trip-happy", ask=ask))
+    assert worker.run_one(job)["outcome"] == "WAITING_FOR_INPUT"
+    [question] = backend.owner_questions("p1")
+    assert (question.kind, question.prompt) == ("MISSING_FACT", ask)
+    assert ask not in json.dumps(backend.shared_report())
+
+
+def test_asking_about_the_extra_cost_becomes_the_enforced_consultation(setup_worker):
+    # The model asks "are you OK paying more?" as a missing fact; Ask me first turns
+    # it into a CONSULTATION whose yes is a scoped grant the database enforces.
+    model = RecordingModel("group-arrival")
+    from tandem_worker.contracts import Decision
+    original = model.decide
+    model.decide = lambda c: (Decision(evaluation="NEEDS_OWNER_INPUT", blocker="MISSING_FACT", owner_question="OK to pay $125 more?")
+                              if c["owner"] == "p4" and not c["owner_accepted_this_plan_cost"] else original(c))
+    backend, worker, job, *_ = setup_worker("group-arrival", model=model)
+    assert worker.run_one(job)["outcome"] == "WAITING_FOR_INPUT"
+    [question] = backend.owner_questions("p4")
+    assert question.kind == "CONSULTATION" and question.prompt.startswith("Your flight costs $525.00: $125.00 more")
+    assert settle(backend, worker, {"p4": True})["outcome"] == "AWAITING_REVIEW"
+
+
+@pytest.mark.parametrize("answer,outcome", [(True, "AWAITING_REVIEW"), (False, "OWNER_DECLINED")])
+def test_a_vague_objection_becomes_one_question_to_the_owner_not_endless_research(setup_worker, answer, outcome):
+    from tandem_worker.contracts import Act, Decision
+    model = RecordingModel("trip-happy")
+    original = model.decide
+    model.decide = lambda c: (Decision(act=Act.CLARIFY, evaluation="INCOMPLETE_EVIDENCE", research=True,
+                                       owner_question="The stay is downtown, not on the beach. Is that OK?")
+                              if c["owner"] == "p3" else original(c))
+    backend, worker, job, model_, research, _ = setup_worker("trip-happy", model=model)
+    assert worker.run_one(job)["outcome"] == "WAITING_FOR_INPUT"
+    [question] = backend.owner_questions("p3")
+    assert (question.kind, question.prompt) == ("MISSING_FACT", "The stay is downtown, not on the beach. Is that OK?")
+    assert len(research.requests) == 1, "no research a search can't act on"
+    assert settle(backend, worker, {"p3": answer})["outcome"] == outcome
+    assert not any(m["type"] == "CLARIFY" for m in backend.shared_report()["messages"])

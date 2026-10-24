@@ -17,6 +17,7 @@ from typing import Callable
 
 from ..contracts import Brief, Candidate, Claim, ContractError, Limits, Message, Preferences, Question, Snapshot, ValidationReport, digest
 from ..ports import Clock, SystemClock
+from ..solver import POLICY
 
 # Worker question kinds ↔ module question kinds.
 KINDS = {
@@ -176,7 +177,7 @@ class SpacetimeBackend:
         return Snapshot(room_id=str(job["room_id"]), input_revision=job["input_revision"],
             membership_revision=job["membership_revision"], permission_revision=job["permission_revision"],
             members=tuple(self._members(ctx)), arrival_overlap_seconds=settings.get("arrival_overlap_seconds", 7200),
-            components=tuple(settings.get("components", ("FLIGHT",))))
+            components=tuple(settings.get("components", ("FLIGHT",))), people_per_bedroom=settings.get("people_per_bedroom", 2))
 
     def _claim(self, job: dict, worker_id: str) -> Claim:
         # snapshot_ref = digest(Snapshot), exactly what FlightValidator stamps on its report.
@@ -453,7 +454,7 @@ class SpacetimeBackend:
         chosen = {c.id: c for c in (Candidate.model_validate(primitive(c)) for c in candidates)}
         records = [chosen[ref] for ref in selected]
         scope = "TRIP" if any(r.category != "FLIGHT" for r in records) else "FLIGHTS_ONLY"
-        terms = {"scope": scope, "policy": "minimax_v1", "selected": [primitive(r) for r in records]}
+        terms = {"scope": scope, "policy": POLICY, "selected": [primitive(r) for r in records]}
         summary = {"scope": scope, "travellers": sum(1 for r in records if r.category == "FLIGHT")}
         notes = {}
         if explanation is not None:

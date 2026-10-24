@@ -88,6 +88,12 @@ The fix came from reading the fine print. Google states its fares already includ
 
 **Starting everything at once hit the account's limit.** Our first full-trip live run started four flight searches and a stay search in parallel, then the transfer search was refused: Apify allows five concurrent runs per account. Worse, our crash-safety rule treated the refused start as *ambiguous* ("maybe it ran and we lost the reply"), which blocks retries so we never pay twice. A refusal is different: the API answered, so nothing ran. The gateway now starts runs only while there's a free slot (four, leaving one for teammates), starts the next as each finishes, and records a definite refusal as "not started" so it can be retried, returning its reserved budget.
 
+**Reasoning ate the answer.** Our agents' structured decisions are tiny JSON objects, yet live runs kept failing as "truncated". The model's hidden reasoning counts against the output limit, and a four-traveller trip with a shared stay sometimes needed over 1,500 tokens of it before writing a 170-character answer. We raised the budget to 4,096 and documented that it includes reasoning.
+
+**A vague objection burned the whole research budget.** In one live run, an agent kept answering "could you check an alternative?" without saying what was wrong. The coordinator dutifully re-searched until it ran out of rounds and ended with "round budget exhausted": no plan, no explanation. Now a concern that no search can fix (anything other than an over-limit price or a missing bag) becomes one specific private question to that agent's owner. If they say yes, the plan goes ahead; if they say no, it stops with their decision.
+
+**Live data takes different paths.** Two runs with the same config went different ways. In one, Airbnb's top results had no three-bedroom place, so Alice was asked privately whether she'd share. In the other, a three-bedroom place appeared and nobody was asked. Our tests cover each branch with fixtures, so the live behaviour isn't luck.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

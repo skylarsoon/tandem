@@ -202,6 +202,10 @@ export const setRoomSettings = spacetimedb.reducer(
     ) {
       fail('INVALID_ARGUMENT', 'components must list FLIGHT and optionally STAY and TRANSFER, once each');
     }
+    const perRoom = (settings as Record<string, unknown>).people_per_bedroom;
+    if (perRoom !== undefined && (typeof perRoom !== 'number' || !Number.isInteger(perRoom) || perRoom < 1 || perRoom > 8)) {
+      fail('INVALID_ARGUMENT', 'people_per_bedroom must be an integer from 1 to 8');
+    }
     ctx.db.room.id.update({ ...r, settingsJson });
     invalidateRoom(ctx, roomId, { input: true }, 'room settings changed');
     emitEvent(ctx, roomId, 'ROOM_SETTINGS_UPDATED', settings);

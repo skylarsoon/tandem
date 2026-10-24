@@ -167,7 +167,7 @@ def smoke(config, settings, directory, *, clock=None, claude_client=None, apify_
     config.validate_dates(clock.now())
     settings.require()
     if (len(config.briefs) != 1 or config.limits.actor_runs != 1 or config.limits.model_calls > 4
-            or config.limits.max_charge_usd > 1 or config.limits.max_items > 10 or config.limits.max_output_tokens > 1536):
+            or config.limits.max_charge_usd > 1 or config.limits.max_items > 10 or config.limits.max_output_tokens > 4096):
         raise ContractError("SMOKE_REQUIRES_ONE_PARTICIPANT_AND_SMALL_LIMITS")
     session = bind_session(directory, config, settings, "smoke", clock.now())
     directory = Path(directory)
@@ -268,7 +268,7 @@ def seed_live_room(config, settings, directory):
         raise ContractError("ROOM_ALREADY_SEEDED")
     trip = config.trip
     components = ["FLIGHT", *(["STAY"] if trip and trip.stay else []), *(["TRANSFER"] if trip and trip.transfer else [])]
-    seeded = seed_room(StdbHttp(settings.stdb_url, settings.stdb_database), list(config.briefs), goal=config.room_id,
+    seeded = seed_room(StdbHttp(settings.stdb_url, settings.stdb_database), list(config.briefs), goal=config.goal,
                        settings={"components": components} if len(components) > 1 else None)
     with path.open("x") as handle:
         json.dump(seeded, handle)

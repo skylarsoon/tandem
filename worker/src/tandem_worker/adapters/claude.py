@@ -131,7 +131,12 @@ class ClaudeModel:
             "Represent only this owner and evaluate the supplied candidate. Respond with EVALUATE, OBJECT, CLARIFY or COUNTERPROPOSE. "
             "Choose a permitted recipient other than the owner, usually mediator. Identify unresolved requirements accurately. "
             "You may request research within confirmed permissions. Never approve for a human, change constraints, invent evidence, "
-            "or disclose private reasons. A missing critical fact remains unknown.", "decision")
+            "or disclose private reasons. A missing critical fact remains unknown. `impact` is what this plan costs your owner "
+            "compared with their cheapest option and why; `shared` and `share_cents` are the group's stay and transfer and your "
+            "owner's equal share. `set_aside_by_owner` lists requirements your owner already agreed to drop for this trip: treat "
+            "them as satisfied and don't ask again. Object, clarify or counterpropose only for HARD_LIMIT or BAGGAGE_UNKNOWN, "
+            "which a search can fix. For any other concern, or if you truly need your owner's input, use NEEDS_OWNER_INPUT and put one "
+            "short, specific question for them in owner_question (only they see it).", "decision")
 
     def voice(self, context):
         return self._structured(context, VoiceDraft,

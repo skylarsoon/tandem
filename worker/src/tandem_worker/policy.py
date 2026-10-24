@@ -133,7 +133,14 @@ def validate_voice(draft: VoiceDraft, facts: dict[str, str]) -> tuple[str, tuple
         if segment.fact_ref in seen or facts.get(segment.fact_ref) != segment.text:
             raise ContractError("UTTERANCE_PAYLOAD_MISMATCH")
         seen.add(segment.fact_ref)
-    return draft.connector.join(s.text for s in draft.segments), tuple(s.fact_ref for s in draft.segments)
+    return join_facts([s.text for s in draft.segments], draft.connector), tuple(s.fact_ref for s in draft.segments)
+
+
+def join_facts(texts: list[str], connector: str = " ") -> str:
+    """"Also, the fare…" rather than "Also, The fare…"; the cited text is unchanged otherwise."""
+    if connector == " ":
+        return " ".join(texts)
+    return texts[0] + "".join(connector + t[:1].lower() + t[1:] for t in texts[1:])
 
 
 def fallback_voice(facts: dict[str, str]) -> tuple[str, tuple[str, ...]]:

@@ -17,7 +17,8 @@ from .contracts import Brief, ContractError, Record
 class LiveLimits(Record):
     model_calls: int = Field(default=4, ge=1, le=100)
     actor_runs: int = Field(default=1, ge=1, le=20)
-    max_output_tokens: int = Field(default=1536, ge=128, le=4096)
+    # Includes the model's reasoning tokens, not just the JSON answer.
+    max_output_tokens: int = Field(default=4096, ge=128, le=8192)
     max_items: int = Field(default=10, ge=1, le=100)
     max_charge_usd: float = Field(default=1.0, gt=0, le=10)
     http_timeout: float = Field(default=30, gt=0, le=30)
@@ -31,6 +32,8 @@ class LiveLimits(Record):
 
 class LiveConfig(Record):
     room_id: str = "live-provider-demo"
+    # What the seeded room is called (shown to everyone).
+    goal: str = Field(default="Group trip", min_length=1, max_length=200)
     briefs: tuple[Brief, ...] = Field(min_length=1, max_length=20)
     searches: tuple[MemoSearch, ...]
     limits: LiveLimits = Field(default_factory=LiveLimits)

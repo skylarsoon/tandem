@@ -7,7 +7,13 @@ from pydantic import ValidationError
 
 from ..contracts import Act, ContractError, Decision, Impact, Message, Payload, Question, ValidationMetadata, VoiceDraft, digest
 from ..explain import consultation_prompt
+from ..solver import RELAXABLE, relaxed
 from ..policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
+
+
+UNRESOLVED_ACTS = {Act.OBJECT, Act.CLARIFY, Act.COUNTERPROPOSE}
+ACTIONABLE_BLOCKERS = {"HARD_LIMIT", "BAGGAGE_UNKNOWN"}
+UNSURE_QUESTION = "Your agent has a concern about this plan that another search can't fix. Does this plan work for you?"
 
 
 class PersonalState(TypedDict, total=False):
@@ -51,12 +57,17 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
     def decide(state):
         task = state["task"]
         backend.check(claim)
-        brief = backend.read_brief(claim, task["owner"])
+        original = backend.read_brief(claim, task["owner"])
+        # Requirements the owner agreed to set aside for this trip no longer bind.
+        snapshot_revision = task["snapshot"]["input_revision"]
+        [brief] = relaxed([original], snapshot_revision, lambda owner, ref: backend.has_permission(claim, owner, "CONSULTATION", ref))
         context = {"owner": brief.owner, "hard_cap_cents": brief.hard_cap_cents,
             "private_reason": brief.private_reason, "preferences": brief.preferences.model_dump(mode="json"),
             "baggage_required": brief.baggage_required, "candidate": task["candidate"],
             "trip_cap_cents": brief.trip_cap_cents, "own_bedroom": brief.own_bedroom, "stay_min_rating": brief.stay_min_rating,
             "shared": task.get("shared", []), "share_cents": task.get("share_cents", 0),
+            "owner_accepted_this_plan_cost": backend.has_permission(claim, original.owner, "CONSULTATION", task["draft_ref"]),
+            "set_aside_by_owner": [field for field, _ in RELAXABLE.values() if getattr(brief, field) != getattr(original, field)],
             "sender": task["sender"], "inbound_type": task["inbound_type"],
             "inbound_payload": task["inbound_payload"], "inbound_evidence": task["inbound_evidence"],
             "permitted_recipients": task["permitted_recipients"], "impact": impact_of(task["owner"]),
@@ -81,11 +92,21 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             decision = Decision(act=Act.OBJECT, evaluation="INELIGIBLE", blocker="HARD_LIMIT")
         elif brief.baggage_required and candidate["baggage_included"] is not True and decision.evaluation == "ELIGIBLE":
             decision = Decision(act=Act.OBJECT, evaluation="INCOMPLETE_EVIDENCE", blocker="BAGGAGE_UNKNOWN", research=True)
+        # A concern no search can act on (no over-limit, no missing bag) goes to the
+        # owner, once, instead of burning research rounds; their yes settles it.
+        if decision.act in UNRESOLVED_ACTS and decision.blocker not in ACTIONABLE_BLOCKERS:
+            decision = Decision() if context["missing_fact_answered"] else Decision(
+                evaluation="NEEDS_OWNER_INPUT", blocker="MISSING_FACT",
+                owner_question=decision.owner_question.strip() or UNSURE_QUESTION)
         # Accepting a fare that costs more than the owner's cheapest valid one is a
         # concession, whatever the model called it; Ask me first then consults them.
         impact = Impact.model_validate(context["impact"]) if context["impact"] else None
-        if impact and impact.extra_cents > 0 and decision.evaluation == "ELIGIBLE":
-            decision = decision.model_copy(update={"concession": True})
+        consulted = backend.has_permission(claim, brief.owner, "CONSULTATION", task["draft_ref"])
+        if impact and impact.extra_cents > 0 and (decision.evaluation == "ELIGIBLE" or (
+                # Asking "is the extra cost OK?" is exactly the consultation Ask me first
+                # requires: route it there so the answer becomes a scoped, enforced grant.
+                decision.evaluation == "NEEDS_OWNER_INPUT" and brief.preferences.ask_me_first and not consulted)):
+            decision = Decision(act=Act.EVALUATE, evaluation="ELIGIBLE", recipient="mediator", concession=True)
         payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
             candidate_refs=(candidate["id"], *(c["id"] for c in task.get("shared", []))))
         questions = []
@@ -96,7 +117,7 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
                 owner_prompt(kind, payload, decision.act, impact, task.get("window_seconds", 0)))
             questions.append(backend.ask_owner(claim, q))
         if decision.evaluation == "NEEDS_OWNER_INPUT":
-            q = question_for(claim, brief.owner, "MISSING_FACT", task["draft_ref"])
+            q = question_for(claim, brief.owner, "MISSING_FACT", task["draft_ref"], decision.owner_question.strip())
             questions.append(backend.ask_owner(claim, q))
         return {"decision": decision.model_dump(mode="json"), "questions": questions}
 

@@ -177,3 +177,20 @@ def test_trip_validator_checks_shared_items_and_trip_limits():
     assert TripValidator().validate(snapshot, loose, candidates, flights + ("s", "van"), 1).valid
     assert TripValidator().validate(snapshot, loose, candidates, flights + ("s", "sedan"), 1).checks == ("TRANSFER_CAPACITY",)
     assert TripValidator().validate(snapshot, loose, candidates, flights + ("s",), 1).checks == ("INVALID_COVERAGE",)
+
+
+def test_people_per_bedroom_is_a_room_setting():
+    briefs = [brief(o, 50000) for o in "abcd"]
+    stays = [stay("one-bed", 60000, bedrooms=1), stay("two-bed", 90000, bedrooms=2)]
+    snapshot = Snapshot(room_id="r", members=tuple("abcd"), components=("FLIGHT", "STAY", "TRANSFER"))
+    assert FlightSolver().solve(snapshot, briefs, FLIGHTS + stays + [transfer("van", 8000)]).group.stay == "two-bed"
+    dorm = snapshot.model_copy(update={"people_per_bedroom": 4})
+    assert FlightSolver().solve(dorm, briefs, FLIGHTS + stays + [transfer("van", 8000)]).group.stay == "one-bed"
+
+
+def test_room_needs_premium_compares_only_with_approvable_stays():
+    briefs = [brief(o, 50000).model_copy(update={"own_bedroom": o == "a"}) for o in "abcd"]
+    unpriced = stay("cheap-unconfirmed", 50000, bedrooms=1).model_copy(update={"cost_basis": "OBSERVED_PRICE"})
+    result = trip(briefs, FLIGHTS + [unpriced, stay("three-bed", 120000, bedrooms=3), stay("two-bed", 100000, bedrooms=2)]
+                  + [transfer("van", 8000)])
+    assert result.group.stay == "three-bed" and result.group.stay_premium_cents == 20000, "vs the $1,000 two-bed, not $500"
