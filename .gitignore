@@ -26,3 +26,6 @@ spacetime.local.json
 .DS_Store
 .idea/
 .vscode/
+.venv/
+__pycache__/
+*.pyc
