@@ -1,0 +1,7 @@
+{
+  "job_id": {
+    "some": 4
+  },
+  "lease_seconds": 60,
+  "request_key": "room1:worker-1:claim"
+}

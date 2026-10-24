@@ -1,0 +1,8 @@
+{
+  "job_id": 4,
+  "attempt": 1,
+  "op_key": "decision:alice:0",
+  "request_digest": "3f1c\u2026sha256-of-request",
+  "kind": "model",
+  "limit": 100
+}

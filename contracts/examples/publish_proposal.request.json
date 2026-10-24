@@ -1,0 +1,40 @@
+{
+  "job_id": 4,
+  "attempt": 1,
+  "request_key": "4:publish",
+  "stage": "TRAVEL",
+  "terms_json": "{\"policy\":\"flight_cost_v1\",\"scope\":\"FLIGHTS_ONLY\",\"selected\":[\"alice-initial\",\"bob-initial\",\"carol-initial\",\"dave-initial\"]}",
+  "shared_summary_json": "{\"scope\": \"FLIGHTS_ONLY\", \"travellers\": 4}",
+  "validation_json": "{\"valid\": true, \"checks\": [], \"validator_version\": \"flight-validator-v1\"}",
+  "evidence_refs": [
+    "alice-initial",
+    "bob-initial",
+    "carol-initial",
+    "dave-initial"
+  ],
+  "affected_member_ids": [],
+  "selected_candidate_refs": [
+    "alice-initial",
+    "bob-initial",
+    "carol-initial",
+    "dave-initial"
+  ],
+  "impacts": [
+    {
+      "member_id": 1,
+      "impact_json": "{\"total_cents\": 48000}"
+    },
+    {
+      "member_id": 2,
+      "impact_json": "{\"total_cents\": 63000}"
+    },
+    {
+      "member_id": 3,
+      "impact_json": "{\"total_cents\": 63000}"
+    },
+    {
+      "member_id": 4,
+      "impact_json": "{\"total_cents\": 63000}"
+    }
+  ]
+}

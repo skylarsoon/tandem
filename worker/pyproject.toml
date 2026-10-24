@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tandem-worker"
+version = "0.1.0"
+description = "Bounded, owner-scoped LangGraph planning worker"
+requires-python = ">=3.11"
+dependencies = [
+  "langgraph>=1.0,<2",
+  "langgraph-checkpoint-sqlite>=3,<4",
+  "pydantic>=2.10,<3",
+  "ortools>=9.12,<10",
+]
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.125,<1"]
+live = ["anthropic>=0.125,<1", "python-dotenv>=1,<2"]
+test = ["pytest>=8,<10", "pytest-socket>=0.7,<1", "python-dotenv>=1,<2"]
+
+[project.scripts]
+tandem-worker = "tandem_worker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--disable-socket"
+markers = ["backend: requires a deployed disposable backend", "live: requires real provider access"]

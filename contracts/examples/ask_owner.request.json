@@ -1,0 +1,11 @@
+{
+  "job_id": 4,
+  "attempt": 1,
+  "request_key": "question-6a0d2f\u2026",
+  "member_id": 1,
+  "kind": "OBJECTION_DISCLOSURE",
+  "action_json": "{\"action_ref\": \"draft-1\"}",
+  "prompt": "May your agent tell the group this option doesn't meet your requirements, without saying why?",
+  "answer_schema_json": "{\"type\": \"boolean\"}",
+  "thread_id": null
+}
