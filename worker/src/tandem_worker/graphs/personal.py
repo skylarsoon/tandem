@@ -5,7 +5,8 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
 
-from ..contracts import Act, ContractError, Decision, Message, Payload, Question, ValidationMetadata, VoiceDraft, digest
+from ..contracts import Act, ContractError, Decision, Impact, Message, Payload, Question, ValidationMetadata, VoiceDraft, digest
+from ..explain import consultation_prompt
 from ..policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
 
 
@@ -18,9 +19,19 @@ class PersonalState(TypedDict, total=False):
     outgoing_thread_id: str
 
 
-def question_for(claim, owner, kind, action_ref):
+def question_for(claim, owner, kind, action_ref, prompt=""):
     return Question(id="question-" + digest([claim.snapshot_ref, owner, kind, action_ref])[:24],
-        owner=owner, kind=kind, action_ref=action_ref, snapshot_ref=claim.snapshot_ref)
+        owner=owner, kind=kind, action_ref=action_ref, snapshot_ref=claim.snapshot_ref, prompt=prompt)
+
+
+def owner_prompt(kind, payload, act, impact, window_seconds):
+    """Owner-only wording of exactly what the agent wants to do."""
+    if kind == "CONSULTATION" and impact is not None:
+        return consultation_prompt(impact, window_seconds)
+    if kind == "DISCLOSURE":
+        said = permitted_facts(act, payload)[f"act:{act.value}"]
+        return f'May your agent tell the group: "{said}"? It will not share your limit or your reasons.'
+    return ""
 
 
 def missing_answered(backend, claim, owner, action_ref):
@@ -31,7 +42,7 @@ def missing_answered(backend, claim, owner, action_ref):
         return False
 
 
-def build_personal(backend, claim, model):
+def build_personal(backend, claim, model, impact_of=lambda owner: None):
     """Per-invocation graph: all private context is ephemeral in node locals.
 
     Only safe typed decisions/references return to the coordinator. Clients and
@@ -46,7 +57,7 @@ def build_personal(backend, claim, model):
             "baggage_required": brief.baggage_required, "candidate": task["candidate"],
             "sender": task["sender"], "inbound_type": task["inbound_type"],
             "inbound_payload": task["inbound_payload"], "inbound_evidence": task["inbound_evidence"],
-            "permitted_recipients": task["permitted_recipients"],
+            "permitted_recipients": task["permitted_recipients"], "impact": impact_of(task["owner"]),
             "missing_fact_answered": missing_answered(backend, claim, brief.owner, task["draft_ref"])}
         decision = None
         for attempt in range(2):
@@ -66,11 +77,19 @@ def build_personal(backend, claim, model):
             decision = Decision(act=Act.OBJECT, evaluation="INELIGIBLE", blocker="HARD_LIMIT")
         elif brief.baggage_required and candidate["baggage_included"] is not True and decision.evaluation == "ELIGIBLE":
             decision = Decision(act=Act.OBJECT, evaluation="INCOMPLETE_EVIDENCE", blocker="BAGGAGE_UNKNOWN", research=True)
+        # Accepting a fare that costs more than the owner's cheapest valid one is a
+        # concession, whatever the model called it; Ask me first then consults them.
+        impact = Impact.model_validate(context["impact"]) if context["impact"] else None
+        if impact and impact.extra_cents > 0 and decision.evaluation == "ELIGIBLE":
+            decision = decision.model_copy(update={"concession": True})
+        payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
+            candidate_refs=(candidate["id"],))
         questions = []
         for kind in needed_permissions(brief, decision):
             if kind != "PARTICIPATION" and backend.has_permission(claim, brief.owner, kind, task["draft_ref"]):
                 continue
-            q = question_for(claim, brief.owner, kind, task["draft_ref"])
+            q = question_for(claim, brief.owner, kind, task["draft_ref"],
+                owner_prompt(kind, payload, decision.act, impact, task.get("window_seconds", 0)))
             questions.append(backend.ask_owner(claim, q))
         if decision.evaluation == "NEEDS_OWNER_INPUT":
             q = question_for(claim, brief.owner, "MISSING_FACT", task["draft_ref"])
@@ -85,7 +104,8 @@ def build_personal(backend, claim, model):
         payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
             candidate_refs=(task["candidate"]["id"],), research=decision.research,
             concession=decision.concession, exceeds_exploration=decision.exceeds_exploration)
-        facts = permitted_facts(decision.act, payload)
+        # The mediator states the group window; each agent speaks to its own fare.
+        facts = permitted_facts(decision.act, payload, task["candidate"])
         context = {"act": decision.act.value, "facts": facts}
         text, refs = fallback_voice(facts)
         status = "TEMPLATE_FALLBACK"
@@ -120,9 +140,10 @@ def build_personal(backend, claim, model):
 
 
 def send_message(backend, claim, snapshot, sender, recipient, act, payload, thread_id, participants, round_id,
-                 text=None, refs=None, status="TEMPLATE_FALLBACK", reply_to=None, operation_ref=""):
+                 text=None, refs=None, status="TEMPLATE_FALLBACK", reply_to=None, operation_ref="",
+                 candidate=None, group_window=None):
     if text is None:
-        text, refs = fallback_voice(permitted_facts(act, payload))
+        text, refs = fallback_voice(permitted_facts(act, payload, candidate, group_window))
     evidence = payload.candidate_refs
     content = {"type": act.value, "utterance": text, "payload": payload.model_dump(mode="json"), "claim_refs": refs, "evidence_refs": evidence}
     key = digest([claim.generation, operation_ref, thread_id, sender, recipient, act, content, reply_to])

@@ -49,7 +49,8 @@ class LocalBackend:
                 raise ContractError("ALREADY_SEEDED")
             state.update(snapshot=primitive(snapshot), briefs={b.owner: primitive(b) for b in briefs},
                          jobs={}, receipts={}, messages={}, threads={}, questions={}, operations={},
-                         candidates={}, candidate_context={}, proposals={}, consents=[], grants={}, events=[], sequence=0)
+                         candidates={}, candidate_context={}, proposals={}, consents=[], grants={}, events=[], sequence=0,
+                         notes={}, impacts={})
             return self._new_job(state)
 
     def _new_job(self, state):
@@ -337,7 +338,7 @@ class LocalBackend:
             self._checked(state, claim)
             self._close_threads(state, claim.generation, reason)
 
-    def publish_proposal(self, claim, selected, candidates, report, key):
+    def publish_proposal(self, claim, selected, candidates, report, key, explanation=None):
         with self._tx() as state:
             # A lost successful response can be reconciled after lease release.
             body = dict(selected=list(selected), report=primitive(report))
@@ -362,10 +363,33 @@ class LocalBackend:
             terms = {"scope": "FLIGHTS_ONLY", "selected": [primitive(r) for r in records]}
             proposal_id = f"proposal-{digest(terms)[:16]}-{claim.generation}"
             state["proposals"][proposal_id] = dict(terms=terms, terms_digest=digest(terms), snapshot_ref=claim.snapshot_ref,
-                state="AWAITING_REVIEW", required_members=list(snapshot.members))
+                state="AWAITING_REVIEW", required_members=list(snapshot.members),
+                summary=explanation.summary if explanation else None)
+            if explanation:
+                if {n.impact.owner for n in explanation.impacts} - set(snapshot.members):
+                    raise ContractError("INVALID_PROPOSAL")
+                for note in explanation.impacts:
+                    state["impacts"].setdefault(note.impact.owner, {})[proposal_id] = primitive(note)
             job.update(status="SUCCEEDED", outcome=proposal_id, expiry=0)
             self._close_threads(state, claim.generation, "RESOLVED")
             return self._record(state, f"publish:{claim.job_id}:{key}", body, proposal_id)
+
+    def notify_owner(self, claim, owner, text, key):
+        with self._tx() as state:
+            self._checked(state, claim)
+            if owner not in state["snapshot"]["members"]:
+                raise ContractError("NOT_AUTHORIZED")
+            state["notes"].setdefault(owner, {})[f"{claim.generation}:{key}"] = text
+
+    def room_event(self, claim, kind, payload, key):
+        with self._tx() as state:
+            self._checked(state, claim)
+            reasons = [b["private_reason"] for b in state["briefs"].values() if b["private_reason"]]
+            if any(r in json.dumps(payload) for r in reasons):
+                raise ContractError("PRIVATE_CONTENT_DETECTED")
+            event = dict(key=f"{claim.generation}:{key}", kind=kind, payload=payload)
+            if event not in state["events"]:
+                state["events"].append(event)
 
     def finish_job(self, claim, outcome):
         with self._tx() as state:
@@ -431,8 +455,15 @@ class LocalBackend:
         with self._tx() as state:
             return [Question.model_validate(q) for q in state["questions"].values() if q["owner"] == owner and q["snapshot_ref"] == digest(state["snapshot"])]
 
+    def owner_view(self, owner):
+        """Local harness inspection of what one owner privately sees."""
+        with self._tx() as state:
+            return {"notes": list(state["notes"].get(owner, {}).values()), "impacts": state["impacts"].get(owner, {})}
+
     def shared_report(self):
         with self._tx() as state:
             return {"jobs": [{k: j.get(k) for k in ("id", "status", "outcome", "calls")} for j in state["jobs"].values()],
-                "messages": [r["message"] for r in state["messages"].values() if r["message"]["audience"] == "PUBLIC_SUMMARY"],
-                "threads": state["threads"], "proposals": state["proposals"], "consent_count": len(state["consents"])}
+                "messages": [r["message"] for r in sorted(state["messages"].values(), key=lambda r: r["sequence"])
+                    if r["message"]["audience"] == "PUBLIC_SUMMARY"],
+                "threads": state["threads"], "proposals": state["proposals"], "consent_count": len(state["consents"]),
+                "events": state["events"]}

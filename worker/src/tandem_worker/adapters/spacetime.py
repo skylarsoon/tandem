@@ -301,7 +301,7 @@ class SpacetimeBackend:
             raise ContractError("NOT_AUTHORIZED")
         self.http.call(self.token, "ask_owner", request_key=question.id, member_id=member["member_id"],
             kind=KINDS[question.kind], action_json=json.dumps({"action_ref": question.action_ref}),
-            prompt=PROMPTS[question.kind], answer_schema_json=json.dumps({"type": "boolean"}), thread_id=None,
+            prompt=question.prompt or PROMPTS[question.kind], answer_schema_json=json.dumps({"type": "boolean"}), thread_id=None,
             **self._attempt(claim))
         return question.id
 
@@ -432,7 +432,7 @@ class SpacetimeBackend:
 
     # ---------- results ----------
 
-    def publish_proposal(self, claim, selected, candidates, report, key):
+    def publish_proposal(self, claim, selected, candidates, report, key, explanation=None):
         report = ValidationReport.model_validate(primitive(report))
         if not report.valid or report.snapshot_ref != claim.snapshot_ref or report.selected != tuple(selected) \
                 or report.candidate_digest != digest([primitive(c) for c in candidates]):
@@ -441,16 +441,33 @@ class SpacetimeBackend:
         members = self._members(ctx)
         chosen = {c.id: c for c in (Candidate.model_validate(primitive(c)) for c in candidates)}
         records = [chosen[ref] for ref in selected]
-        terms = {"scope": "FLIGHTS_ONLY", "policy": "flight_cost_v1", "selected": [primitive(r) for r in records]}
+        terms = {"scope": "FLIGHTS_ONLY", "policy": "minimax_v1", "selected": [primitive(r) for r in records]}
+        summary = {"scope": "FLIGHTS_ONLY", "travellers": len(records)}
+        notes = {}
+        if explanation is not None:
+            summary.update(text=explanation.summary, group=explanation.group.model_dump(mode="json"))
+            notes = {n.impact.owner: {**n.impact.model_dump(mode="json"), "text": n.text} for n in explanation.impacts}
         result = self.http.procedure(self.token, "publish_proposal", request_key=f"{claim.job_id}:{key}", stage="TRAVEL",
             terms_json=json.dumps(terms, sort_keys=True, separators=(",", ":")),
-            shared_summary_json=json.dumps({"scope": "FLIGHTS_ONLY", "travellers": len(records)}),
+            shared_summary_json=json.dumps(summary, sort_keys=True),
             validation_json=json.dumps(report.model_dump(mode="json"), sort_keys=True),
             evidence_refs=list(selected), affected_member_ids=[],
-            impacts=[{"member_id": members[r.owner]["member_id"], "impact_json": json.dumps({"total_cents": r.total_cents})}
+            impacts=[{"member_id": members[r.owner]["member_id"],
+                      "impact_json": json.dumps(notes.get(r.owner, {"total_cents": r.total_cents}), sort_keys=True)}
                      for r in records],
             selected_candidate_refs=list(selected), **self._attempt(claim))
         return str(result["proposal_id"])
+
+    def notify_owner(self, claim, owner, text, key):
+        member = self._members(self._context(claim)).get(owner)
+        if member is None:
+            raise ContractError("NOT_AUTHORIZED")
+        self.http.call(self.token, "reply_to_owner", request_key=f"job{claim.generation}:note:{key}",
+            member_id=member["member_id"], body=text, **self._attempt(claim))
+
+    def room_event(self, claim, kind, payload, key):
+        self.http.call(self.token, "emit_event", request_key=f"job{claim.generation}:event:{key}",
+            type=kind, member_id=None, payload_json=json.dumps(payload, sort_keys=True), **self._attempt(claim))
 
     def finish_job(self, claim, outcome):
         self.http.call(self.token, "finish_job", request_key=f"{claim.job_id}:{claim.attempt_token}:finish:{outcome}",

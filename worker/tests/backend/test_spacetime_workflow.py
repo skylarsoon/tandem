@@ -119,3 +119,62 @@ def test_granted_disclosure_restarts_planning_and_objection_goes_public(stdb_roo
     assert results[0]["outcome"] in {"UNRESOLVED_AGENT", "NO_PROGRESS"}
     assert any(m["type"] == "OBJECT" for m in shared_view(room, "room_messages"))
     assert shared_view(room, "room_proposals") == []
+
+
+def answer_mine(room, owner, granted):
+    for q in room.view(owner, "my_questions"):
+        if q["state"] == "OPEN":
+            room.backend.answer_question(owner, q["request_key"], q["version"], granted, "answer-" + q["request_key"])
+
+
+def impact_of(room, owner):
+    [row] = room.view(owner, "my_proposal_impacts")
+    return json.loads(row["impact_json"])
+
+
+def test_concession_is_consulted_then_explained_privately(stdb_room, tmp_path):
+    room = stdb_room("group-arrival")
+    worker, _ = make_worker(room, tmp_path, "group-arrival")
+    assert worker.run_one(room.plan_job())["outcome"] == "WAITING_FOR_INPUT"
+    [question] = room.view("p4", "my_questions")
+    assert question["kind"] == "CONCESSION_CONSULTATION"
+    assert question["prompt"].startswith("Your flight costs $525.00: $125.00 more than your cheapest valid fare")
+    assert all(room.view(o, "my_questions") == [] for o in ("p1", "p2", "p3"))
+
+    answer_mine(room, "p4", True)
+    assert worker.reconcile()[-1]["outcome"] == "AWAITING_REVIEW"
+    [proposal] = shared_view(room, "room_proposals")
+    summary = json.loads(proposal["shared_summary_json"])
+    assert "Landing together costs $125.00 more than everyone's cheapest fares" in summary["text"]
+    assert summary["group"]["travellers_paying_extra"] == 1
+    p4 = impact_of(room, "p4")
+    assert (p4["extra_cents"], p4["reason"]) == (12500, "ARRIVAL_WINDOW") and "$125.00 more" in p4["text"]
+    assert impact_of(room, "p1")["extra_cents"] == 0
+    chat = shared_view(room, "room_messages")
+    # Field-level citations resolve server-side (`<candidate>#price`).
+    assert any(ref.endswith("#price") for m in chat for ref in m["claim_refs"])
+    assert "your cheapest valid fare" not in json.dumps(chat + [proposal])
+
+
+def test_declined_concession_shifts_the_trade_off(stdb_room, tmp_path):
+    room = stdb_room("concession-declined")
+    worker, _ = make_worker(room, tmp_path, "concession-declined")
+    assert worker.run_one(room.plan_job())["outcome"] == "WAITING_FOR_INPUT"
+    answer_mine(room, "p4", False)
+    assert worker.reconcile()[-1]["outcome"] == "AWAITING_REVIEW"
+    [proposal] = shared_view(room, "room_proposals")
+    assert all(f"{o}-late" in proposal["terms_json"] for o in ("p1", "p2", "p3")) and "p4-redeye" in proposal["terms_json"]
+    assert [impact_of(room, o)["extra_cents"] for o in PEOPLE] == [15000, 15000, 15000, 0]
+
+
+def test_budget_blocked_room_gets_a_neutral_event_and_the_owner_a_private_note(stdb_room, tmp_path):
+    room = stdb_room("budget-blocked")
+    worker, _ = make_worker(room, tmp_path, "budget-blocked")
+    assert worker.run_one(room.plan_job())["outcome"] == "NO_FEASIBLE_CANDIDATE"
+    [event] = [e for e in shared_view(room, "room_events") if e["type"] == "NO_FEASIBLE_PLAN"]
+    payload = json.loads(event["safe_payload_json"])
+    assert payload["blocked_travellers"] == {"HARD_LIMIT": 1} and "250" not in event["safe_payload_json"]
+    notes = [m["body"] for m in room.view("p1", "my_private_messages") if m["sender"] == "AGENT"]
+    assert notes == ["No plan fits yet: the cheapest complete fare found for you is $290.00, above your $250.00 flight "
+                     "limit. Raising your limit to at least $290.00 would unblock the plan."]
+    assert [m for m in room.view("p2", "my_private_messages") if m["sender"] == "AGENT"] == []

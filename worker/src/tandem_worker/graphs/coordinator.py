@@ -6,7 +6,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from ..contracts import Act, Candidate, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
+from ..explain import explanation, owner_conflict_note, room_conflict_event
 from .personal import build_personal, question_for, send_message
+
+# Solver conflict → the research blocker a targeted search can act on.
+RESEARCH_BLOCKER = {"HARD_LIMIT": "HARD_LIMIT", "BAGGAGE_UNAVAILABLE": "BAGGAGE_UNKNOWN",
+                    "NO_CANDIDATES": "NO_MATCHING_CANDIDATE", "ARRIVAL_WINDOW": "ARRIVAL_OVERLAP"}
 
 
 class CoordinatorState(TypedDict, total=False):
@@ -26,11 +31,25 @@ class CoordinatorState(TypedDict, total=False):
     research_target_owners: list[str]
     research_blocker_code: str
     validation_checks: list[str]
+    # Room-safe only: refs and digests to replay the solver receipt, the group's
+    # arrival window, and fares owners declined to pay extra for.
+    solve_key: str
+    solve_request: dict
+    group_window: list
+    excluded: list[str]
+    resolve: bool
+    research_unavailable: bool
 
 
 def build_coordinator(backend, claim, model, research, solver, validator, clock, limits, checkpointer):
     def current():
         return backend.load_execution_context(claim)
+
+    def solution(state):
+        # Impacts are private, so they live only in the solver receipt, not in state.
+        def missing():
+            raise ContractError("SOLVER_RECEIPT_MISSING")
+        return SolverResult.model_validate(backend.operation(claim, state["solve_key"], state["solve_request"], "local", missing))
 
     def load(state):
         snapshot = current()
@@ -56,7 +75,13 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             "target_owners": state.get("research_target_owners") or list(snapshot.members),
             "blocker_code": state.get("research_blocker_code", "NONE")}
         # No private caps, reasons or transcripts leave through ResearchPort.
-        raw = backend.operation(claim, f"research:{state['round']}", request, "research", lambda: research.search(request))
+        try:
+            raw = backend.operation(claim, f"research:{state['round']}", request, "research", lambda: research.search(request))
+        except ContractError as error:
+            if purpose != "TARGETED" or error.code != "TARGETED_SEARCH_NOT_AUTHORIZED":
+                raise
+            # No approved search could change the result: explain instead of failing.
+            return {"need_research": False, "research_unavailable": True}
         candidates = {c["id"]: Candidate.model_validate(c) for c in state["candidates"]}
         for item in raw:
             candidate = Candidate.model_validate(item)
@@ -65,23 +90,30 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             if candidate.id in candidates and candidates[candidate.id] != candidate:
                 raise ContractError("CANDIDATE_ID_CONFLICT")
             candidates[candidate.id] = candidate
-        backend.store_candidates(claim, list(candidates.values()))
-        return {"candidates": [c.model_dump(mode="json") for c in candidates.values()], "need_research": False}
+        fresh = dedupe(candidates.values())
+        backend.store_candidates(claim, fresh)
+        return {"candidates": candidates_data(fresh), "need_research": False}
 
     def solve(state):
         snapshot = current()
-        candidates = [Candidate.model_validate(c) for c in state["candidates"] if c["valid_until"] > clock.now()]
+        excluded = set(state.get("excluded", ()))
+        candidates = [Candidate.model_validate(c) for c in state["candidates"] if c["valid_until"] > clock.now() and c["id"] not in excluded]
         briefs = [backend.read_brief(claim, o) for o in snapshot.members]
+        key = f"solve:{state['round']}:{len(excluded)}"
         request = {"snapshot": claim.snapshot_ref, "candidates": digest(candidates_data(candidates))}
-        raw = backend.operation(claim, f"solve:{state['round']}", request, "local", lambda: solver.solve(snapshot, briefs, candidates))
+        raw = backend.operation(claim, key, request, "local", lambda: solver.solve(snapshot, briefs, candidates))
         result = SolverResult.model_validate(raw)
         draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
         outcome = "" if result.status in {"OPTIMAL", "FEASIBLE", "INFEASIBLE"} else result.status
-        update = {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome}
+        update = {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome,
+                  "solve_key": key, "solve_request": request, "resolve": False, "group_window": []}
+        if result.group:
+            zone = next(c.arrival_timezone for c in candidates if c.id == result.selected[0])
+            update["group_window"] = [result.group.earliest_arrival, result.group.latest_arrival, zone]
         if result.status == "INFEASIBLE":
-            missing = [b.owner for b in briefs if not any(c.owner == b.owner and c.total_cents is not None and c.total_cents <= b.hard_cap_cents for c in candidates)]
-            update.update(research_target_owners=missing or list(snapshot.members),
-                research_blocker_code="NO_MATCHING_CANDIDATE" if not candidates else ("HARD_LIMIT" if missing else "ARRIVAL_OVERLAP"))
+            owners = sorted({c.owner for c in result.conflicts if c.owner})
+            update.update(research_target_owners=owners or list(snapshot.members),
+                research_blocker_code=RESEARCH_BLOCKER[result.conflicts[0].code] if result.conflicts else "NO_MATCHING_CANDIDATE")
         return update
 
     def dialogue(state):
@@ -90,14 +122,19 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         selected = {candidates[r]["owner"]: candidates[r] for r in state["selected"]}
         if set(selected) != set(snapshot.members):
             raise ContractError("INVALID_COVERAGE")
-        personal = build_personal(backend, claim, model)
+        impacts = {i.owner: i.model_dump(mode="json") for i in solution(state).impacts}
+        window = state.get("group_window") or None
+        # Private to each owner's agent: what this plan costs them and why. Passed by
+        # closure, not task state, because subgraph state is checkpointed.
+        personal = build_personal(backend, claim, model, impacts.get)
         questions, fingerprints = [], set()
         eligible = set()
         for owner in snapshot.members:
             thread_id = "conversation-" + digest([claim.generation, state["round"], state["cycle"], owner])[:24]
             initial = Payload(draft_ref=state["draft_ref"], evaluation="REQUESTED", candidate_refs=(selected[owner]["id"],))
             inbound_ref = send_message(backend, claim, state["snapshot"], "mediator", owner, Act.PROPOSE, initial,
-                thread_id, ("mediator", owner), state["round"], operation_ref=f"dispatch:{owner}:{state['cycle']}")
+                thread_id, ("mediator", owner), state["round"], operation_ref=f"dispatch:{owner}:{state['cycle']}",
+                candidate=selected[owner], group_window=window)
             sender, recipient, inbound_type = "mediator", owner, "PROPOSE"
             inbound_payload = initial.model_dump(mode="json")
             for turn in range(limits.thread_turns):
@@ -107,6 +144,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     "inbound_evidence": [candidates[ref] for ref in inbound_payload["candidate_refs"]],
                     "thread_id": thread_id, "round": state["round"], "snapshot": state["snapshot"],
                     "permitted_recipients": ["mediator", *snapshot.members],
+                    "window_seconds": snapshot.arrival_overlap_seconds,
                     "operation_ref": digest([claim.generation, state["round"], state["cycle"], owner, turn])}
                 result = personal.invoke({"task": task})
                 if result["questions"]:
@@ -146,10 +184,18 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         # all decisions are loaded from authoritative question records below.
         interrupt({"question_refs": state["questions"]})
         current()
-        answers = [backend.get_question(claim, q).answer for q in state["questions"]]
-        if any(a is None for a in answers):
+        questions = [backend.get_question(claim, q) for q in state["questions"]]
+        if any(q.answer is None for q in questions):
             raise ContractError("ANSWERS_NOT_READY")
-        return {"questions": [], "cycle": state["cycle"] + 1, "outcome": "" if all(answers) else "OWNER_DECLINED"}
+        update = {"questions": [], "cycle": state["cycle"] + 1, "outcome": ""}
+        declined = [q for q in questions if q.answer is False]
+        if declined and all(q.kind == "CONSULTATION" for q in declined) and state.get("selected"):
+            # "No, I won't pay more" is information, not a dead end: drop the fare
+            # they declined and re-solve, so the trade-off can shift to others.
+            owners = {c["id"]: c["owner"] for c in state["candidates"]}
+            refused = [ref for ref in state["selected"] if owners[ref] in {q.owner for q in declined}]
+            return {**update, "excluded": [*state.get("excluded", []), *refused], "resolve": True}
+        return {**update, "outcome": "OWNER_DECLINED" if declined else ""}
 
     def next_round(state):
         backend.close_threads(claim, "RESEARCH_REQUIRED")
@@ -164,14 +210,32 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         if not report.valid:
             evidence_only = bool(report.checks) and set(report.checks) <= {"INCOMPLETE_COST_EVIDENCE", "BAGGAGE_UNKNOWN"}
             return {"outcome": "EXPLORATORY_ONLY" if evidence_only else "VALIDATION_FAILED", "validation_checks": list(report.checks)}
-        ref = backend.publish_proposal(claim, tuple(state["selected"]), candidates, report, "publish")
+        result = solution(state)
+        zone = state["group_window"][2] if state.get("group_window") else None
+        ref = backend.publish_proposal(claim, tuple(state["selected"]), candidates, report, "publish",
+            explanation(result.group, result.impacts, zone) if result.group else None)
         return {"proposal_ref": ref, "outcome": "AWAITING_REVIEW"}
+
+    def exhausted(state):
+        if state["solver_status"] != "INFEASIBLE":
+            return {"outcome": "ROUND_BUDGET_EXHAUSTED"}
+        snapshot = current()
+        conflicts = solution(state).conflicts
+        for conflict in conflicts:
+            if conflict.owner:
+                note = owner_conflict_note(conflict, backend.read_brief(claim, conflict.owner))
+                backend.notify_owner(claim, conflict.owner, note, f"no-plan:{state['round']}:{conflict.owner}")
+        backend.room_event(claim, "NO_FEASIBLE_PLAN", {**room_conflict_event(conflicts), "travellers": len(snapshot.members)},
+                           f"no-plan:{state['round']}")
+        return {"outcome": "NO_FEASIBLE_CANDIDATE"}
 
     def route(state):
         if state.get("questions"):
             return "await_owner"
         if state.get("outcome"):
             return END
+        if state.get("research_unavailable"):
+            return "exhausted"
         if state.get("solver_status") == "INFEASIBLE" or state.get("need_research"):
             return "next_round" if state["round"] + 1 < limits.rounds else "exhausted"
         return "validate_publish"
@@ -179,14 +243,15 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
     builder = StateGraph(CoordinatorState)
     for name, fn in [("load_snapshot", load), ("discover", discover), ("solve", solve), ("dialogue", dialogue),
                      ("await_owner", await_owner), ("next_round", next_round), ("validate_publish", validate_publish),
-                     ("exhausted", lambda state: {"outcome": "NO_FEASIBLE_CANDIDATE" if state["solver_status"] == "INFEASIBLE" else "ROUND_BUDGET_EXHAUSTED"})]:
+                     ("exhausted", exhausted)]:
         builder.add_node(name, fn)
     builder.add_edge(START, "load_snapshot")
     builder.add_conditional_edges("load_snapshot", lambda s: "await_owner" if s["questions"] else "discover")
     builder.add_edge("discover", "solve")
     builder.add_conditional_edges("solve", lambda s: route(s) if s["outcome"] or s["solver_status"] == "INFEASIBLE" else "dialogue")
     builder.add_conditional_edges("dialogue", route)
-    builder.add_conditional_edges("await_owner", lambda s: END if s["outcome"] else ("dialogue" if s.get("selected") else "discover"))
+    builder.add_conditional_edges("await_owner", lambda s: END if s["outcome"] else
+                                  "solve" if s.get("resolve") else "dialogue" if s.get("selected") else "discover")
     builder.add_edge("next_round", "discover")
     builder.add_edge("validate_publish", END)
     builder.add_edge("exhausted", END)
@@ -195,3 +260,13 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
 
 def candidates_data(candidates):
     return [c.model_dump(mode="json") for c in candidates]
+
+
+def dedupe(candidates):
+    """Repeat searches return the same offer under new observation ids; keep the latest."""
+    latest = {}
+    for c in candidates:
+        key = (c.owner, c.flight_identity, c.total_cents, c.baggage_included) if c.flight_identity else c.id
+        if key not in latest or c.observed_at > latest[key].observed_at:
+            latest[key] = c
+    return sorted(latest.values(), key=lambda c: c.id)

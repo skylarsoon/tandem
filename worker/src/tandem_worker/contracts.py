@@ -51,7 +51,7 @@ class Snapshot(Record):
     permission_revision: int = 1
     members: tuple[str, ...]
     arrival_overlap_seconds: int = Field(default=7200, ge=0)
-    policy_version: Literal["flight_cost_v1"] = "flight_cost_v1"
+    policy_version: Literal["flight_cost_v1", "minimax_v1"] = "minimax_v1"
 
     @model_validator(mode="after")
     def valid_members(self):
@@ -193,11 +193,62 @@ class Question(Record):
     action_ref: str
     snapshot_ref: str
     answer: bool | None = None
+    # Owner-only wording of exactly what is being asked (never shown to the room).
+    prompt: str = ""
+
+
+class Impact(Record):
+    """One traveller's position in a plan. Private to that traveller."""
+    owner: str
+    candidate: str
+    price_cents: int
+    cheapest_alone_cents: int
+    extra_cents: int = Field(ge=0)
+    reason: Literal["NONE", "ARRIVAL_WINDOW"] = "NONE"
+
+
+class GroupSummary(Record):
+    """Room-safe facts about a plan: no caps, reasons or names."""
+    total_cents: int
+    earliest_arrival: int
+    latest_arrival: int
+    arrival_window_seconds: int
+    travellers_paying_extra: int = 0
+    max_extra_cents: int = 0
+    # The cheapest combination ignoring the shared arrival rule, when it differs.
+    cheapest_total_cents: int | None = None
+    cheapest_spread_seconds: int | None = None
+
+
+class Conflict(Record):
+    """Why no plan exists. Owner-specific conflicts go only to that owner."""
+    code: Literal["HARD_LIMIT", "BAGGAGE_UNAVAILABLE", "NO_CANDIDATES", "ARRIVAL_WINDOW"]
+    owner: str | None = None
+    cheapest_cents: int | None = None
+    closest_spread_seconds: int | None = None
+    required_seconds: int | None = None
+
+
+class ImpactNote(Record):
+    impact: Impact
+    text: str
+
+
+class Explanation(Record):
+    """Published with a proposal: `summary`/`group` are room-safe; each impact
+    note goes only to its owner."""
+    summary: str
+    group: GroupSummary
+    impacts: tuple[ImpactNote, ...] = ()
 
 
 class SolverResult(Record):
     status: Literal["OPTIMAL", "FEASIBLE", "INFEASIBLE", "MODEL_INVALID", "UNKNOWN"]
     selected: tuple[str, ...] = ()
+    policy_version: str = "flight_cost_v1"
+    impacts: tuple[Impact, ...] = ()
+    group: GroupSummary | None = None
+    conflicts: tuple[Conflict, ...] = ()
 
 
 class ResearchRequest(Record):

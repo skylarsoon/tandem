@@ -61,3 +61,31 @@ def test_extra_fields_and_free_chat_are_rejected():
 def test_unknown_message_schema_is_not_reinterpreted():
     with pytest.raises(ValidationError):
         Message.model_validate({"schema_version": 1})
+
+
+def test_candidate_facts_cite_typed_evidence_fields():
+    candidate = {"id": "apify-x", "total_cents": 62900, "arrival_epoch": 1_800_052_000, "arrival_timezone": "Pacific/Honolulu",
+                 "cost_basis": "COMPLETE_FLIGHT_TOTAL", "missing_critical_fields": [], "baggage_included": False}
+    facts = permitted_facts(Act.PROPOSE, Payload(draft_ref="d1", evaluation="REQUESTED"), candidate,
+                            (1_800_050_000, 1_800_052_000, "Pacific/Honolulu"))
+    assert facts == {
+        "act:PROPOSE": "Could you evaluate this option?",
+        "apify-x#price": "The fare is $629.00 including taxes.",
+        "apify-x#arrival": "It lands at 12:26 local time.",
+        "apify-x#bag": "No checked bag is included.",
+        "draft:d1#arrival_window": "Everyone would land between 11:53 and 12:26 local time.",
+    }
+    observed = {**candidate, "cost_basis": "OBSERVED_FLIGHT_PRICE", "baggage_included": None}
+    facts = permitted_facts(Act.PROPOSE, Payload(draft_ref="d1", evaluation="REQUESTED"), observed)
+    assert facts["apify-x#price"] == "The listed fare is $629.00; some fees are not confirmed."
+    assert facts["apify-x#bag"] == "Checked-bag coverage is not confirmed."
+
+
+@pytest.mark.parametrize("act,blocker,sentence", [
+    (Act.OBJECT, "HARD_LIMIT", "This option is outside what my traveller can commit to."),
+    (Act.OBJECT, "BAGGAGE_UNKNOWN", "My traveller needs a checked bag, and this fare doesn't confirm one."),
+    (Act.CLARIFY, "BAGGAGE_UNKNOWN", "Could you confirm whether this fare includes a checked bag?"),
+])
+def test_objections_name_the_kind_of_requirement_never_its_value(act, blocker, sentence):
+    facts = permitted_facts(act, Payload(draft_ref="d", evaluation="INELIGIBLE", blocker=blocker))
+    assert facts == {f"act:{act.value}": sentence}

@@ -16,7 +16,7 @@ from .contracts import Brief, ContractError, Record
 class LiveLimits(Record):
     model_calls: int = Field(default=4, ge=1, le=100)
     actor_runs: int = Field(default=1, ge=1, le=20)
-    max_output_tokens: int = Field(default=512, ge=128, le=2048)
+    max_output_tokens: int = Field(default=1536, ge=128, le=4096)
     max_items: int = Field(default=10, ge=1, le=100)
     max_charge_usd: float = Field(default=1.0, gt=0, le=10)
     http_timeout: float = Field(default=30, gt=0, le=30)

@@ -13,7 +13,11 @@ from .ports import SystemClock
 from .runner import Worker
 
 
-SCENARIOS = ("happy", "targeted-budget", "agent-objection", "clarification-restart")
+from .fixtures import FRICTION
+
+SCENARIOS = ("happy", "targeted-budget", "agent-objection", "clarification-restart", *FRICTION)
+# How each owner answers questions when a scenario pauses for them.
+ANSWERS = {"clarification-restart": True, "group-arrival": True, "concession-declined": False}
 
 
 def run_scenario(name, directory):
@@ -25,17 +29,18 @@ def run_scenario(name, directory):
     model = ScriptedModel(name)
     worker = Worker(backend, model, FixtureResearch(clock, name), directory / "checkpoints.sqlite", clock=clock)
     result = worker.run_one(job)
-    if name == "clarification-restart" and result["outcome"] == "WAITING_FOR_INPUT":
+    if name in ANSWERS and result["outcome"] == "WAITING_FOR_INPUT":
         # Reopen all connections/dependencies. The test suite also verifies this
         # sequence across two distinct Python OS processes.
         for owner in snapshot.members:
             for q in backend.owner_questions(owner):
                 if q.answer is None:
-                    backend.answer_question(owner, q.id, q.version, True, "fixture-answer:" + q.id)
+                    backend.answer_question(owner, q.id, q.version, ANSWERS[name], "fixture-answer:" + q.id)
         backend = LocalBackend(directory / "backend.sqlite", clock)
         worker = Worker(backend, ScriptedModel(name), FixtureResearch(clock, name), directory / "checkpoints.sqlite", clock=clock)
         result = worker.reconcile()[-1]
-    return {"result": result, "report": backend.shared_report(), "mode": "FIXTURE"}
+    return {"result": result, "report": backend.shared_report(), "mode": "FIXTURE",
+            "private": {owner: backend.owner_view(owner) for owner in snapshot.members}}
 
 
 def _main():

@@ -124,7 +124,7 @@ def smoke(config, settings, directory, *, clock=None, claude_client=None, apify_
     config.validate_dates(clock.now())
     settings.require()
     if (len(config.briefs) != 1 or config.limits.actor_runs != 1 or config.limits.model_calls > 4
-            or config.limits.max_charge_usd > 1 or config.limits.max_items > 10 or config.limits.max_output_tokens > 512):
+            or config.limits.max_charge_usd > 1 or config.limits.max_items > 10 or config.limits.max_output_tokens > 1536):
         raise ContractError("SMOKE_REQUIRES_ONE_PARTICIPANT_AND_SMALL_LIMITS")
     session = bind_session(directory, config, settings, "smoke", clock.now())
     directory = Path(directory)
