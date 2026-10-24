@@ -99,7 +99,16 @@ All take `jobId` + `attempt` and run the checks in §2 unless noted. "Key" = `re
 - open proposals
 
 **Publication.** Everything happens in one transaction:
-1. If `selectedCandidateRefs` is non-empty, the flight selection is re-checked (policy `flight_cost_v1`). Each candidate's `facts_json` must carry `owner_member_id`, `total_cents`, `arrival_epoch`, `observed_at`, `valid_until` (epoch seconds), `baggage_included`, and `cost_basis: "COMPLETE_FLIGHT_TOTAL"` with no `missing_critical_fields` (an observed price with unknown taxes or fees can't be published). The checks: one per active member, at or under each HARD `flight_budget_total`, baggage where `baggage_required` is true, prices not expired, arrivals within the room's `arrival_overlap_seconds`, and every traveller's preferences confirmed. Failures return `INVALID_PROPOSAL` / `INVALID_COVERAGE` / `INVALID_EVIDENCE_REF`.
+1. If `selectedCandidateRefs` is non-empty, the trip is re-checked (policy `minimax_v1`). A trip is one `FLIGHT` per active member plus exactly one of each shared part the room's `components` setting lists (`STAY`, `TRANSFER`), whose cost is split equally.
+   - **Every candidate's `facts_json`:** `category`, `total_cents`, `observed_at` and `valid_until` (epoch seconds), and `cost_basis` `COMPLETE_FLIGHT_TOTAL` / `COMPLETE_STAY_TOTAL` / `COMPLETE_TRANSFER_TOTAL` with no `missing_critical_fields`. An observed price with unknown taxes or fees can't be published.
+   - **Flights** also carry `owner_member_id`, `arrival_epoch` and `baggage_included`. **Shared items** carry `capacity` (guests or seats), which must fit every active member.
+   - **Hard limits:** each HARD `flight_budget_total`; each HARD `trip_budget_total` against own flight + equal share (compared as `n × flight + shared ≤ n × cap`, exact in cents); baggage where `baggage_required` is true; arrivals within `arrival_overlap_seconds`; every traveller's preferences confirmed; prices not expired.
+   - Room *preferences* that owners can set aside by consent (`own_bedroom`, `stay_min_rating`) are applied by the worker with consultation grants, not here.
+   - Failures return `INVALID_PROPOSAL` / `INVALID_COVERAGE` / `INVALID_EVIDENCE_REF`.
+2. **What the worker publishes:**
+   - `terms_json` = `{"scope": "TRIP" | "FLIGHTS_ONLY", "policy": "minimax_v1", "selected": [candidate…]}`.
+   - `shared_summary_json` = `{"scope", "travellers", "text", "group", "suggestions"}`. `text` is a room-safe paragraph (total, arrival window, what landing together costs, how many pay extra, stay, transfer, equal share, room-needs premium, activity/dinner ideas). `group` is the same as numbers. `suggestions` are activity and dinner ideas with *estimated* per-person prices, never part of what people approve.
+   - Each `impact_json` is private to its owner: `{owner, candidate, price_cents, flight_cents, share_cents, cheapest_alone_cents, extra_cents, reason: NONE | ARRIVAL_WINDOW | SHARED_CHOICE, text}`.
 2. The stage's previous proposal is superseded.
 3. Immutable terms are stored with `terms_digest = sha256(termsJson bytes)`. **Send canonical JSON.**
 4. Private impacts and `PENDING` consents are created, reminders scheduled, and the milestone set to `IN_REVIEW`.
@@ -109,7 +118,7 @@ All take `jobId` + `attempt` and run the checks in §2 unless noted. "Key" = `re
 
 | Operation | Arguments | Purpose |
 |---|---|---|
-| `record_candidates` | `requestKey`, `candidates[{candidate_ref, candidate_set_version, category, mode, source_url, observed_at, facts_json, missing_fields}]` | Upsert sourced options, stamped with the job's input and membership revisions. `mode`: `APIFY_OBSERVED`, `PROVIDER_VERIFIED`, `CACHED_WITH_TIMESTAMP`, `SANDBOX`, `FIXTURE`. |
+| `record_candidates` | `requestKey`, `candidates[{candidate_ref, candidate_set_version, category, mode, source_url, observed_at, facts_json, missing_fields}]` | `category`: `FLIGHT` (one traveller's), `STAY` / `TRANSFER` (shared), `ACTIVITY` / `DINNER` (ideas, estimated per-person prices). Upsert sourced options, stamped with the job's input and membership revisions. `mode`: `APIFY_OBSERVED`, `PROVIDER_VERIFIED`, `CACHED_WITH_TIMESTAMP`, `SANDBOX`, `FIXTURE`. |
 | `reply_to_owner` | `requestKey`, `memberId`, `body` | Agent → owner message in the private My Agent chat. |
 | `propose_constraint_patch` | `requestKey`, `memberId`, `patchJson`, `sourceMessageId?` | Tentative extraction for the owner to confirm. Shape: `{"key", "value", "unit", "hardness", "authorized_range"?, "private_rationale"?}`. |
 | `propose_participation_preferences` | `requestKey`, `memberId`, `speakUpForMe`, `askMeFirst`, `giveMeTime` | Suggested settings; stay unconfirmed and grant nothing. Refused once confirmed. |
@@ -126,10 +135,10 @@ Job statuses: `PENDING` → `CLAIMED` → `WAITING_FOR_INPUT` / `SUCCEEDED` / `F
 |---|---|---|
 | `create_room` | `goal`, `displayName` | Creates the room (settings `{"arrival_overlap_seconds": 7200}`), the mediator agent, your membership and personal agent, five milestones, and an invite code. |
 | `join_room` | `inviteCode`, `displayName` | Bumps the membership revision. |
-| `set_room_settings` | `roomId`, `settingsJson` | Organizer only. Shared rules such as `arrival_overlap_seconds`. New generation. |
+| `set_room_settings` | `roomId`, `settingsJson` | Organizer only. Shared rules: `arrival_overlap_seconds`, and `components` (`["FLIGHT"]` by default; `["FLIGHT","STAY","TRANSFER"]` plans the whole trip). New generation. |
 | `upsert_profile` | `displayName`, `avatarRef`, `selfDescription`, `priorityRanking[]` | |
 | `confirm_participation_preferences` | `speakUpForMe`, `askMeFirst`, `giveMeTime`, `remindersOptedIn` | Defaults before confirmation: off / on / on / off, **unconfirmed**. Confirming or editing bumps the permission revision in all your rooms (new generation). |
-| `set_constraint` | `roomId`, `key`, `valueJson`, `unit`, `hardness` (`HARD`/`SOFT`), `authorizedRangeJson?`, `privateRationale?` | Form entry = confirmed. New generation. The room sees only "A participant updated their requirements". Keys the worker understands: `flight_budget_total` (USD cents; SOFT budgets use `authorized_range.max` as the cap) and `baggage_required` (`true`). |
+| `set_constraint` | `roomId`, `key`, `valueJson`, `unit`, `hardness` (`HARD`/`SOFT`), `authorizedRangeJson?`, `privateRationale?` | Form entry = confirmed. New generation. The room sees only "A participant updated their requirements". Keys the worker understands: `flight_budget_total` (USD cents; SOFT budgets use `authorized_range.max` as the cap), `trip_budget_total` (USD cents, HARD: own flight + equal share of stay and transfer), `baggage_required` (`true`), `own_bedroom` (`true`) and `stay_min_rating` (0–5). |
 | `confirm_constraint_patch` / `reject_constraint_patch` | `patchId` | Confirming applies it like `set_constraint`. |
 | `submit_private_message` | `roomId`, `body` | Message to your own agent; queues an `INTERPRET` job. |
 | `answer_question` | `questionId`, `version`, `answerJson` | See §6. Wrong owner → `NOT_FOUND`; not open or wrong version → `QUESTION_SUPERSEDED`. |
@@ -167,7 +176,7 @@ Checks, in one transaction (nothing is written if any fail):
      - `concession` with ask-me-first → `CONCESSION_CONSULTATION`
      - `exceeds_exploration` → `BROADER_EXPLORATION`
    - no owner's private rationale appears in the text (case-insensitive, 6+ characters; `PRIVATE_CONTENT_DETECTED`)
-   - each claim ref is `act:<TYPE>` for this message's type, a recorded candidate, `msg:<id>`, `proposal:<id>` or `draft:<ref>` (`UTTERANCE_PAYLOAD_MISMATCH`)
+   - each claim ref is `act:<TYPE>` for this message's type, a recorded candidate, `msg:<id>`, `proposal:<id>` or `draft:<ref>`, optionally citing one field as `<ref>#<field>` (e.g. `cand_1#price`, `draft:d1#arrival_window`; the record must resolve) (`UTTERANCE_PAYLOAD_MISMATCH`)
 8. **OWNER_PRIVATE:** a personal agent may only speak to its own owner; the mediator must name `audienceMemberId`.
 9. **Turn charge:** one turn is charged to the thread and the round. The thread closes at its budget (`TURN_BUDGET`); all of the round's open threads close at 24 (`ROUND_BUDGET`). Replays don't charge.
 
@@ -232,6 +241,12 @@ All 22 views are per-caller and update live.
 - `operation()` goes through `begin_operation` / `complete_operation` with `Limits.model_calls` / `research_calls`.
 - `answer_question()` acts as the owner and needs `owner_tokens`; it exists for fixtures and demos. Real answers come from the app.
 - `room_id` limits `eligible_jobs()` to one room and scopes claim keys.
+- `notify_owner()` is `reply_to_owner` (an AGENT row in that owner's `my_private_messages`). `room_event()` is `emit_event` with no member (a ROOM row in `room_events`).
+
+**What people see when no plan fits** (`job.outcome = NO_FEASIBLE_CANDIDATE`):
+- **Room:** one `NO_FEASIBLE_PLAN` event. `safe_payload_json` has `text`, `blocked_travellers` (counts by cause: `HARD_LIMIT`, `TRIP_LIMIT`, `BAGGAGE_UNAVAILABLE`, `NO_CANDIDATES`), `blocked_requirements`, and for an arrival clash `closest_spread_seconds` / `required_seconds`. It never names anyone or states a limit.
+- **Each blocked traveller:** a private note with their own numbers, e.g. "the cheapest trip found for you is $630.00 … above your $600.00 trip limit".
+- **Room requirements:** when someone's own-room request or minimum rating is what blocks the plan (or pushes another traveller over their limit), only that person's agent asks them first, as a `CONCESSION_CONSULTATION` with `action_ref` `relax-bedrooms-r<input_revision>` / `relax-rating-r<…>`. A grant re-plans with the requirement set aside; a refusal ends in the private notes above.
 
 ---
 
@@ -252,7 +267,7 @@ All 22 views are per-caller and update live.
 1. **Wording:** semantic validation stays in the worker. The module enforces the mechanical checks in §5 and verifies the worker's validation digest.
 2. **Grants:** a granted disclosure, consultation or exploration starts a new generation. A refusal or a plain missing-fact answer resumes the same one.
 3. **Gates:** unconfirmed preferences, disclosure, consultation and exploration are enforced server-side; reminders and urgency are worker policy plus opt-in reminders.
-4. **Publication:** flight selections are re-validated in the module.
+4. **Publication:** trip selections (flights, shared stay and transfer) are re-validated in the module.
 5. **Waking the worker:** the dispatcher POSTs to `WORKER_WAKE_URL`, and the worker also polls `eligible_jobs()`.
 
 **Still open:**
