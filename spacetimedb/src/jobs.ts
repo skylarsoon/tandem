@@ -18,7 +18,7 @@ import {
   withReceipt,
 } from './guards';
 import { findIntake } from './onboarding';
-import { compromiseHistory, resumeJobIfReady } from './effects';
+import { commitments, compromiseHistory, decisionOf, resumeJobIfReady } from './effects';
 
 function micros(ts: Timestamp | undefined): string | null {
   return ts ? ts.microsSinceUnixEpoch.toString() : null;
@@ -260,14 +260,32 @@ function buildContext(ctx: Ctx, j: JobRow) {
 
   const proposals = [...ctx.db.proposal.byRoomStage.filter(r.id)]
     .filter(p => p.state === 'AWAITING_REVIEW' || p.state === 'AGREED')
-    .map(p => ({
-      proposal_id: num(p.id),
-      stage: p.stage,
-      version: p.version,
-      state: p.state,
-      terms_digest: p.termsDigest,
-      terms: parsed(p.termsJson),
-    }));
+    .map(p => {
+      const d = decisionOf(ctx, p);
+      return {
+        proposal_id: num(p.id),
+        stage: p.stage,
+        decision_id: d.decisionId,
+        scope: d.scope,
+        version: p.version,
+        state: p.state,
+        terms_digest: p.termsDigest,
+        terms: parsed(p.termsJson),
+        selected_candidate_refs: d.selectedRefs,
+      };
+    });
+
+  // What the group already agreed, one entry per decision: later decisions
+  // build on these and the module checks new proposals against them.
+  const agreed = commitments(ctx, r.id).map(c => ({
+    decision_id: c.decisionId,
+    scope: c.scope,
+    stage: c.proposal.stage,
+    proposal_id: num(c.proposal.id),
+    version: c.proposal.version,
+    terms_digest: c.proposal.termsDigest,
+    selected_candidate_refs: c.selectedRefs,
+  }));
 
   // Onboarding: the shared brief, each member's onboarding state (not contents),
   // and, for an onboarding job, the one member it serves: their private
@@ -338,6 +356,7 @@ function buildContext(ctx: Ctx, j: JobRow) {
     messages,
     candidates,
     proposals,
+    commitments: agreed,
     compromise_history,
   };
 }

@@ -87,7 +87,6 @@ export type AgentStatus = __Infer<typeof AgentStatus>;
 
 export const BurdenInput = __t.object("BurdenInput", {
   memberId: __t.u64(),
-  taskId: __t.string(),
   burdenMicros: __t.u32(),
 });
 export type BurdenInput = __Infer<typeof BurdenInput>;
@@ -154,7 +153,7 @@ export const CompromiseEntry = __t.object("CompromiseEntry", {
   roomId: __t.u64(),
   memberId: __t.u64(),
   owner: __t.identity(),
-  taskId: __t.string(),
+  decisionId: __t.string(),
   proposalId: __t.u64(),
   proposalVersion: __t.u32(),
   termsDigest: __t.string(),
@@ -169,7 +168,7 @@ export type CompromiseEntry = __Infer<typeof CompromiseEntry>;
 export const CompromiseRow = __t.object("CompromiseRow", {
   id: __t.u64(),
   roomId: __t.u64(),
-  taskId: __t.string(),
+  decisionId: __t.string(),
   proposalId: __t.u64(),
   proposalVersion: __t.u32(),
   stage: __t.string(),
@@ -527,15 +526,25 @@ export const ProposalBurden = __t.object("ProposalBurden", {
   proposalId: __t.u64(),
   roomId: __t.u64(),
   memberId: __t.u64(),
-  taskId: __t.string(),
   burdenMicros: __t.u32(),
 });
 export type ProposalBurden = __Infer<typeof ProposalBurden>;
+
+export const ProposalDecision = __t.object("ProposalDecision", {
+  proposalId: __t.u64(),
+  roomId: __t.u64(),
+  decisionId: __t.string(),
+  scope: __t.string(),
+  selectedRefs: __t.array(__t.string()),
+});
+export type ProposalDecision = __Infer<typeof ProposalDecision>;
 
 export const ProposalRow = __t.object("ProposalRow", {
   id: __t.u64(),
   roomId: __t.u64(),
   stage: __t.string(),
+  decisionId: __t.string(),
+  scope: __t.string(),
   version: __t.u32(),
   termsJson: __t.string(),
   termsDigest: __t.string(),

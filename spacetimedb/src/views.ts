@@ -60,6 +60,8 @@ const ProposalRow = t.row('ProposalRow', {
   id: t.u64().primaryKey(),
   roomId: t.u64(),
   stage: t.string(),
+  decisionId: t.string(),
+  scope: t.string(),
   version: t.u32(),
   termsJson: t.string(),
   termsDigest: t.string(),
@@ -101,7 +103,7 @@ const ImpactRow = t.row('ImpactRow', {
 const CompromiseRow = t.row('CompromiseRow', {
   id: t.u64().primaryKey(),
   roomId: t.u64(),
-  taskId: t.string(),
+  decisionId: t.string(),
   proposalId: t.u64(),
   proposalVersion: t.u32(),
   stage: t.string(),
@@ -255,6 +257,9 @@ export const roomProposals = spacetimedb.view({ name: 'room_proposals', public: 
       id: p.id,
       roomId: p.roomId,
       stage: p.stage,
+      // Proposals from before decisions existed count as one decision per stage.
+      decisionId: ctx.db.proposalDecision.proposalId.find(p.id)?.decisionId ?? p.stage,
+      scope: ctx.db.proposalDecision.proposalId.find(p.id)?.scope ?? 'LEGACY',
       version: p.version,
       termsJson: p.termsJson,
       termsDigest: p.termsDigest,
@@ -283,7 +288,7 @@ export const myCompromises = spacetimedb.view({ name: 'my_compromises', public: 
   [...ctx.db.compromiseEntry.byOwner.filter(ctx.sender)].map(e => ({
     id: e.id,
     roomId: e.roomId,
-    taskId: e.taskId,
+    decisionId: e.decisionId,
     proposalId: e.proposalId,
     proposalVersion: e.proposalVersion,
     stage: e.stage,

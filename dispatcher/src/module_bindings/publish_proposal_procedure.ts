@@ -20,6 +20,8 @@ export const params = {
   attempt: __t.u32(),
   requestKey: __t.string(),
   stage: __t.string(),
+  decisionId: __t.string(),
+  scope: __t.string(),
   termsJson: __t.string(),
   sharedSummaryJson: __t.string(),
   validationJson: __t.string(),

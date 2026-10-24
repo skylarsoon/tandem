@@ -217,7 +217,7 @@ The client never polls, and the UI never shows a half-applied transaction.
 ```
 Browsers (Next.js) ── subscribe to per-caller views ──▶ ┌──────────────────────────────┐
          └────────── call reducers (human actions) ───▶ │  SpacetimeDB module (TS)      │
-                                                        │  34 private tables            │
+                                                        │  35 private tables            │
 Dispatcher (Node) ── subscribes to worker_pending_jobs ─│  38 reducers · 5 procedures   │
          │ POST /wake                                   │  26 views · 2 scheduled tasks │
          ▼                                              └──────────────────────────────┘

@@ -435,7 +435,8 @@ class SpacetimeBackend:
 
     # ---------- results ----------
 
-    def publish_proposal(self, claim, selected, candidates, report, key, explanation=None, burdens=None):
+    def publish_proposal(self, claim, selected, candidates, report, key, explanation=None, burdens=None,
+                         decision_id="trip", scope="COMPLETE_PLAN", stage="TRAVEL"):
         report = ValidationReport.model_validate(primitive(report))
         if not report.valid or report.snapshot_ref != claim.snapshot_ref or report.selected != tuple(selected) \
                 or report.candidate_digest != digest([primitive(c) for c in candidates]):
@@ -444,15 +445,16 @@ class SpacetimeBackend:
         members = self._members(ctx)
         chosen = {c.id: c for c in (Candidate.model_validate(primitive(c)) for c in candidates)}
         records = [chosen[ref] for ref in selected]
-        scope = "TRIP" if any(r.category != "FLIGHT" for r in records) else "FLIGHTS_ONLY"
-        terms = {"scope": scope, "policy": POLICY, "selected": [primitive(r) for r in records]}
-        summary = {"scope": scope, "travellers": sum(1 for r in records if r.category == "FLIGHT")}
+        extent = "TRIP" if any(r.category != "FLIGHT" for r in records) else "FLIGHTS_ONLY"
+        terms = {"scope": extent, "policy": POLICY, "selected": [primitive(r) for r in records]}
+        summary = {"scope": extent, "travellers": sum(1 for r in records if r.category == "FLIGHT")}
         notes = {}
         if explanation is not None:
             summary.update(text=explanation.summary, group=explanation.group.model_dump(mode="json"),
                            suggestions=[i.model_dump(mode="json") for i in explanation.suggestions])
             notes = {n.impact.owner: {**n.impact.model_dump(mode="json"), "text": n.text} for n in explanation.impacts}
-        result = self.http.procedure(self.token, "publish_proposal", request_key=f"{claim.job_id}:{key}", stage="TRAVEL",
+        result = self.http.procedure(self.token, "publish_proposal", request_key=f"{claim.job_id}:{key}", stage=stage,
+            decision_id=decision_id, scope=scope,
             terms_json=json.dumps(terms, sort_keys=True, separators=(",", ":")),
             shared_summary_json=json.dumps(summary, sort_keys=True),
             validation_json=json.dumps(report.model_dump(mode="json"), sort_keys=True),
@@ -460,8 +462,8 @@ class SpacetimeBackend:
             impacts=[{"member_id": members[r.owner]["member_id"],
                       "impact_json": json.dumps(notes.get(r.owner, {"total_cents": r.total_cents}), sort_keys=True)}
                      for r in records if r.owner],
-            burdens=[{"member_id": members[owner]["member_id"], "task_id": task, "burden_micros": round(b * 1_000_000)}
-                     for (owner, task), b in (burdens or {}).items()],
+            burdens=[{"member_id": members[owner]["member_id"], "burden_micros": round(b * 1_000_000)}
+                     for owner, b in (burdens or {}).items()],
             selected_candidate_refs=list(selected), **self._attempt(claim))
         return str(result["proposal_id"])
 

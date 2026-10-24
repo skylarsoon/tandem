@@ -3,6 +3,7 @@ import type { Identity } from 'spacetimedb';
 import {
   type Ctx,
   HARDNESS,
+  OPEN_JOB_STATUSES,
   createJob,
   emitEvent,
   fail,
@@ -10,8 +11,8 @@ import {
   nonEmpty,
   oneOf,
   parseJson,
+  refreshMilestone,
   requireRoom,
-  setMilestone,
 } from './guards';
 
 // Shared state transitions used by several reducers. Not exported from the
@@ -145,21 +146,57 @@ export function recomputeAgreement(ctx: Ctx, proposalId: bigint): void {
   if (next === p.state) return;
   ctx.db.proposal.id.update({ ...p, state: next });
   settleCompromise(ctx, p, next === 'AGREED');
-  setMilestone(ctx, p.roomId, p.stage, next === 'AGREED' ? 'AGREED' : 'IN_REVIEW', p.id);
+  refreshMilestone(ctx, p.roomId, p.stage);
+  const decision = decisionOf(ctx, p);
   emitEvent(ctx, p.roomId, next === 'AGREED' ? 'PROPOSAL_AGREED' : 'PROPOSAL_REOPENED', {
     proposal_id: Number(p.id),
     version: p.version,
     stage: p.stage,
+    decision_id: decision.decisionId,
   });
+  // Sequential planning: once one part of the trip is agreed, plan the next
+  // one on top of it. A complete plan or general agreement needs no follow-up.
+  if (next === 'AGREED' && PARTIAL_SCOPES.includes(decision.scope)) {
+    const open = [...ctx.db.job.byRoom.filter(p.roomId)].some(j => j.kind === 'PLAN' && OPEN_JOB_STATUSES.includes(j.status));
+    if (!open) createJob(ctx, requireRoom(ctx, p.roomId), 'PLAN', `decision ${decision.decisionId} agreed`);
+  }
 }
+
+const PARTIAL_SCOPES = ['FLIGHT_BUNDLE', 'SINGLE_SHARED_BOOKING', 'ACTIVITY_DECISION'];
 
 type ProposalRow = NonNullable<ReturnType<Ctx['db']['proposal']['id']['find']>>;
 
+// The decision a proposal belongs to. Proposals from before decisions existed
+// count as one decision per stage.
+export function decisionOf(ctx: Ctx, p: ProposalRow): { decisionId: string; scope: string; selectedRefs: string[] } {
+  const d = ctx.db.proposalDecision.proposalId.find(p.id);
+  return d ?? { decisionId: p.stage, scope: 'LEGACY', selectedRefs: [] };
+}
+
+// A newer version of the same decision replaces this one: the old terms can no
+// longer be approved, and its compromise stops counting.
+export function supersedeProposal(ctx: Ctx, p: ProposalRow): void {
+  ctx.db.proposal.id.update({ ...p, state: 'SUPERSEDED' });
+  for (const c of [...ctx.db.consent.byProposalMember.filter(p.id)]) {
+    ctx.db.consent.id.update({ ...c, response: 'STALE', updatedAt: ctx.timestamp });
+  }
+  for (const e of [...ctx.db.compromiseEntry.byProposal.filter(p.id)]) {
+    if (e.state === 'ACTIVE') ctx.db.compromiseEntry.id.update({ ...e, state: 'SUPERSEDED', updatedAt: ctx.timestamp });
+  }
+}
+
+// Agreed decisions are the room's commitments: what later decisions build on
+// and are checked against.
+export function commitments(ctx: Ctx, roomId: bigint) {
+  return [...ctx.db.proposal.byRoomStage.filter(roomId)]
+    .filter(p => p.state === 'AGREED')
+    .map(p => ({ proposal: p, ...decisionOf(ctx, p) }));
+}
+
 // The compromise ledger follows agreement, never suggestion. On AGREED, the
-// burdens frozen at publish become ACTIVE entries (one per member and decision,
-// so a repeated transition can't count twice) and supersede earlier entries for
-// the same decisions. When agreement is lost (a withdrawn approval), this
-// proposal's entries are REVOKED; superseded ones stay superseded.
+// burdens frozen at publish become ACTIVE entries, one per member, so a
+// repeated transition can't count twice. When agreement is lost (a withdrawn
+// approval) they are REVOKED, and come back if everyone accepts again.
 function settleCompromise(ctx: Ctx, p: ProposalRow, agreed: boolean): void {
   const entries = [...ctx.db.compromiseEntry.byProposal.filter(p.id)];
   if (!agreed) {
@@ -168,10 +205,9 @@ function settleCompromise(ctx: Ctx, p: ProposalRow, agreed: boolean): void {
     }
     return;
   }
-  const tasks = new Set<string>();
+  const { decisionId } = decisionOf(ctx, p);
   for (const b of ctx.db.proposalBurden.byProposal.filter(p.id)) {
-    tasks.add(b.taskId);
-    const existing = entries.find(e => e.memberId === b.memberId && e.taskId === b.taskId);
+    const existing = entries.find(e => e.memberId === b.memberId);
     if (existing) {
       ctx.db.compromiseEntry.id.update({ ...existing, state: 'ACTIVE', updatedAt: ctx.timestamp });
       continue;
@@ -183,7 +219,7 @@ function settleCompromise(ctx: Ctx, p: ProposalRow, agreed: boolean): void {
       roomId: p.roomId,
       memberId: b.memberId,
       owner: m.member,
-      taskId: b.taskId,
+      decisionId,
       proposalId: p.id,
       proposalVersion: p.version,
       termsDigest: p.termsDigest,
@@ -193,13 +229,6 @@ function settleCompromise(ctx: Ctx, p: ProposalRow, agreed: boolean): void {
       createdAt: ctx.timestamp,
       updatedAt: ctx.timestamp,
     });
-  }
-  for (const taskId of tasks) {
-    for (const e of [...ctx.db.compromiseEntry.byRoomTask.filter([p.roomId, taskId])]) {
-      if (e.state === 'ACTIVE' && e.proposalId !== p.id) {
-        ctx.db.compromiseEntry.id.update({ ...e, state: 'SUPERSEDED', updatedAt: ctx.timestamp });
-      }
-    }
   }
 }
 

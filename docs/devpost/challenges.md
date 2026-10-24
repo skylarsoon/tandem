@@ -117,9 +117,15 @@ Each is now a regression test. The rerun took 155 seconds instead of about 9 min
 **Fairness that remembers, without trusting the optimizer.** The optimizer wanted a running total of what each person has given up across decisions, so whoever compromised on flights gets priority on the stay. The risk was counting a burden that nobody actually approved, or counting it twice. So the optimizer doesn't write the ledger. It hands its scores to the database along with the plan, and the database moves them into the ledger itself, in the same transaction where the last person's "yes" makes the plan agreed.
 - A retry can't count twice.
 - A withdrawn "yes" takes the burden back out.
-- A replacement decision cancels the old one only once the replacement is agreed.
+- A new version of a decision replaces the old one's burden instead of adding to it.
 
 Burdens are stored as millionths, not floats, so a person's total stays exact however many decisions it adds up.
+
+**One agreement per stage wasn't enough.** Publishing a plan replaced every earlier plan in the same stage, so agreeing on hiking would have silently cancelled the snorkeling everyone had already approved. Each proposal is now a version of one named decision, and only versions of the same decision replace each other. Agreed decisions become commitments, and the database checks every new proposal against them:
+- a stay that fits a budget on its own but breaks it on top of the agreed flights is refused as a conflict, not as a bad plan;
+- so is an activity that overlaps one already agreed.
+
+Agreeing one part also queues planning of the next.
 
 **Adding an argument broke every caller at once.** SpacetimeDB rejects a call that is missing an argument ("missing reducer argument `burdens`"), so adding one to `publish_proposal` broke the simulator, the worker and the tests together. Every caller is now updated in the same commit, and the module and the worker have to be deployed together.
 

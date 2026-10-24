@@ -13,7 +13,7 @@ import {
 export default __t.row({
   id: __t.u64().primaryKey(),
   roomId: __t.u64().name("room_id"),
-  taskId: __t.string().name("task_id"),
+  decisionId: __t.string().name("decision_id"),
   proposalId: __t.u64().name("proposal_id"),
   proposalVersion: __t.u32().name("proposal_version"),
   stage: __t.string(),

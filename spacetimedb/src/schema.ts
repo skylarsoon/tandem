@@ -574,7 +574,26 @@ const consent = table(
   }
 );
 
-// What each person would give up per decision if a proposal is agreed, as the
+// Which decision a proposal is a version of (e.g. "flights", "stay",
+// "activity_snorkeling"), what kind of decision it is (its scope, which picks
+// the validation), and the candidates it selects. One row per proposal. A new
+// proposal supersedes only earlier versions of the same decision, so separate
+// decisions in one stage are agreed independently.
+const proposalDecision = table(
+  {
+    name: 'proposal_decision',
+    indexes: [{ accessor: 'byRoomDecision', algorithm: 'btree', columns: ['roomId', 'decisionId'] }],
+  },
+  {
+    proposalId: t.u64().primaryKey(),
+    roomId: t.u64(),
+    decisionId: t.string(),
+    scope: t.string(),
+    selectedRefs: t.array(t.string()),
+  }
+);
+
+// What each person would give up if a proposal is agreed (0..1), as the
 // optimizer scored it at publish. Immutable; the ledger copies it on agreement.
 const proposalBurden = table(
   {
@@ -586,21 +605,19 @@ const proposalBurden = table(
     proposalId: t.u64(),
     roomId: t.u64(),
     memberId: t.u64(),
-    taskId: t.string(),
     // Millionths of the 0..1 compromise burden: exact integers, exact sums.
     burdenMicros: t.u32(),
   }
 );
 
-// Approved compromise, per person and decision (taskId). Written only by the
-// module when a proposal becomes AGREED; a later agreed proposal for the same
-// decision supersedes it, and a withdrawn approval revokes it. The sum of a
-// member's ACTIVE entries is their cumulative burden H_i for the optimizer.
+// Approved compromise, per person and decision. ACTIVE exactly while its
+// proposal is AGREED: a new version of the decision supersedes it, a withdrawn
+// approval revokes it. The sum of a member's ACTIVE entries is their
+// cumulative burden H_i for the optimizer.
 const compromiseEntry = table(
   {
     name: 'compromise_entry',
     indexes: [
-      { accessor: 'byRoomTask', algorithm: 'btree', columns: ['roomId', 'taskId'] },
       { accessor: 'byProposal', algorithm: 'btree', columns: ['proposalId'] },
       { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] },
     ],
@@ -610,7 +627,7 @@ const compromiseEntry = table(
     roomId: t.u64(),
     memberId: t.u64(),
     owner: t.identity(),
-    taskId: t.string(),
+    decisionId: t.string(),
     proposalId: t.u64(),
     proposalVersion: t.u32(),
     termsDigest: t.string(),
@@ -669,6 +686,7 @@ const spacetimedb = schema({
   proposal,
   participantImpact,
   consent,
+  proposalDecision,
   proposalBurden,
   compromiseEntry,
   milestone,

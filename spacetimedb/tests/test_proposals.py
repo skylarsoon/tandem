@@ -151,10 +151,11 @@ def record_flights(room: Room, worker, job_id: int, overrides: dict | None = Non
     return refs
 
 
-def publish_selected(room: Room, worker, job_id: int, refs: list[str]) -> dict:
+def publish_selected(room: Room, worker, job_id: int, refs: list[str], scope: str = "COMPLETE_PLAN",
+                     decision_id: str = "trip", stage: str = "TRAVEL") -> dict:
     return room.client.procedure(
         worker, "publish_proposal", job_id=job_id, attempt=room.leases[job_id], request_key=key("publish"),
-        stage="TRAVEL", terms_json=json.dumps({"selected": refs}), shared_summary_json="{}",
+        stage=stage, decision_id=decision_id, scope=scope, terms_json=json.dumps({"selected": refs}), shared_summary_json="{}",
         validation_json="{}", evidence_refs=refs, affected_member_ids=[], impacts=[], burdens=[], selected_candidate_refs=refs)
 
 

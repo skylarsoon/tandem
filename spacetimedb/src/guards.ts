@@ -339,7 +339,7 @@ export function invalidateRoom(ctx: Ctx, roomId: bigint, change: RevisionChange,
     for (const c of [...ctx.db.consent.byProposalMember.filter(p.id)]) {
       ctx.db.consent.id.update({ ...c, response: 'STALE', updatedAt: ctx.timestamp });
     }
-    setMilestone(ctx, roomId, p.stage, 'REOPENED', undefined);
+    refreshMilestone(ctx, roomId, p.stage);
   }
 
   if (roomHasConstraints(ctx, roomId)) createJob(ctx, r, 'PLAN', reason);
@@ -350,6 +350,21 @@ export function closeJobThreads(ctx: Ctx, jobId: bigint, reason: string): void {
   for (const th of [...ctx.db.conversationThread.byJob.filter(jobId)]) {
     if (th.state === 'OPEN') ctx.db.conversationThread.id.update({ ...th, state: 'CLOSED', closureReason: reason });
   }
+}
+
+// A stage holds several independent decisions, so its milestone is derived from
+// all of them: IN_REVIEW while any is awaiting review, AGREED once those that
+// remain are agreed, REOPENED when none is live.
+export function refreshMilestone(ctx: Ctx, roomId: bigint, stage: string): void {
+  let pending: bigint | undefined;
+  let agreed: bigint | undefined;
+  for (const p of ctx.db.proposal.byRoomStage.filter([roomId, stage])) {
+    if (p.state === 'AWAITING_REVIEW' && (pending === undefined || p.id > pending)) pending = p.id;
+    if (p.state === 'AGREED' && (agreed === undefined || p.id > agreed)) agreed = p.id;
+  }
+  if (pending !== undefined) setMilestone(ctx, roomId, stage, 'IN_REVIEW', pending);
+  else if (agreed !== undefined) setMilestone(ctx, roomId, stage, 'AGREED', agreed);
+  else setMilestone(ctx, roomId, stage, 'REOPENED', undefined);
 }
 
 export function setMilestone(ctx: Ctx, roomId: bigint, stage: string, state: string, proposalId: bigint | undefined): void {

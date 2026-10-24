@@ -83,7 +83,7 @@ All take `jobId` + `attempt` and run the checks in §2 unless noted. "Key" = `re
 | `ask_owner` | reducer | `jobId`, `attempt`, `requestKey`, `memberId`, `kind`, `actionJson` (`{"action_ref": "<draft>"}`), `prompt`, `answerSchemaJson`, `threadId?` | Private versioned question (v1). Kinds: `MISSING_FACT`, `PARTICIPATION_CONFIRMATION`, `OBJECTION_DISCLOSURE`, `CONCESSION_CONSULTATION`, `BROADER_EXPLORATION`. `threadId` closes that thread with `WAITING_FOR_OWNER`. Context lists the question under its `request_key`. |
 | `park_job` | reducer | `jobId`, `attempt`, `requestKey`, `graphThreadRef`, `questionIds[]` | `WAITING_FOR_INPUT`, lease released, `graph_thread_ref` stored, open threads closed (`NEEDS_OWNER_INPUT`). If every listed question is already answered, the job goes straight back to `PENDING`. |
 | `schedule_resume` | (built in) | | No call needed: `answer_question` and `park_job` requeue the job once all its questions are answered. Resume with a new `claim_job`; `graph_thread_ref` comes back in the claim. |
-| `publish_proposal` | procedure | `jobId`, `attempt`, `requestKey`, `stage`, `termsJson`, `sharedSummaryJson`, `validationJson`, `evidenceRefs[]`, `affectedMemberIds[]` (empty = all active), `impacts[{member_id, impact_json}]`, `burdens[{member_id, task_id, burden_micros}]` (may be empty), `selectedCandidateRefs[]` | See "Publication" below. Returns `proposal_id`, `version`, `terms_digest`; retrying the same key returns the same proposal. Stages: `UNDERSTAND`, `GOALS_DATES`, `TRAVEL`, `STAY_EXPERIENCES`, `COMPLETE_PLAN`. |
+| `publish_proposal` | procedure | `jobId`, `attempt`, `requestKey`, `stage`, `decisionId`, `scope`, `termsJson`, `sharedSummaryJson`, `validationJson`, `evidenceRefs[]`, `affectedMemberIds[]` (empty = all active), `impacts[{member_id, impact_json}]`, `burdens[{member_id, burden_micros}]` (may be empty), `selectedCandidateRefs[]` | See "Publication" below. Returns `proposal_id`, `version`, `terms_digest`; retrying the same key returns the same proposal. Stages: `UNDERSTAND`, `GOALS_DATES`, `TRAVEL`, `STAY_EXPERIENCES`, `COMPLETE_PLAN`. |
 | `finish_job` | reducer | `jobId`, `attempt`, `requestKey`, `outcome`, `outcomeJson` | Terminal `FINISHED` (e.g. `NO_FEASIBLE_CANDIDATE`, `OWNER_DECLINED`); closes threads. |
 | `fail_job` | reducer | `jobId`, `attempt`, `requestKey`, `retryable`, `code`, `detail` | Retryable → `PENDING`, otherwise `FAILED`; closes threads. Can't touch a `SUCCEEDED` job. |
 
@@ -96,23 +96,38 @@ All take `jobId` + `attempt` and run the checks in §2 unless noted. "Key" = `re
 - grants that are still valid (with `action_ref`)
 - the job's threads and messages, sorted by id
 - candidates with the revisions they were recorded under
-- open proposals
+- open proposals, each with its `decision_id`, `scope` and `selected_candidate_refs`
+- `commitments`: one entry per agreed decision (`decision_id`, `scope`, `stage`, `proposal_id`, `version`, `terms_digest`, `selected_candidate_refs`). This is what the group already agreed, and what later decisions build on. See "Decisions" below.
 - `compromise_history`: `{"<member_id>": H_i}` for every active member, the sum of their ACTIVE approved compromises in this room (0..n, `0` if none). This is the optimizer's `compromise_history` as is. See §6b.
 
+**Decisions.** Every proposal is a version of one **decision** (`decisionId`, e.g. `flights`, `stay`, `transfer`, `activity_snorkeling`, `trip`; 1–128 of `a-z 0-9 _ : . -`). Publishing supersedes only earlier versions of **the same decision**, whether they're pending or agreed. Other decisions in the stage, pending or agreed, are untouched, so snorkeling and hiking can both be agreed. The `stage` only groups decisions for the UI. Its milestone is derived from all of them: `IN_REVIEW` while any is awaiting review, `AGREED` once all live ones are agreed, `REOPENED` when none is live.
+
+An **agreed** decision is a **commitment**. It stays agreed when other decisions are published or inputs change, and it's listed in the job context. When a partial decision (`FLIGHT_BUNDLE`, `SINGLE_SHARED_BOOKING` or `ACTIVITY_DECISION`) becomes agreed, the module queues the next PLAN job, unless one is already open, so the worker can plan the next part on top of it. A pending proposal still becomes stale when any input changes.
+
 **Publication.** Everything happens in one transaction:
-1. If `selectedCandidateRefs` is non-empty, the trip is re-checked (policy `minimax_v1`). A trip is one `FLIGHT` per active member plus exactly one of each shared part the room's `components` setting lists (`STAY`, `TRANSFER`), whose cost is split equally.
-   - **Every candidate's `facts_json`:** `category`, `total_cents`, `observed_at` and `valid_until` (epoch seconds), and `cost_basis` `COMPLETE_FLIGHT_TOTAL` / `COMPLETE_STAY_TOTAL` / `COMPLETE_TRANSFER_TOTAL` with no `missing_critical_fields`. An observed price with unknown taxes or fees can't be published.
+1. The proposal is re-checked for its **`scope`**. A buggy worker can't publish something that breaks a confirmed hard limit or contradicts a commitment:
+
+   | `scope` | `selectedCandidateRefs` | Checked |
+   |---|---|---|
+   | `FLIGHT_BUNDLE` | one `FLIGHT` per active member | each flight against its owner's limits (below); arrivals within `arrival_overlap_seconds`; only one agreed flight decision per room |
+   | `SINGLE_SHARED_BOOKING` | exactly one `STAY` or `TRANSFER` | the room's `components` include it; `capacity` fits everyone; only one agreed decision per category |
+   | `ACTIVITY_DECISION` | one `ACTIVITY` / `DINNER` (include), or none (skip) | `capacity` fits everyone if known; not already agreed as another decision; doesn't overlap an agreed activity when both carry `start_epoch` / `end_epoch` |
+   | `COMPLETE_PLAN` | flights + exactly one of each shared part in `components` | the whole trip on its own (today's worker publishes this, as decision `trip`) |
+   | `GENERAL_AGREEMENT` | none | nothing to check (goals, dates) |
+
+   - **Every candidate's `facts_json`:** `category`, `total_cents`, `observed_at` and `valid_until` (epoch seconds), and `cost_basis` `COMPLETE_FLIGHT_TOTAL` / `COMPLETE_STAY_TOTAL` / `COMPLETE_TRANSFER_TOTAL` with no `missing_critical_fields`. Activities and dinners use `ESTIMATE_PER_PERSON` (a per-person `total_cents`). An observed price with unknown taxes or fees can't be published.
    - **Flights** also carry `owner_member_id`, `arrival_epoch` and `baggage_included`. **Shared items** carry `capacity` (guests or seats), which must fit every active member.
-   - **Hard limits:** each HARD `flight_budget_total`; each HARD `trip_budget_total` against own flight + equal share (compared as `n × flight + shared ≤ n × cap`, exact in cents); baggage where `baggage_required` is true; arrivals within `arrival_overlap_seconds`; every traveller's preferences confirmed; prices not expired.
+   - **Hard limits on flights:** each HARD `flight_budget_total`; baggage where `baggage_required` is true; `arrival_window`; `max_stops`; every traveller's preferences confirmed; prices not expired.
+   - **Whole-trip budgets** (each HARD `trip_budget_total`): own flight + per-person activities + an equal share of shared bookings, compared as `n × own + shared ≤ n × cap` (exact in cents). It's checked for the proposal alone (`INVALID_PROPOSAL`), then together with every **other** decision's commitment (`CONFLICTS_WITH_COMMITMENT`). A `COMPLETE_PLAN` is checked on its own, and an agreed one isn't added to its parts.
    - Room *preferences* that owners can set aside by consent (`own_bedroom`, `stay_min_rating`) are applied by the worker with consultation grants, not here.
-   - Failures return `INVALID_PROPOSAL` / `INVALID_COVERAGE` / `INVALID_EVIDENCE_REF`.
+   - Failures return `INVALID_PROPOSAL` / `INVALID_COVERAGE` / `INVALID_EVIDENCE_REF` / `CONFLICTS_WITH_COMMITMENT` (revise the earlier decision deliberately instead) / `INVALID_ARGUMENT` (unknown scope or bad `decisionId`).
 2. **What the worker publishes:**
    - `terms_json` = `{"scope": "TRIP" | "FLIGHTS_ONLY", "policy": "minimax_v1", "selected": [candidate…]}`.
    - `shared_summary_json` = `{"scope", "travellers", "text", "group", "suggestions"}`. `text` is a room-safe paragraph (total, arrival window, what landing together costs, how many pay extra, stay, transfer, equal share, room-needs premium, activity/dinner ideas). `group` is the same as numbers. `suggestions` are activity and dinner ideas with *estimated* per-person prices, never part of what people approve.
    - Each `impact_json` is private to its owner: `{owner, candidate, price_cents, flight_cents, share_cents, cheapest_alone_cents, extra_cents, reason: NONE | ARRIVAL_WINDOW | SHARED_CHOICE, text}`.
-2. The stage's previous proposal is superseded.
+2. Earlier pending or agreed versions of the same decision are superseded (their consents become `STALE`, their compromise `SUPERSEDED`). The version number counts per decision.
 3. Immutable terms are stored with `terms_digest = sha256(termsJson bytes)`. **Send canonical JSON.**
-4. Burdens are stored with the proposal (see §6b), then private impacts and `PENDING` consents are created, reminders scheduled, and the milestone set to `IN_REVIEW`.
+4. Burdens are stored with the proposal (see §6b), then private impacts and `PENDING` consents are created, reminders scheduled, and the stage milestone recomputed.
 5. Threads close (`RESOLVED`) and the job becomes `SUCCEEDED`.
 
 **Other worker writes** (same checks):
@@ -219,10 +234,10 @@ New constraint keys: `origin_airport` (IATA), `arrival_window` (`{"earliest": "H
 
 The optimizer scores, per person and decision, how much they'd give up: a **burden** from 0 to 1. Their running total across approved decisions, **H_i**, goes into the next optimization so the person who gave up most gets priority next. The ledger records H_i from human approval only:
 
-1. **At publish:** the worker sends `burdens[{member_id, task_id, burden_micros}]` with the proposal. `burden_micros` is the burden in millionths (`round(b × 1_000_000)`, 0..1,000,000) so sums are exact. `task_id` names the decision (the optimizer's `task_id`, e.g. `STAY`, `FLIGHT:12`, `DINNER`). Each member must be one of the proposal's reviewers, and each (member, task) pair may appear only once. They are frozen in `proposal_burden`, and **nothing counts yet**.
-2. **When every reviewer accepts** (the proposal becomes `AGREED`), the module copies them into `compromise_entry` as `ACTIVE`, in the same transaction. There is one entry per (proposal, member, task), so a retried publish (same `requestKey`) or a repeated approval can't count twice.
-3. **A replacement counts only once it's agreed:** when a later proposal with the same `task_id` is agreed, the earlier ACTIVE entries for that task (everyone's) become `SUPERSEDED`. Until then they keep counting, even though publishing the new version marks the old proposal `SUPERSEDED`. Tasks the new proposal doesn't mention are untouched.
-4. **A withdrawn approval** (`withdraw_consent`, AGREED → AWAITING_REVIEW) marks that proposal's entries `REVOKED`. If everyone accepts again, the same entries become `ACTIVE` again; nothing is duplicated. Entries it superseded stay superseded.
+1. **At publish:** the worker sends `burdens[{member_id, burden_micros}]` with the proposal. `burden_micros` is the burden in millionths (`round(b × 1_000_000)`, 0..1,000,000) so sums are exact. The decision is the proposal's `decisionId`, which is the optimizer's `task_id`. Each member must be one of the proposal's reviewers and may appear only once. The burdens are frozen in `proposal_burden`, and **nothing counts yet**.
+2. **When every reviewer accepts** (the proposal becomes `AGREED`), the module copies them into `compromise_entry` as `ACTIVE`, in the same transaction. There is one entry per (proposal, member), so a retried publish (same `requestKey`) or a repeated approval can't count twice.
+3. **A new version of the decision replaces it:** publishing the next version supersedes the earlier proposal, and its entries become `SUPERSEDED` at the same moment. Both versions never count together. Other decisions are untouched.
+4. **A withdrawn approval** (`withdraw_consent`, AGREED → AWAITING_REVIEW) marks that proposal's entries `REVOKED`. If everyone accepts again, the same entries become `ACTIVE` again; nothing is duplicated.
 5. **Who sees it:** the worker gets `compromise_history` in the job context, and each person sees their own entries in `my_compromises`. There is no room-wide view, because burdens are derived from private limits.
 
 The optimizer never writes this table; only agreement does.
@@ -240,9 +255,9 @@ All 26 views are per-caller and update live.
 | `room_messages` | Live Negotiation chat: ROOM-audience utterances with agent ids, thread, type and refs. No payload JSON. |
 | `my_agent_messages` | OWNER_PRIVATE utterances addressed to you (My Agent) |
 | `room_threads`, `room_events` (room-wide plus your private events), `room_candidates`, `room_milestones` | Shared progress |
-| `room_proposals` | Terms, digest, summary, state, `reviewer_count`, `is_reviewer`. No validation JSON. |
+| `room_proposals` | `decision_id`, `scope`, stage, terms, digest, summary, state, `reviewer_count`, `is_reviewer`. No validation JSON. |
 | `my_proposal_impacts`, `my_consents` (`decide_later_available` is always true) | Your allocation and your own response |
-| `my_compromises` | Your approved compromises: `task_id`, `proposal_id`, `proposal_version`, `stage`, `burden_micros`, `state` (`ACTIVE` / `SUPERSEDED` / `REVOKED`) |
+| `my_compromises` | Your approved compromises: `decision_id`, `proposal_id`, `proposal_version`, `stage`, `burden_micros`, `state` (`ACTIVE` / `SUPERSEDED` / `REVOKED`) |
 | `room_consent_counts` | `required` / `accepted` / `declined` / `pending` per proposal. **Counts only, never who.** |
 | `room_presence` | `membership_id`, `online`, `last_seen` |
 | `room_agent_activity` | `agent_id`, `activity`, `thread_id` |

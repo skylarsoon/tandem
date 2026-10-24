@@ -348,7 +348,8 @@ class LocalBackend:
             self._checked(state, claim)
             self._close_threads(state, claim.generation, reason)
 
-    def publish_proposal(self, claim, selected, candidates, report, key, explanation=None, burdens=None):
+    def publish_proposal(self, claim, selected, candidates, report, key, explanation=None, burdens=None,
+                         decision_id="trip", scope="COMPLETE_PLAN", stage="TRAVEL"):
         with self._tx() as state:
             # A lost successful response can be reconciled after lease release.
             body = dict(selected=list(selected), report=primitive(report))
