@@ -5,7 +5,7 @@ set -euo pipefail
 
 SPACETIME="${SPACETIME_BIN:-$HOME/.local/bin/spacetime}"
 PORT="${STDB_TEST_PORT:-3100}"
-DB="tandem-test"
+DB="tandem-test-$(date +%s)"  # unique per run: database names stay owned by whoever first published them
 MODULE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 if curl -s "http://127.0.0.1:$PORT/v1/ping" >/dev/null 2>&1; then

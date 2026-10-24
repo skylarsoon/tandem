@@ -50,6 +50,11 @@ class Settings(Record):
     claude_model: str | None = None
     apify_token: SecretStr | None = None
     apify_actor_build: str = ACTOR_BUILD
+    # The SpacetimeDB database live runs plan against, and the worker identity
+    # the database owner registered with add_worker.
+    stdb_url: str | None = None
+    stdb_database: str | None = None
+    stdb_worker_token: SecretStr | None = None
 
     def missing(self):
         return [name for name, value in (("ANTHROPIC_API_KEY", self.anthropic_api_key), ("CLAUDE_MODEL", self.claude_model), ("APIFY_TOKEN", self.apify_token)) if not value]
@@ -59,6 +64,14 @@ class Settings(Record):
             raise ContractError("LIVE_SETTINGS_MISSING")
         if self.apify_actor_build != ACTOR_BUILD:
             raise ContractError("UNSUPPORTED_ACTOR_BUILD")
+
+    def missing_backend(self):
+        return [name for name, value in (("STDB_URL", self.stdb_url), ("STDB_DB", self.stdb_database),
+                ("STDB_WORKER_TOKEN", self.stdb_worker_token)) if not value]
+
+    def require_backend(self):
+        if self.missing_backend():
+            raise ContractError("BACKEND_SETTINGS_MISSING")
 
 
 def load_settings(env_file: str | Path = ".env"):
@@ -82,7 +95,9 @@ def load_settings(env_file: str | Path = ".env"):
 
     return Settings(anthropic_api_key=setting("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"),
         claude_model=setting("CLAUDE_MODEL"), apify_token=setting("APIFY_TOKEN", "APIFY_API_KEY"),
-        apify_actor_build=setting("APIFY_ACTOR_BUILD") or ACTOR_BUILD)
+        apify_actor_build=setting("APIFY_ACTOR_BUILD") or ACTOR_BUILD,
+        stdb_url=setting("STDB_URL"), stdb_database=setting("STDB_DB", "STDB_DATABASE"),
+        stdb_worker_token=setting("STDB_WORKER_TOKEN"))
 
 
 def load_config(path):

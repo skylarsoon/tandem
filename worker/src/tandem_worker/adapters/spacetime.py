@@ -205,10 +205,13 @@ class SpacetimeBackend:
     def renew_lease(self, claim):
         self.http.call(self.token, "renew_lease", lease_seconds=int(self.limits.lease_seconds), **self._attempt(claim))
 
-    def eligible_jobs(self):
+    def pending_jobs(self) -> list[dict]:
         jobs = self.http.view(self.token, "worker_pending_jobs")
-        return [str(j["id"]) for j in sorted(jobs, key=lambda j: j["id"])
+        return [j for j in sorted(jobs, key=lambda j: j["id"])
                 if j["kind"] == "PLAN" and (self.room_id is None or j["room_id"] == self.room_id)]
+
+    def eligible_jobs(self):
+        return [str(j["id"]) for j in self.pending_jobs()]
 
     def schedule_resume(self, job_id):
         return str(job_id) in self.eligible_jobs()
@@ -456,3 +459,29 @@ class SpacetimeBackend:
     def fail_job(self, claim, code):
         self.http.call(self.token, "fail_job", request_key=f"{claim.job_id}:{claim.attempt_token}:fail:{code}",
             retryable=False, code=code, detail="", **self._attempt(claim))
+
+
+def seed_room(http: StdbHttp, briefs, goal: str = "Group trip") -> dict:
+    """Creates one human identity per brief (display name = owner), confirms the
+    settings each brief marks as confirmed, and enters budgets as HARD
+    constraints with the brief's private reason. For demos and tests without the
+    frontend; returns room_id, invite_code and each owner's token (keep secret)."""
+    tokens = {b.owner: http.mint_identity()["token"] for b in briefs}
+    organizer = briefs[0].owner
+    http.call(tokens[organizer], "create_room", goal=goal, display_name=organizer)
+    room = max(http.view(tokens[organizer], "my_rooms"), key=lambda r: r["id"])
+    for b in briefs[1:]:
+        http.call(tokens[b.owner], "join_room", invite_code=room["invite_code"], display_name=b.owner)
+    for b in briefs:
+        token = tokens[b.owner]
+        if b.preferences.confirmed:
+            http.call(token, "confirm_participation_preferences", speak_up_for_me=b.preferences.speak_up_for_me,
+                      ask_me_first=b.preferences.ask_me_first, give_me_time=b.preferences.give_me_time,
+                      reminders_opted_in=b.reminders_opted_in)
+        http.call(token, "set_constraint", room_id=room["id"], key="flight_budget_total", value_json=str(b.hard_cap_cents),
+                  unit="USD_cents", hardness="HARD", authorized_range_json=None,
+                  private_rationale=some(b.private_reason) if b.private_reason else None)
+        if b.baggage_required:
+            http.call(token, "set_constraint", room_id=room["id"], key="baggage_required", value_json="true", unit="",
+                      hardness="HARD", authorized_range_json=None, private_rationale=None)
+    return {"room_id": room["id"], "invite_code": room["invite_code"], "owner_tokens": tokens}

@@ -1,4 +1,4 @@
-"""Opt-in provider wiring and standalone diagnostics. No SpacetimeDB adapter."""
+"""Opt-in provider wiring, standalone diagnostics, and live runs against SpacetimeDB."""
 from __future__ import annotations
 
 import json
@@ -47,8 +47,8 @@ class Providers:
         self.research.verified = True
         return {"claude": claude, "apify": apify}
 
-    def report(self):
-        return {"providers": {"model": "CLAUDE", "research": "APIFY"}, "backend": "LOCAL_TEST",
+    def report(self, backend="NONE"):
+        return {"providers": {"model": "CLAUDE", "research": "APIFY"}, "backend": backend,
                 "usage": self.budget.report(), "research_runs": self.ledger.report()}
 
 
@@ -187,36 +187,103 @@ def smoke(config, settings, directory, *, clock=None, claude_client=None, apify_
         "utterance": None if permissions else text, "claim_refs": refs,
         "consultation_required": permissions, "planning_outcome": "EXPLORATORY_ONLY",
         "validation_checks": list(validation.checks), "consent_count": 0,
-        **providers.report()}
+        **providers.report(backend="NONE")}
     with cached.open("w") as handle:
         json.dump(result, handle, indent=2)
     return result
 
 
-def run_live(config, settings, directory, *, clock=None, claude_client=None, apify_client=None):
-    from .backend import LocalBackend
+ROOM_STATE = "spacetime-room.json"
+
+
+def _spacetime(settings, directory, clock, limits, room_id=None):
+    """The live backend: a seeded room remembered in the state directory, or an
+    existing app room. Owners are matched to the config by display name."""
+    from .adapters.spacetime import SpacetimeBackend
+    state_path = Path(directory) / ROOM_STATE
+    tokens = {}
+    if room_id is None:
+        if state_path.exists():
+            state = json.loads(state_path.read_text())
+        else:
+            raise ContractError("ROOM_NOT_SEEDED")
+        room_id, tokens = state["room_id"], state["owner_tokens"]
+    backend = SpacetimeBackend(settings.stdb_url, settings.stdb_database, settings.stdb_worker_token.get_secret_value(),
+        clock=clock, limits=limits, room_id=room_id, owner_name=lambda member: member["display_name"], owner_tokens=tokens)
+    return backend, room_id
+
+
+def seed_live_room(config, settings, directory):
+    """Create the config's participants as real people in SpacetimeDB (demo
+    without the frontend). Their tokens stay private in the state directory."""
+    from .adapters.spacetime import StdbHttp, seed_room
+    settings.require_backend()
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / ROOM_STATE
+    if path.exists():
+        raise ContractError("ROOM_ALREADY_SEEDED")
+    seeded = seed_room(StdbHttp(settings.stdb_url, settings.stdb_database), list(config.briefs), goal=config.room_id)
+    with path.open("x") as handle:
+        json.dump(seeded, handle)
+    path.chmod(0o600)
+    return {"room_id": seeded["room_id"], "invite_code": seeded["invite_code"], "owners": sorted(seeded["owner_tokens"])}
+
+
+def _room_report(backend, room_id):
+    """What the room's people see: published proposals and approval counts."""
+    tokens = backend.owner_tokens
+    if not tokens:
+        return {}
+    token = next(iter(tokens.values()))
+    proposals = [p for p in backend.http.view(token, "room_proposals") if p["room_id"] == room_id]
+    counts = [c for c in backend.http.view(token, "room_consent_counts") if c["room_id"] == room_id]
+    return {"proposals": [{k: p[k] for k in ("id", "stage", "version", "state", "terms_digest")} for p in proposals],
+            "consent_count": sum(c["accepted"] for c in counts)}
+
+
+def run_live(config, settings, directory, *, room_id=None, clock=None, claude_client=None, apify_client=None):
+    """Run the worker with live Claude and Apify against SpacetimeDB. Plans the
+    newest pending job of the seeded room (see seed_live_room) or of `room_id`."""
     from .runner import Worker
     clock = clock or SystemClock()
     config.validate_dates(clock.now())
     settings.require()
+    settings.require_backend()
     bind_session(directory, config, settings, "run", clock.now())
     directory = Path(directory)
-    snapshot = Snapshot(room_id=config.room_id, members=tuple(b.owner for b in config.briefs))
     limits = Limits(model_calls=config.limits.model_calls, research_calls=config.limits.actor_runs)
-    backend = LocalBackend(directory / "backend.sqlite", clock, limits)
-    try:
-        job_id = backend.seed(snapshot, list(config.briefs))
-    except ContractError as error:
-        if error.code != "ALREADY_SEEDED":
-            raise
-        jobs = backend.eligible_jobs()
-        job_id = jobs[0] if jobs else None
-    providers = make_providers(config, settings, directory, clock=clock, claude_client=claude_client,
-        apify_client=apify_client, snapshot=backend.current_snapshot())
-    if job_id is None:
-        return {"mode": "LIVE_PROVIDERS", "result": {"outcome": "NO_ELIGIBLE_WORK"}, "report": backend.shared_report(), **providers.report()}
+    backend, room_id = _spacetime(settings, directory, clock, limits, room_id)
+    jobs = backend.pending_jobs()
+    if not jobs:
+        return {"mode": "LIVE_PROVIDERS", "backend": "SPACETIMEDB", "room_id": room_id,
+                "result": {"outcome": "NO_ELIGIBLE_WORK"}, "report": _room_report(backend, room_id)}
+    job = jobs[-1]
+    # Research runs are bound to this job's room and revisions.
+    snapshot = Snapshot(room_id=str(room_id), input_revision=job["input_revision"],
+        membership_revision=job["membership_revision"], permission_revision=job["permission_revision"],
+        members=tuple(b.owner for b in config.briefs))
+    providers = make_providers(config.model_copy(update={"room_id": str(room_id)}), settings, directory, clock=clock,
+        claude_client=claude_client, apify_client=apify_client, snapshot=snapshot)
     providers.preflight()
     worker = Worker(backend, providers.model, providers.research, directory / "checkpoints.sqlite", clock=clock, limits=limits,
-                    worker_id="live-local-worker-" + uuid.uuid4().hex[:8])
-    result = worker.run_one(job_id)
-    return {"mode": "LIVE_PROVIDERS", "result": result, "report": backend.shared_report(), **providers.report()}
+                    worker_id="live-worker-" + uuid.uuid4().hex[:8])
+    result = worker.run_one(str(job["id"]))
+    return {"mode": "LIVE_PROVIDERS", "room_id": room_id, "result": result, "report": _room_report(backend, room_id),
+            **providers.report(backend="SPACETIMEDB")}
+
+
+def live_questions(settings, directory, owner):
+    """Questions the agents asked this seeded owner (what the app would show)."""
+    backend, room_id = _spacetime(settings, directory, None, Limits())
+    token = backend.owner_tokens.get(owner)
+    if token is None:
+        raise ContractError("NOT_AUTHORIZED")
+    return [{k: q[k] for k in ("request_key", "kind", "version", "prompt", "state")}
+            for q in backend.http.view(token, "my_questions") if q["room_id"] == room_id]
+
+
+def live_answer(settings, directory, owner, question_ref, version, answer):
+    """Answer as a seeded owner; the next run_live continues from it."""
+    backend, _ = _spacetime(settings, directory, None, Limits())
+    return {"answer_ref": backend.answer_question(owner, question_ref, version, answer, uuid.uuid4().hex)}

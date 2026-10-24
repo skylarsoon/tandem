@@ -17,7 +17,7 @@ def test_smoke_uses_live_ports_with_separate_private_and_safe_contexts(live_case
     config = live_case.config.model_copy(update={"briefs": (brief,)})
     result = smoke(config, live_case.settings, live_case.directory, **kwargs(live_case))
     assert result["status"] == "OK"
-    assert result["mode"] == "LIVE_PROVIDERS" and result["backend"] == "LOCAL_TEST"
+    assert result["mode"] == "LIVE_PROVIDERS" and result["backend"] == "NONE"
     assert result["providers"] == {"model": "CLAUDE", "research": "APIFY"}
     assert result["consent_count"] == 0 and result["planning_outcome"] == "EXPLORATORY_ONLY"
     assert result["usage"]["used"] == {"claude": 2, "apify": 1}
@@ -63,12 +63,11 @@ def test_no_actor_start_before_schema_and_access_preflight(live_case):
     assert live_case.apify.starts == [] and live_case.claude.requests == []
 
 
-def test_real_workflow_blocks_approval_for_observed_incomplete_prices(live_case):
-    result = run_live(live_case.config, live_case.settings, live_case.directory, **kwargs(live_case))
-    assert result["result"]["outcome"] == "EXPLORATORY_ONLY"
-    assert result["result"]["validation_checks"] == ["INCOMPLETE_COST_EVIDENCE"]
-    assert result["report"]["proposals"] == {} and result["report"]["consent_count"] == 0
-    assert len(live_case.apify.starts) == 1
+def test_live_run_requires_spacetimedb_settings(live_case):
+    # Live runs always plan against SpacetimeDB (tests/backend/test_spacetime_live.py).
+    with pytest.raises(ContractError, match="BACKEND_SETTINGS_MISSING"):
+        run_live(live_case.config, live_case.settings, live_case.directory, **kwargs(live_case))
+    assert live_case.apify.starts == [] and live_case.claude.requests == []
 
 
 def test_budget_and_session_cannot_be_reset_by_changing_config_in_place(live_case):
@@ -99,22 +98,3 @@ def test_factory_binds_to_teammates_current_snapshot_without_backend_adapter(liv
     request = ResearchRequest(purpose="INITIAL", members=("p1",), target_owners=("p1",), room_id=snapshot.room_id,
         input_revision=7, permission_revision=3, observed_at=live_case.clock.now())
     assert providers.research.search(request.model_dump(mode="json"))
-
-
-def test_live_run_after_consultation_reuses_evidence_and_keeps_budget(live_case):
-    from types import SimpleNamespace
-    from tandem_worker.backend import LocalBackend
-    from tandem_worker.contracts import Decision
-    live_case.claude.overrides = [SimpleNamespace(id="msg-consult", stop_reason="end_turn", usage=None,
-                                                parsed_output=Decision(concession=True))]
-    first = run_live(live_case.config, live_case.settings, live_case.directory, **kwargs(live_case))
-    assert first["result"]["outcome"] == "WAITING_FOR_INPUT"
-    backend = LocalBackend(live_case.directory / "backend.sqlite", live_case.clock)
-    question = backend.owner_questions("p1")[0]
-    assert question.kind == "CONSULTATION"
-    backend.answer_question("p1", question.id, question.version, True, "allow-specific-action")
-    second = run_live(live_case.config, live_case.settings, live_case.directory, **kwargs(live_case))
-    assert second["result"]["outcome"] == "EXPLORATORY_ONLY"
-    assert second["usage"]["used"] == {"claude": 3, "apify": 1}
-    assert len(live_case.apify.starts) == 1
-    assert second["report"]["consent_count"] == 0

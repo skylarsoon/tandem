@@ -9,7 +9,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPACETIME="${SPACETIME_BIN:-$HOME/.local/bin/spacetime}"
 PORT="${STDB_TEST_PORT:-3200}"
-DB="tandem-integration"
+DB="tandem-integration-$(date +%s)"  # unique per run: database names stay owned by whoever first published them
 URL="http://127.0.0.1:$PORT"
 
 if curl -s "$URL/v1/ping" >/dev/null 2>&1; then

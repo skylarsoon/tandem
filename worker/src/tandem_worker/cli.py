@@ -72,19 +72,46 @@ def _main():
             command_parser.add_argument("--online", action="store_true", help="Read-only provider metadata checks; no generation or Actor starts")
         else:
             command_parser.add_argument("--state-dir", type=Path, required=True)
-    run = sub.add_parser("run", help="Run the worker using live providers and the LOCAL test backend")
+    run = sub.add_parser("run", help="Run the worker with live providers against SpacetimeDB")
     run.add_argument("--providers", choices=["live"], required=True)
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--env-file", type=Path, default=Path(".env"))
     run.add_argument("--state-dir", type=Path, required=True)
+    run.add_argument("--room", type=int, help="Plan an existing app room instead of the room seeded in --state-dir")
+    live_room = sub.add_parser("live-room", help="Seeded SpacetimeDB room for live demos without the frontend")
+    room_actions = live_room.add_subparsers(dest="room_action", required=True)
+    for name in ("seed", "questions", "answer"):
+        command_parser = room_actions.add_parser(name)
+        command_parser.add_argument("--state-dir", type=Path, required=True)
+        command_parser.add_argument("--env-file", type=Path, default=Path(".env"))
+        if name == "seed":
+            command_parser.add_argument("--config", type=Path, required=True)
+        else:
+            command_parser.add_argument("--owner", required=True)
+        if name == "answer":
+            command_parser.add_argument("question_ref")
+            command_parser.add_argument("--version", type=int, default=1)
+            command_parser.add_argument("--response", choices=["yes", "no"], required=True)
     args = parser.parse_args()
+    if args.command == "live-room":
+        from .config import load_config, load_settings
+        from .live import live_answer, live_questions, seed_live_room
+        settings = load_settings(args.env_file)
+        if args.room_action == "seed":
+            result = seed_live_room(load_config(args.config), settings, args.state_dir)
+        elif args.room_action == "questions":
+            result = live_questions(settings, args.state_dir, args.owner)
+        else:
+            result = live_answer(settings, args.state_dir, args.owner, args.question_ref, args.version, args.response == "yes")
+        print(json.dumps(result, indent=2))
+        return
     if args.command in {"providers", "run"}:
         # Fixture-only commands do not import providers, read .env, or need keys.
         from .config import load_config, load_settings
         from .live import check_providers, run_live, smoke
         config, settings = load_config(args.config), load_settings(args.env_file)
         if args.command == "run":
-            result = run_live(config, settings, args.state_dir)
+            result = run_live(config, settings, args.state_dir, room_id=args.room)
         elif args.provider_action == "check":
             result = check_providers(config, settings, online=args.online)
         else:
