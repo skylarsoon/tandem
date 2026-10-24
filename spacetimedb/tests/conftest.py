@@ -139,7 +139,8 @@ class Room:
         self.client.call(worker, "submit_agent_message", **args)
         return args
 
-    def publish(self, worker: Identity, job_id: int, terms: dict | None = None, request_key: str | None = None) -> dict:
+    def publish(self, worker: Identity, job_id: int, terms: dict | None = None, request_key: str | None = None,
+                burdens: dict[tuple[str, str], float] | None = None) -> dict:
         terms = terms or {"flights": {"alice": "UA1", "bob": "UA2", "carol": "AA3", "dave": "DL4"}}
         return self.client.procedure(
             worker, "publish_proposal",
@@ -149,6 +150,8 @@ class Room:
             validation_json=json.dumps({"hard_constraints": "PASS"}),
             evidence_refs=[], affected_member_ids=[], selected_candidate_refs=[],
             impacts=[{"member_id": self.member_ids[n], "impact_json": json.dumps({"cost_cents": 45000})} for n in PEOPLE],
+            burdens=[{"member_id": self.member_ids[n], "task_id": task, "burden_micros": round(b * 1_000_000)}
+                     for (n, task), b in (burdens or {}).items()],
         )
 
 

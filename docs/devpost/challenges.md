@@ -114,6 +114,15 @@ Each is now a regression test. The rerun took 155 seconds instead of about 9 min
 
 **Real names broke agent replies.** With test names like `p1`, a thread's participant list happened to be in sorted order. With "dana" and "jordan", which sort before "mediator", it wasn't, so every reply was rejected. Participant lists are now compared as sets.
 
+**Fairness that remembers, without trusting the optimizer.** The optimizer wanted a running total of what each person has given up across decisions, so whoever compromised on flights gets priority on the stay. The risk was counting a burden that nobody actually approved, or counting it twice. So the optimizer doesn't write the ledger. It hands its scores to the database along with the plan, and the database moves them into the ledger itself, in the same transaction where the last person's "yes" makes the plan agreed.
+- A retry can't count twice.
+- A withdrawn "yes" takes the burden back out.
+- A replacement decision cancels the old one only once the replacement is agreed.
+
+Burdens are stored as millionths, not floats, so a person's total stays exact however many decisions it adds up.
+
+**Adding an argument broke every caller at once.** SpacetimeDB rejects a call that is missing an argument ("missing reducer argument `burdens`"), so adding one to `publish_proposal` broke the simulator, the worker and the tests together. Every caller is now updated in the same commit, and the module and the worker have to be deployed together.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

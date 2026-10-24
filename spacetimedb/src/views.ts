@@ -98,6 +98,18 @@ const ImpactRow = t.row('ImpactRow', {
   impactJson: t.string(),
 });
 
+const CompromiseRow = t.row('CompromiseRow', {
+  id: t.u64().primaryKey(),
+  roomId: t.u64(),
+  taskId: t.string(),
+  proposalId: t.u64(),
+  proposalVersion: t.u32(),
+  stage: t.string(),
+  burdenMicros: t.u32(),
+  state: t.string(),
+  updatedAt: t.timestamp(),
+});
+
 const PresenceRow = t.row('PresenceRow', {
   membershipId: t.u64().primaryKey(),
   roomId: t.u64(),
@@ -262,6 +274,22 @@ export const myProposalImpacts = spacetimedb.view({ name: 'my_proposal_impacts',
     proposalId: i.proposalId,
     roomId: i.roomId,
     impactJson: i.impactJson,
+  }))
+);
+
+// Your own approved compromises, never anyone else's: burdens come from
+// private limits, so the ledger has no room-wide view.
+export const myCompromises = spacetimedb.view({ name: 'my_compromises', public: true }, t.array(CompromiseRow), ctx =>
+  [...ctx.db.compromiseEntry.byOwner.filter(ctx.sender)].map(e => ({
+    id: e.id,
+    roomId: e.roomId,
+    taskId: e.taskId,
+    proposalId: e.proposalId,
+    proposalVersion: e.proposalVersion,
+    stage: e.stage,
+    burdenMicros: e.burdenMicros,
+    state: e.state,
+    updatedAt: e.updatedAt,
   }))
 );
 

@@ -31,7 +31,7 @@ export const TOUR: TourStep[] = [
     chapter: "Basics", title: "Every table is private",
     takeaway: "No browser can read a table directly.",
     diagram: ["Browser", "✕ table", "✓ view (made for you)"],
-    plain: "A table can be public or private. All 32 of ours are private, so people only ever see data through views built for them.",
+    plain: "A table can be public or private. All 34 of ours are private, so people only ever see data through views built for them.",
     tandem: "That's the core privacy guarantee: Bob's browser is never even sent Alice's budget.",
     try: { label: "Ben tries to read the raw limits table", action: "read_private_table", person: "ben", expect: "SpacetimeDB refuses." },
     deeper: [{ kind: "concept", name: "table" }, { kind: "concept", name: "view" }],

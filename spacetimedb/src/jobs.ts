@@ -18,7 +18,7 @@ import {
   withReceipt,
 } from './guards';
 import { findIntake } from './onboarding';
-import { resumeJobIfReady } from './effects';
+import { compromiseHistory, resumeJobIfReady } from './effects';
 
 function micros(ts: Timestamp | undefined): string | null {
   return ts ? ts.microsSinceUnixEpoch.toString() : null;
@@ -308,6 +308,13 @@ function buildContext(ctx: Ctx, j: JobRow) {
     };
   }
 
+  // Cumulative approved compromise (H_i) per active member, keyed by member id
+  // as a string: the optimizer's compromise_history, zero for anyone without any.
+  const history = compromiseHistory(ctx, r.id);
+  const compromise_history = Object.fromEntries(
+    members.filter(m => m.active).map(m => [String(num(m.id)), (history.get(m.id) ?? 0) / 1_000_000])
+  );
+
   return {
     job: leaseFields(j),
     room: { room_id: num(r.id), goal: r.goal, status: r.status, settings: parsed(r.settingsJson) },
@@ -331,6 +338,7 @@ function buildContext(ctx: Ctx, j: JobRow) {
     messages,
     candidates,
     proposals,
+    compromise_history,
   };
 }
 

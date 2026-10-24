@@ -228,3 +228,20 @@ def test_trip_budget_from_the_database_blocks_privately(stdb_room, tmp_path):
                      "unblock the plan."]
     [event] = [e for e in shared_view(room, "room_events") if e["type"] == "NO_FEASIBLE_PLAN"]
     assert "600" not in event["safe_payload_json"] and json.loads(event["safe_payload_json"])["blocked_travellers"] == {"TRIP_LIMIT": 1}
+
+
+def test_optimizer_burdens_reach_the_ledger_only_after_everyone_agrees(stdb_room, tmp_path):
+    room = stdb_room("happy")
+    publish = room.backend.publish_proposal
+    room.backend.publish_proposal = lambda *a, **kw: publish(*a, **kw, burdens={("p2", "STAY"): 0.4})
+    worker, _ = make_worker(room, tmp_path, "happy")
+    assert worker.run_one(room.plan_job())["outcome"] == "AWAITING_REVIEW"
+    assert room.view("p2", "my_compromises") == [], "a published suggestion records nothing"
+
+    proposal = shared_view(room, "room_proposals")[0]
+    for owner in PEOPLE:
+        room.backend.http.call(room.tokens[owner], "respond_to_proposal", proposal_id=proposal["id"],
+                               version=proposal["version"], terms_digest=proposal["terms_digest"], response="ACCEPT", note=None)
+    [entry] = room.view("p2", "my_compromises")
+    assert (entry["task_id"], entry["burden_micros"], entry["state"]) == ("STAY", 400_000, "ACTIVE")
+    assert room.view("p1", "my_compromises") == []

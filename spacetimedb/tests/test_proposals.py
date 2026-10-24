@@ -155,7 +155,7 @@ def publish_selected(room: Room, worker, job_id: int, refs: list[str]) -> dict:
     return room.client.procedure(
         worker, "publish_proposal", job_id=job_id, attempt=room.leases[job_id], request_key=key("publish"),
         stage="TRAVEL", terms_json=json.dumps({"selected": refs}), shared_summary_json="{}",
-        validation_json="{}", evidence_refs=refs, affected_member_ids=[], impacts=[], selected_candidate_refs=refs)
+        validation_json="{}", evidence_refs=refs, affected_member_ids=[], impacts=[], burdens=[], selected_candidate_refs=refs)
 
 
 def test_publish_rechecks_flights_against_confirmed_limits(ready_room, client, worker):

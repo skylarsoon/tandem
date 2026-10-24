@@ -456,7 +456,7 @@ function Raw({ model, table, setTable, lens }: { model: Model; table: string; se
         <select value={table} onChange={e => setTable(e.target.value)} className="rounded-md border bg-background px-2 py-1 font-mono text-sm">
           {names.map(n => <option key={n} value={n}>{n} ({(model.tables[n] ?? []).length})</option>)}
         </select>
-        <span className="text-xs text-muted-foreground">{unlinked ? "Not tied to a room (global table); not shown here." : `${rows.length} rows in this room · all 32 tables are private; browsers only see them through views`}</span>
+        <span className="text-xs text-muted-foreground">{unlinked ? "Not tied to a room (global table); not shown here." : `${rows.length} rows in this room · all 34 tables are private; browsers only see them through views`}</span>
       </div>
       <div className="overflow-x-auto rounded border">
         <table className="text-xs">

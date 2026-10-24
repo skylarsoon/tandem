@@ -85,6 +85,13 @@ export const AgentStatus = __t.object("AgentStatus", {
 });
 export type AgentStatus = __Infer<typeof AgentStatus>;
 
+export const BurdenInput = __t.object("BurdenInput", {
+  memberId: __t.u64(),
+  taskId: __t.string(),
+  burdenMicros: __t.u32(),
+});
+export type BurdenInput = __Infer<typeof BurdenInput>;
+
 export const Candidate = __t.object("Candidate", {
   id: __t.u64(),
   roomId: __t.u64(),
@@ -141,6 +148,36 @@ export const CommandReceipt = __t.object("CommandReceipt", {
   createdAt: __t.timestamp(),
 });
 export type CommandReceipt = __Infer<typeof CommandReceipt>;
+
+export const CompromiseEntry = __t.object("CompromiseEntry", {
+  id: __t.u64(),
+  roomId: __t.u64(),
+  memberId: __t.u64(),
+  owner: __t.identity(),
+  taskId: __t.string(),
+  proposalId: __t.u64(),
+  proposalVersion: __t.u32(),
+  termsDigest: __t.string(),
+  stage: __t.string(),
+  burdenMicros: __t.u32(),
+  state: __t.string(),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+});
+export type CompromiseEntry = __Infer<typeof CompromiseEntry>;
+
+export const CompromiseRow = __t.object("CompromiseRow", {
+  id: __t.u64(),
+  roomId: __t.u64(),
+  taskId: __t.string(),
+  proposalId: __t.u64(),
+  proposalVersion: __t.u32(),
+  stage: __t.string(),
+  burdenMicros: __t.u32(),
+  state: __t.string(),
+  updatedAt: __t.timestamp(),
+});
+export type CompromiseRow = __Infer<typeof CompromiseRow>;
 
 export const Config = __t.object("Config", {
   id: __t.u32(),
@@ -336,6 +373,9 @@ export type Milestone = __Infer<typeof Milestone>;
 export const MyAgentMessages = __t.object("MyAgentMessages", {});
 export type MyAgentMessages = __Infer<typeof MyAgentMessages>;
 
+export const MyCompromises = __t.object("MyCompromises", {});
+export type MyCompromises = __Infer<typeof MyCompromises>;
+
 export const MyConsents = __t.object("MyConsents", {});
 export type MyConsents = __Infer<typeof MyConsents>;
 
@@ -481,6 +521,16 @@ export const Proposal = __t.object("Proposal", {
   createdAt: __t.timestamp(),
 });
 export type Proposal = __Infer<typeof Proposal>;
+
+export const ProposalBurden = __t.object("ProposalBurden", {
+  id: __t.u64(),
+  proposalId: __t.u64(),
+  roomId: __t.u64(),
+  memberId: __t.u64(),
+  taskId: __t.string(),
+  burdenMicros: __t.u32(),
+});
+export type ProposalBurden = __Infer<typeof ProposalBurden>;
 
 export const ProposalRow = __t.object("ProposalRow", {
   id: __t.u64(),

@@ -12,6 +12,7 @@ import {
   emitEvent,
   fail,
   insideWindow,
+  nonEmpty,
   oneOf,
   parseJson,
   refResolves,
@@ -29,6 +30,9 @@ import { messageOwnAgent, recomputeAgreement, scheduleReviewReminders } from './
 import { findIntake } from './onboarding';
 
 const ImpactInput = t.object('ImpactInput', { memberId: t.u64(), impactJson: t.string() });
+// burdenMicros: the 0..1 compromise burden in millionths (0..1_000_000).
+const BurdenInput = t.object('BurdenInput', { memberId: t.u64(), taskId: t.string(), burdenMicros: t.u32() });
+const MAX_BURDEN_MICROS = 1_000_000;
 
 type CandidateFacts = {
   category?: unknown;
@@ -159,6 +163,8 @@ export const publishProposal = spacetimedb.procedure(
     evidenceRefs: t.array(t.string()),
     affectedMemberIds: t.array(t.u64()),
     impacts: t.array(ImpactInput),
+    // Per member and decision, what agreeing would cost them (empty = nothing to record).
+    burdens: t.array(BurdenInput),
     // Trip candidate refs to validate server-side (empty for stages without candidates).
     selectedCandidateRefs: t.array(t.string()),
   },
@@ -238,6 +244,25 @@ export const publishProposal = spacetimedb.procedure(
               roomId: r.id,
               owner: m.member,
               impactJson: impact.impactJson,
+            });
+          }
+          const seen = new Set<string>();
+          for (const b of args.burdens) {
+            nonEmpty(b.taskId, 'taskId');
+            if (b.taskId.length > 128) fail('INVALID_ARGUMENT', 'taskId is too long');
+            if (b.burdenMicros > MAX_BURDEN_MICROS) fail('INVALID_ARGUMENT', 'burden must be between 0 and 1');
+            const m = requireMembershipById(tx, r.id, b.memberId);
+            if (!affected.some(a => a.isEqual(m.member))) fail('INVALID_ARGUMENT', 'burden for someone not reviewing this proposal');
+            const pair = `${b.memberId}|${b.taskId}`;
+            if (seen.has(pair)) fail('INVALID_ARGUMENT', `duplicate burden for member ${b.memberId} on ${b.taskId}`);
+            seen.add(pair);
+            tx.db.proposalBurden.insert({
+              id: 0n,
+              proposalId: p.id,
+              roomId: r.id,
+              memberId: b.memberId,
+              taskId: b.taskId,
+              burdenMicros: b.burdenMicros,
             });
           }
           for (const member of affected) {

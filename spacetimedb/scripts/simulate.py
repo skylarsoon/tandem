@@ -164,7 +164,8 @@ def negotiate(client: Client, worker: Identity, room_id: int, pace: float, crash
         selected_candidate_refs=[c["candidate_ref"] for c in candidates],
         impacts=[{"member_id": m["member_id"],
                   "impact_json": json.dumps({"cost_cents": json.loads(candidates[i]["facts_json"])["total_cents"]})}
-                 for i, m in enumerate(members)])
+                 for i, m in enumerate(members)],
+        burdens=[])
     print(f"published proposal {published['proposal_id']} v{published['version']}; approve it from the app")
 
 

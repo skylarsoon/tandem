@@ -75,6 +75,8 @@ export const TABLES: Record<string, string> = {
   proposal: "A published plan: exact terms, a fingerprint (digest) of them, the room-safe summary, and its state (awaiting review, agreed, superseded).",
   participant_impact: "Each person's private line for a plan: what they pay and why (e.g. $125 more to land with the group).",
   consent: "Each person's response to one exact plan version and fingerprint. The plan is agreed only when every affected person accepted those exact terms.",
+  proposal_burden: "What each person would give up per decision (0 to 1) if a plan is agreed, as the optimizer scored it at publish. Frozen; nothing counts yet.",
+  compromise_entry: "The fairness ledger: compromise people actually approved, per decision. Sum of ACTIVE rows = what someone has given up so far (H_i); a newer agreed decision supersedes, a withdrawn approval revokes.",
   milestone: "Progress stages for the room's journey view (understand, dates, travel, stay, complete).",
   presence: "Who is connected right now; maintained by the connect/disconnect lifecycle reducers.",
   review_reminder: "Schedule table: reminders to review a plan, only for people who opted in and didn't ask for time.",

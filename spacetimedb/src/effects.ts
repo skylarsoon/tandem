@@ -144,12 +144,74 @@ export function recomputeAgreement(ctx: Ctx, proposalId: bigint): void {
   const next = allAccepted ? 'AGREED' : 'AWAITING_REVIEW';
   if (next === p.state) return;
   ctx.db.proposal.id.update({ ...p, state: next });
+  settleCompromise(ctx, p, next === 'AGREED');
   setMilestone(ctx, p.roomId, p.stage, next === 'AGREED' ? 'AGREED' : 'IN_REVIEW', p.id);
   emitEvent(ctx, p.roomId, next === 'AGREED' ? 'PROPOSAL_AGREED' : 'PROPOSAL_REOPENED', {
     proposal_id: Number(p.id),
     version: p.version,
     stage: p.stage,
   });
+}
+
+type ProposalRow = NonNullable<ReturnType<Ctx['db']['proposal']['id']['find']>>;
+
+// The compromise ledger follows agreement, never suggestion. On AGREED, the
+// burdens frozen at publish become ACTIVE entries (one per member and decision,
+// so a repeated transition can't count twice) and supersede earlier entries for
+// the same decisions. When agreement is lost (a withdrawn approval), this
+// proposal's entries are REVOKED; superseded ones stay superseded.
+function settleCompromise(ctx: Ctx, p: ProposalRow, agreed: boolean): void {
+  const entries = [...ctx.db.compromiseEntry.byProposal.filter(p.id)];
+  if (!agreed) {
+    for (const e of entries) {
+      if (e.state === 'ACTIVE') ctx.db.compromiseEntry.id.update({ ...e, state: 'REVOKED', updatedAt: ctx.timestamp });
+    }
+    return;
+  }
+  const tasks = new Set<string>();
+  for (const b of ctx.db.proposalBurden.byProposal.filter(p.id)) {
+    tasks.add(b.taskId);
+    const existing = entries.find(e => e.memberId === b.memberId && e.taskId === b.taskId);
+    if (existing) {
+      ctx.db.compromiseEntry.id.update({ ...existing, state: 'ACTIVE', updatedAt: ctx.timestamp });
+      continue;
+    }
+    const m = ctx.db.membership.id.find(b.memberId);
+    if (!m) continue;
+    ctx.db.compromiseEntry.insert({
+      id: 0n,
+      roomId: p.roomId,
+      memberId: b.memberId,
+      owner: m.member,
+      taskId: b.taskId,
+      proposalId: p.id,
+      proposalVersion: p.version,
+      termsDigest: p.termsDigest,
+      stage: p.stage,
+      burdenMicros: b.burdenMicros,
+      state: 'ACTIVE',
+      createdAt: ctx.timestamp,
+      updatedAt: ctx.timestamp,
+    });
+  }
+  for (const taskId of tasks) {
+    for (const e of [...ctx.db.compromiseEntry.byRoomTask.filter([p.roomId, taskId])]) {
+      if (e.state === 'ACTIVE' && e.proposalId !== p.id) {
+        ctx.db.compromiseEntry.id.update({ ...e, state: 'SUPERSEDED', updatedAt: ctx.timestamp });
+      }
+    }
+  }
+}
+
+// H_i per member: the sum of their ACTIVE entries in this room.
+export function compromiseHistory(ctx: Ctx, roomId: bigint): Map<bigint, number> {
+  const micros = new Map<bigint, number>();
+  for (const m of ctx.db.membership.byRoomMember.filter(roomId)) {
+    for (const e of ctx.db.compromiseEntry.byOwner.filter(m.member)) {
+      if (e.roomId === roomId && e.state === 'ACTIVE') micros.set(m.id, (micros.get(m.id) ?? 0) + e.burdenMicros);
+    }
+  }
+  return micros;
 }
 
 // Reminders are opt-in: only reviewers who confirmed preferences, explicitly

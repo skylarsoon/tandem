@@ -435,7 +435,7 @@ class SpacetimeBackend:
 
     # ---------- results ----------
 
-    def publish_proposal(self, claim, selected, candidates, report, key, explanation=None):
+    def publish_proposal(self, claim, selected, candidates, report, key, explanation=None, burdens=None):
         report = ValidationReport.model_validate(primitive(report))
         if not report.valid or report.snapshot_ref != claim.snapshot_ref or report.selected != tuple(selected) \
                 or report.candidate_digest != digest([primitive(c) for c in candidates]):
@@ -460,6 +460,8 @@ class SpacetimeBackend:
             impacts=[{"member_id": members[r.owner]["member_id"],
                       "impact_json": json.dumps(notes.get(r.owner, {"total_cents": r.total_cents}), sort_keys=True)}
                      for r in records if r.owner],
+            burdens=[{"member_id": members[owner]["member_id"], "task_id": task, "burden_micros": round(b * 1_000_000)}
+                     for (owner, task), b in (burdens or {}).items()],
             selected_candidate_refs=list(selected), **self._attempt(claim))
         return str(result["proposal_id"])
 

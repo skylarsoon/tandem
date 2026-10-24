@@ -80,6 +80,7 @@ import * as PublishProposalProcedure from "./publish_proposal_procedure";
 
 // Import all table schema definitions
 import MyAgentMessagesRow from "./my_agent_messages_table";
+import MyCompromisesRow from "./my_compromises_table";
 import MyConsentsRow from "./my_consents_table";
 import MyConstraintPatchesRow from "./my_constraint_patches_table";
 import MyConstraintsRow from "./my_constraints_table";
@@ -116,6 +117,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyAgentMessagesRow),
+  myCompromises: __table({
+    name: 'my_compromises',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyCompromisesRow),
   myConsents: __table({
     name: 'my_consents',
     indexes: [
