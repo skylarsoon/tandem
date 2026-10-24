@@ -107,6 +107,7 @@ def _main():
     serve_parser.add_argument("--config", type=Path, help="JSON {limits, dinner_query}; defaults otherwise")
     serve_parser.add_argument("--room", type=int, action="append", help="Only these rooms (repeatable)")
     serve_parser.add_argument("--once", action="store_true", help="One sweep, then exit")
+    serve_parser.add_argument("--kinds", help="Only these job kinds, comma-separated (e.g. INTAKE,INTERPRET)")
     intake = sub.add_parser("intake", help="Onboarding simulations")
     intake_actions = intake.add_subparsers(dest="intake_action", required=True)
     simulate_parser = intake_actions.add_parser("simulate", help="Claude plays each persona against the live worker")
@@ -122,7 +123,8 @@ def _main():
         settings = load_settings(args.env_file)
         config = ServeConfig.model_validate_json(args.config.read_text()) if args.config else ServeConfig()
         if args.command == "serve":
-            result = serve(config, settings, args.state_dir, rooms=set(args.room) if args.room else None, once=args.once)
+            result = serve(config, settings, args.state_dir, rooms=set(args.room) if args.room else None, once=args.once,
+                           kinds=set(args.kinds.split(",")) if args.kinds else None)
         else:
             from .simulate import simulate
             result = simulate(settings, args.state_dir, [n.strip() for n in args.personas.split(",")], plan=args.plan,

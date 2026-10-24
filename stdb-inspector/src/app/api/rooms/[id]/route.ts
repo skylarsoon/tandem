@@ -19,10 +19,16 @@ const cache = new Map<number, { data?: Snapshot; error?: string; refreshing?: Pr
 
 // Answer from the latest snapshot at once and refresh in the background, so the
 // page stays responsive while Maincloud answers each query in 0.5-5 s.
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!/^\d+$/.test(id)) return Response.json({ error: "bad room id" }, { status: 400 });
   const roomId = Number(id);
+  if (new URL(request.url).searchParams.get("fresh")) {
+    // Read now (e.g. right after a sandbox action) instead of the cached snapshot.
+    const data = await snapshot(roomId);
+    cache.set(roomId, { data, at: Date.now() });
+    return Response.json(data);
+  }
   const entry = cache.get(roomId) ?? { at: 0 };
   cache.set(roomId, entry);
   if (!entry.refreshing && Date.now() - entry.at > 1500) {

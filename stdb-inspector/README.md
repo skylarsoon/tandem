@@ -17,7 +17,20 @@ It's an owner-only debugging tool.
 
 **Settings:** `STDB_URL` (default `https://maincloud.spacetimedb.com`) and `STDB_DB` (default `tandem-dev`).
 
-**Views:**
+**Three modes:**
+- **Learn**
+  - **Replay this room, call by call:** scrub through every reducer call that shaped a room. Every write in one call shares a timestamp, so calls are rebuilt from the rows. Each step shows which reducer most likely ran and who called it, every row it created or changed, and the SpacetimeDB idea at work (transactions, revisions, leases, views).
+  - **Map of the module:** reducers grouped by who calls them, the tables, and the views; hover to see what touches what. Which tables each reducer and view touches is *derived from `spacetimedb/src`*, so it stays accurate as the module changes.
+  - **Explain panel:** click any underlined name (table, reducer, view or concept) for what it is, who writes it, which view exposes it to whom, and the code.
+- **Sandbox:** a real room on the shared database with three simulated people (ava, ben, cleo).
+  - **Actions:** buttons call real reducers as them: join, confirm settings, set a budget, describe the trip, talk to their agent, confirm, answer questions.
+  - **After each action:** you see exactly which rows that one transaction wrote, and what each person's browser actually receives, because their real views are queried with their own token.
+  - **Privacy test:** "ben tries to read the raw limits table" shows SpacetimeDB refusing.
+  - **AI worker:** "run the AI worker once" runs one sweep of the real worker for the room (onboarding only: Claude calls, no paid searches).
+  - **Tokens:** the sandbox people's tokens stay in `.sandbox/` (git-ignored).
+- **Inspect:** the raw views below.
+
+**Inspect views:**
 - **Story:** every row tied to the room, in time order, with the table it lives in and who can read it: everyone in the room, one person, or only the worker and owner.
 - **People:** each traveller's settings, onboarding, confirmed private limits and private chat.
 - **Jobs:** the work queue, with leases, attempts, revisions and outcomes.

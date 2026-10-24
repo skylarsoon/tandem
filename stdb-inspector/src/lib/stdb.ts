@@ -33,7 +33,7 @@ async function post(pathname: string, body?: string) {
 
 // SATS JSON → plain values: identities as hex, timestamps as epoch ms,
 // options as value-or-null, products as objects, arrays as arrays.
-function decode(value: unknown, type: AlgebraicType): unknown {
+export function decode(value: unknown, type: AlgebraicType): unknown {
   if ("Product" in type) {
     const elements = (type.Product as { elements: Element[] }).elements;
     const names = elements.map(e => e.name.some ?? "");

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Explain, type Focus, Learn, MapView, useModuleMap } from "@/components/learn";
+import { Sandbox } from "@/components/sandbox";
 
 // Rows come from whichever table the schema lists at runtime, so values are untyped here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -39,6 +41,9 @@ export function Inspector() {
   const [lens, setLens] = useState<string>("owner");
   const [rawTable, setRawTable] = useState("room");
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"inspect" | "learn" | "sandbox">("learn");
+  const [focus, setFocus] = useState<Focus>(null);
+  const map = useModuleMap();
   const busy = useRef(false);
 
   useEffect(() => {
@@ -78,8 +83,13 @@ export function Inspector() {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <header className="flex items-center justify-between border-b px-4 py-2">
-        <div className="flex items-baseline gap-3">
+        <div className="flex items-center gap-3">
           <h1 className="text-base font-semibold">SpacetimeDB inspector</h1>
+          <div className="flex rounded-md border p-0.5 text-sm">
+            {(["learn", "sandbox", "inspect"] as const).map(m => (
+              <button key={m} onClick={() => setMode(m)} className={`rounded px-2 py-0.5 capitalize ${mode === m ? "bg-foreground text-background" : ""}`}>{m}</button>
+            ))}
+          </div>
           <span className="text-xs text-muted-foreground">tandem-dev · read as the database owner · refreshes every few seconds</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -88,7 +98,7 @@ export function Inspector() {
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside className="w-64 shrink-0 overflow-y-auto border-r">
+        {mode !== "sandbox" && <aside className="w-64 shrink-0 overflow-y-auto border-r">
           {rooms.map(r => (
             <button key={r.id} onClick={() => { setRoomId(r.id); setData(null); setLens("owner"); }}
               className={`block w-full border-b px-3 py-2 text-left text-sm hover:bg-muted ${r.id === roomId ? "bg-muted" : ""}`}>
@@ -96,8 +106,23 @@ export function Inspector() {
               <div className="text-xs text-muted-foreground">{r.status} · {r.members.join(", ")}</div>
             </button>
           ))}
-        </aside>
-        <main className="min-w-0 flex-1 overflow-y-auto p-4">
+        </aside>}
+        {mode === "sandbox" && <main className="min-w-0 flex-1 overflow-y-auto p-4"><Sandbox setFocus={setFocus} /></main>}
+        {mode === "learn" && (
+          <main className="min-w-0 flex-1 overflow-y-auto p-4">
+            {!model || !map ? <p className="text-sm text-muted-foreground">Loading…</p> : (
+              <Tabs defaultValue="replay">
+                <TabsList><TabsTrigger value="replay">Replay this room, call by call</TabsTrigger><TabsTrigger value="map">Map of the module</TabsTrigger></TabsList>
+                <TabsContent value="replay"><Learn data={model.data} map={map} name={model.name} setFocus={setFocus} /></TabsContent>
+                <TabsContent value="map"><MapView map={map} setFocus={setFocus} /></TabsContent>
+              </Tabs>
+            )}
+          </main>
+        )}
+        {mode !== "inspect" && (
+          <aside className="w-96 shrink-0 overflow-y-auto border-l p-4"><Explain focus={focus} map={map} setFocus={setFocus} /></aside>
+        )}
+        {mode === "inspect" && <main className="min-w-0 flex-1 overflow-y-auto p-4">
           {!model ? <p className="text-sm text-muted-foreground">Loading room…</p> : (
             <>
               <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -128,7 +153,7 @@ export function Inspector() {
               </Tabs>
             </>
           )}
-        </main>
+        </main>}
       </div>
     </div>
   );
