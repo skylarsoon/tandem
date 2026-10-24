@@ -28,7 +28,8 @@ import { messageOwnAgent, recomputeAgreement, scheduleReviewReminders } from './
 
 const ImpactInput = t.object('ImpactInput', { memberId: t.u64(), impactJson: t.string() });
 
-type FlightFacts = {
+type CandidateFacts = {
+  category?: unknown;
   owner_member_id?: unknown;
   total_cents?: unknown;
   arrival_epoch?: unknown;
@@ -37,6 +38,14 @@ type FlightFacts = {
   baggage_included?: unknown;
   cost_basis?: unknown;
   missing_critical_fields?: unknown;
+  capacity?: unknown;
+};
+
+// A complete total is the only price people can approve.
+const COMPLETE_BASIS: Record<string, string> = {
+  FLIGHT: 'COMPLETE_FLIGHT_TOTAL',
+  STAY: 'COMPLETE_STAY_TOTAL',
+  TRANSFER: 'COMPLETE_TRANSFER_TOTAL',
 };
 
 function constraintValue(ctx: Ctx, roomId: bigint, owner: Identity, key: string, hardOnly: boolean): unknown {
@@ -47,37 +56,35 @@ function constraintValue(ctx: Ctx, roomId: bigint, owner: Identity, key: string,
   return undefined;
 }
 
-// Independent server-side check of a flight selection (policy flight_cost_v1),
-// so a buggy or compromised worker can't publish a plan that breaks someone's
-// confirmed hard limits. Each selected candidate's facts_json must carry
-// owner_member_id, total_cents, arrival_epoch, observed_at, valid_until (epoch
-// seconds) and baggage_included; the price must be a complete trip total
-// (cost_basis COMPLETE_FLIGHT_TOTAL) with no missing_critical_fields.
-function validateFlightSelection(ctx: Ctx, r: RoomRow, refs: string[]): void {
+// Independent server-side check of a trip selection (policy minimax_v1), so a
+// buggy or compromised worker can't publish a plan that breaks someone's
+// confirmed hard limits. A trip is one FLIGHT per active member plus, when the
+// room's settings list them in `components`, one shared STAY and TRANSFER whose
+// cost is split equally. Every price must be a complete total (cost_basis
+// COMPLETE_<CATEGORY>_TOTAL, no missing_critical_fields) and current; flights
+// carry owner_member_id, arrival_epoch and baggage_included; shared items carry
+// capacity. Hard limits checked: flight_budget_total, trip_budget_total (own
+// flight + equal share), baggage_required, seats/guests, arrival window. Room
+// preferences that owners can relax by consent (bedrooms, rating) stay in the worker.
+function validateTripSelection(ctx: Ctx, r: RoomRow, refs: string[]): void {
   const active = [...ctx.db.membership.byRoomMember.filter(r.id)].filter(m => m.active);
   const nowSeconds = Number(ctx.timestamp.microsSinceUnixEpoch / 1000n) / 1000;
-  const covered = new Set<bigint>();
+  const settings = JSON.parse(r.settingsJson) as { arrival_overlap_seconds?: number; components?: string[] };
+  const required = new Set((settings.components ?? ['FLIGHT']).filter(c => c !== 'FLIGHT'));
+  const flights = new Map<bigint, number>();
+  const shared = new Map<string, number>();
   const arrivals: number[] = [];
   for (const ref of refs) {
     let row;
     for (const c of ctx.db.candidate.byRoomRef.filter([r.id, ref])) row = c;
     if (!row) fail('INVALID_EVIDENCE_REF', `candidate ${ref} is not recorded in this room`);
-    const facts = JSON.parse(row.factsJson) as FlightFacts;
-    const member = active.find(m => Number(m.id) === facts.owner_member_id);
-    if (!member || covered.has(member.id)) fail('INVALID_COVERAGE', `candidate ${ref} has no unique active owner`);
-    covered.add(member.id);
-    if (!ctx.db.participationPreferences.owner.find(member.member)?.confirmed) {
-      fail('INVALID_PROPOSAL', 'every traveller must confirm participation preferences');
-    }
+    const facts = JSON.parse(row.factsJson) as CandidateFacts;
+    const category = typeof facts.category === 'string' ? facts.category : 'FLIGHT';
+    if (category !== row.category) fail('INVALID_PROPOSAL', `candidate ${ref} has inconsistent category`);
     if (typeof facts.total_cents !== 'number') fail('INVALID_PROPOSAL', `candidate ${ref} has no known total price`);
     const missing = Array.isArray(facts.missing_critical_fields) ? facts.missing_critical_fields : [];
-    if (facts.cost_basis !== 'COMPLETE_FLIGHT_TOTAL' || missing.length > 0) {
+    if (facts.cost_basis !== COMPLETE_BASIS[category] || missing.length > 0) {
       fail('INVALID_PROPOSAL', `candidate ${ref} has incomplete cost evidence`);
-    }
-    const cap = constraintValue(ctx, r.id, member.member, 'flight_budget_total', true);
-    if (typeof cap === 'number' && facts.total_cents > cap) fail('INVALID_PROPOSAL', `candidate ${ref} exceeds a hard limit`);
-    if (constraintValue(ctx, r.id, member.member, 'baggage_required', false) === true && facts.baggage_included !== true) {
-      fail('INVALID_PROPOSAL', `candidate ${ref} does not confirm required baggage`);
     }
     if (
       typeof facts.observed_at !== 'number' ||
@@ -87,11 +94,38 @@ function validateFlightSelection(ctx: Ctx, r: RoomRow, refs: string[]): void {
     ) {
       fail('INVALID_PROPOSAL', `candidate ${ref} evidence is not current`);
     }
+    if (category !== 'FLIGHT') {
+      if (!required.has(category) || shared.has(category)) fail('INVALID_COVERAGE', `unexpected ${category} ${ref}`);
+      if (typeof facts.capacity !== 'number' || facts.capacity < active.length) {
+        fail('INVALID_PROPOSAL', `candidate ${ref} doesn't fit everyone`);
+      }
+      shared.set(category, facts.total_cents);
+      continue;
+    }
+    const member = active.find(m => Number(m.id) === facts.owner_member_id);
+    if (!member || flights.has(member.id)) fail('INVALID_COVERAGE', `candidate ${ref} has no unique active owner`);
+    flights.set(member.id, facts.total_cents);
+    if (!ctx.db.participationPreferences.owner.find(member.member)?.confirmed) {
+      fail('INVALID_PROPOSAL', 'every traveller must confirm participation preferences');
+    }
+    const cap = constraintValue(ctx, r.id, member.member, 'flight_budget_total', true);
+    if (typeof cap === 'number' && facts.total_cents > cap) fail('INVALID_PROPOSAL', `candidate ${ref} exceeds a hard limit`);
+    if (constraintValue(ctx, r.id, member.member, 'baggage_required', false) === true && facts.baggage_included !== true) {
+      fail('INVALID_PROPOSAL', `candidate ${ref} does not confirm required baggage`);
+    }
     if (typeof facts.arrival_epoch !== 'number') fail('INVALID_PROPOSAL', `candidate ${ref} has no arrival time`);
     arrivals.push(facts.arrival_epoch);
   }
-  if (covered.size !== active.length) fail('INVALID_COVERAGE', 'every active member needs exactly one selected option');
-  const settings = JSON.parse(r.settingsJson) as { arrival_overlap_seconds?: number };
+  if (flights.size !== active.length) fail('INVALID_COVERAGE', 'every active member needs exactly one selected flight');
+  if (shared.size !== required.size) fail('INVALID_COVERAGE', 'every shared part of the trip needs exactly one option');
+  // Equal split, compared in party-size-scaled cents so shares stay exact.
+  const sharedTotal = [...shared.values()].reduce((a, b) => a + b, 0);
+  for (const m of active) {
+    const cap = constraintValue(ctx, r.id, m.member, 'trip_budget_total', true);
+    if (typeof cap === 'number' && active.length * flights.get(m.id)! + sharedTotal > active.length * cap) {
+      fail('INVALID_PROPOSAL', 'a traveller’s share of the trip exceeds a hard limit');
+    }
+  }
   const overlap = settings.arrival_overlap_seconds ?? 7200;
   if (arrivals.length > 0 && Math.max(...arrivals) - Math.min(...arrivals) > overlap) {
     fail('INVALID_PROPOSAL', 'arrivals are further apart than the room allows');
@@ -113,7 +147,7 @@ export const publishProposal = spacetimedb.procedure(
     evidenceRefs: t.array(t.string()),
     affectedMemberIds: t.array(t.u64()),
     impacts: t.array(ImpactInput),
-    // Flight candidate refs to validate server-side (empty for non-flight stages).
+    // Trip candidate refs to validate server-side (empty for stages without candidates).
     selectedCandidateRefs: t.array(t.string()),
   },
   t.string(),
@@ -132,7 +166,7 @@ export const publishProposal = spacetimedb.procedure(
           for (const ref of args.evidenceRefs) {
             if (!refResolves(tx, r.id, ref)) fail('INVALID_EVIDENCE_REF', `evidence ${ref} is not recorded in this room`);
           }
-          if (args.selectedCandidateRefs.length > 0) validateFlightSelection(tx, r, args.selectedCandidateRefs);
+          if (args.selectedCandidateRefs.length > 0) validateTripSelection(tx, r, args.selectedCandidateRefs);
           if (containsPrivateText(tx, r.id, args.termsJson) || containsPrivateText(tx, r.id, args.sharedSummaryJson)) {
             fail('PRIVATE_CONTENT_DETECTED', 'shared proposal text contains a participant’s private reason');
           }

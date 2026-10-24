@@ -175,7 +175,8 @@ export const confirmParticipationPreferences = spacetimedb.reducer(
   }
 );
 
-// Organizer-only shared rules, e.g. {"arrival_overlap_seconds": 7200}. These
+// Organizer-only shared rules, e.g. {"arrival_overlap_seconds": 7200,
+// "components": ["FLIGHT", "STAY", "TRANSFER"]}. These
 // are planning inputs, so a change starts a new generation.
 export const setRoomSettings = spacetimedb.reducer(
   { roomId: t.u64(), settingsJson: t.string() },
@@ -190,6 +191,16 @@ export const setRoomSettings = spacetimedb.reducer(
     const overlap = (settings as Record<string, unknown>).arrival_overlap_seconds;
     if (overlap !== undefined && (typeof overlap !== 'number' || !Number.isInteger(overlap) || overlap < 0)) {
       fail('INVALID_ARGUMENT', 'arrival_overlap_seconds must be a non-negative integer');
+    }
+    const components = (settings as Record<string, unknown>).components;
+    if (
+      components !== undefined &&
+      (!Array.isArray(components) ||
+        !components.includes('FLIGHT') ||
+        new Set(components).size !== components.length ||
+        components.some(c => !['FLIGHT', 'STAY', 'TRANSFER'].includes(c as string)))
+    ) {
+      fail('INVALID_ARGUMENT', 'components must list FLIGHT and optionally STAY and TRANSFER, once each');
     }
     ctx.db.room.id.update({ ...r, settingsJson });
     invalidateRoom(ctx, roomId, { input: true }, 'room settings changed');

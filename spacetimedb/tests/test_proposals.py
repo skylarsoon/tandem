@@ -198,3 +198,60 @@ def test_room_settings_are_organizer_only_and_replan(ready_room, client, worker)
     assert room.context(worker, new_job)["room"]["settings"] == {"arrival_overlap_seconds": 60}
     # Flights 10 minutes apart now break the 60-second overlap rule.
     expect_error("INVALID_PROPOSAL", publish_selected, room, worker, new_job, record_flights(room, worker, new_job))
+
+
+def record_shared(room: Room, worker, job_id: int, category: str, total_cents: int, **facts) -> str:
+    import time as _time
+    now = _time.time()
+    body = {"category": category, "total_cents": total_cents, "currency": "USD", "observed_at": now - 5,
+            "valid_until": now + 3600, "capacity": 4, "cost_basis": f"COMPLETE_{category}_TOTAL", **facts}
+    ref = f"{category.lower()}-{key()}"
+    room.client.call(worker, "record_candidates", job_id=job_id, attempt=room.leases[job_id], request_key=key(),
+                     candidates=[{"candidate_ref": ref, "candidate_set_version": 1, "category": category, "mode": "FIXTURE",
+                                  "source_url": "fixture://test", "observed_at": "2026-10-24T09:00:00Z",
+                                  "facts_json": json.dumps(body), "missing_fields": []}])
+    return ref
+
+
+def trip_room(room: Room, client, worker) -> int:
+    client.call(room.people["alice"], "set_room_settings", room_id=room.room_id,
+                settings_json=json.dumps({"components": ["FLIGHT", "STAY", "TRANSFER"]}))
+    job_id = room.plan_job(worker)
+    room.claim(worker, job_id)
+    return job_id
+
+
+def test_trip_publish_checks_shared_items_and_trip_budgets(ready_room, client, worker):
+    room, _ = ready_room
+    job_id = trip_room(room, client, worker)
+    flights = record_flights(room, worker, job_id)  # alice $490, others $640
+    stay = record_shared(room, worker, job_id, "STAY", 120000)
+    van = record_shared(room, worker, job_id, "TRANSFER", 12000)
+    # Every required part, once.
+    expect_error("INVALID_COVERAGE", publish_selected, room, worker, job_id, flights + [stay])
+    expect_error("INVALID_COVERAGE", publish_selected, room, worker, job_id, flights + [stay, van, record_shared(
+        room, worker, job_id, "TRANSFER", 9000)])
+    # Shared items must fit everyone and carry a complete, current price.
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 flights + [record_shared(room, worker, job_id, "STAY", 60000, capacity=2), van])
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 flights + [stay, record_shared(room, worker, job_id, "TRANSFER", 9000, cost_basis="OBSERVED_PRICE")])
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 flights + [record_shared(room, worker, job_id, "STAY", 1000, valid_until=1), van])
+    # alice: $490 flight + $330 share = $820 > an $800 trip budget.
+    client.call(room.people["alice"], "set_constraint", room_id=room.room_id, key="trip_budget_total", value_json="80000",
+                unit="USD_cents", hardness="HARD", authorized_range_json=None, private_rationale=None)
+    job_id = room.plan_job(worker)
+    room.claim(worker, job_id)
+    flights = record_flights(room, worker, job_id)
+    van = record_shared(room, worker, job_id, "TRANSFER", 12000)
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 flights + [record_shared(room, worker, job_id, "STAY", 120000), van])
+    assert publish_selected(room, worker, job_id, flights + [record_shared(room, worker, job_id, "STAY", 112000), van])["version"] == 1
+
+
+def test_room_components_must_be_valid(ready_room, client, worker):
+    room, _ = ready_room
+    for bad in (["STAY"], ["FLIGHT", "FLIGHT"], ["FLIGHT", "SPA"], "FLIGHT"):
+        expect_error("INVALID_ARGUMENT", client.call, room.people["alice"], "set_room_settings", room_id=room.room_id,
+                     settings_json=json.dumps({"components": bad}))
