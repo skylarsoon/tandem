@@ -1,7 +1,7 @@
 # Tandem backend contract (SpacetimeDB module)
 
 For: Skylar (worker / LangGraph), Anna (frontend), and anyone calling the backend.
-Owner: Ronit. Source of truth: `spacetimedb/src/`. Verified by `spacetimedb/scripts/test.sh` (45 tests).
+Owner: Ronit. Source of truth: `spacetimedb/src/`. Verified by `spacetimedb/scripts/test.sh` (52 tests). Demo guide: `demo.md`.
 SpacetimeDB **2.13.0**. Every JSON example in `examples/` was captured from a real run.
 
 ---
@@ -79,6 +79,7 @@ Extra worker writes (same checks):
 | `propose_constraint_patch` | `requestKey`, `memberId`, `patchJson`, `sourceMessageId?` | Tentative extraction for the owner to confirm. Patch shape: `{"key", "value", "unit", "hardness", "authorized_range"?, "private_rationale"?}`. |
 | `propose_participation_preferences` | `requestKey`, `memberId`, `speakUpForMe`, `askMeFirst`, `giveMeTime` | Suggested settings; stay unconfirmed, grant nothing. Refused once confirmed. |
 | `emit_event` | `requestKey`, `type`, `memberId?`, `payloadJson` | Live Negotiation progress (`INITIAL_SEARCH_STARTED`, …). No `memberId` = room-wide (private-text checked); with it = that owner only. |
+| `set_agent_activity` | `agentId`, `activity`, `threadId?` | Live avatar state: `IDLE`, `THINKING`, `SEARCHING`, `CHECKING`, `WRITING`, `WAITING_FOR_OWNER`. No request key (last write wins). Shown as `IDLE` once the job stops running. |
 
 Job statuses: `PENDING` → `CLAIMED` → `WAITING_FOR_INPUT` / `SUCCEEDED` / `FINISHED` / `FAILED`, or `SUPERSEDED` / `CANCELLED` at any point. Kinds: `PLAN` (snapshot-bound) and `INTERPRET` (owner messages, review follow-ups; not superseded by revisions).
 
@@ -98,6 +99,10 @@ Job statuses: `PENDING` → `CLAIMED` → `WAITING_FOR_INPUT` / `SUCCEEDED` / `F
 | `answer_question` | `questionId`, `version`, `answerJson` | See §6. Wrong owner → `NOT_FOUND`; not open or wrong version → `QUESTION_SUPERSEDED`. |
 | `respond_to_proposal` | `proposalId`, `version`, `termsDigest`, `response`, `note?` | `ACCEPT`, `NOT_COMFORTABLE`, `ASK_MY_AGENT`, `SUGGEST_ALTERNATIVE`, `DECIDE_LATER`. Rejected with `STALE_SNAPSHOT` if version, digest or room revisions changed. Agreement is recomputed in the same transaction: **every affected member must have ACCEPTED these exact terms**. Non-accept responses message your agent (INTERPRET job). |
 | `withdraw_consent` | `proposalId`, `note?` | Reopens an AGREED proposal and its milestone. |
+
+Presence is automatic: opening a connection (SDK) marks you online; closing your last tab marks you offline. HTTP calls don't count.
+
+**Review reminders:** when a proposal is published, every reviewer who confirmed preferences *without* "give me time" gets one private `REVIEW_REMINDER` event in `room_events` after a delay, but only if they still haven't responded. The delay defaults to 10 minutes; the database owner can change it with `set_reminder_delay(seconds)`.
 
 ---
 
@@ -150,6 +155,8 @@ All views are per-caller and update live.
 | `room_proposals` | Terms, digest, summary, state, `reviewer_count`, `is_reviewer`. No validation JSON. |
 | `my_proposal_impacts`, `my_consents` (`decide_later_available`) | Your allocation and your own response |
 | `room_consent_counts` | `required` / `accepted` / `declined` / `pending` per proposal. **Counts only, never who** (team decision). |
+| `room_presence` | `membership_id`, `online`, `last_seen` for members of your rooms (green dots). |
+| `room_agent_activity` | `agent_id`, `activity`, `thread_id` per agent in your rooms (live avatar state). |
 | `worker_pending_jobs` | `PENDING` jobs; empty unless the caller is an allowlisted worker. |
 
 ---
@@ -165,14 +172,23 @@ All views are per-caller and update live.
 
 ---
 
-## 9. Setup
+## 9. Simulator (until the real worker is ready)
+
+`spacetimedb/scripts/simulate.py` plays the worker's part with FIXTURE flights so the frontend has live data:
+- `seed` creates a room of simulated people and prints the invite code.
+- `negotiate --room N` makes agents talk, change activity and publish a plan.
+- `--crash-after 1` rehearses a crash and takeover.
+
+It uses the same operations as the real worker. See `demo.md`.
+
+## 10. Setup
 
 - **Register service identities.** The database owner (whoever published) runs `spacetime call <db> add_worker '{"__identity__":"0x…"}' '"worker"'` for the worker's and the dispatcher's identities. Mint them with `POST /v1/identity` and keep the tokens as secrets; they don't expire.
 - **Run the backend tests:** `spacetimedb/scripts/test.sh`. It starts an in-memory server on port 3100 (override with `STDB_TEST_PORT`), publishes, runs pytest, and stops.
 
 ---
 
-## 10. Open points to settle (Skylar + Ronit)
+## 11. Open points to settle (Skylar + Ronit)
 
 1. **Wording validation stays in the worker.** The backend enforces status, refs, audience, preference gates and a private-text substring check (§5). OK?
 2. **Resume vs new generation:** proposed in §6. In particular, a granted disclosure/consultation/exploration *resumes* the same generation; preference confirmations and constraint answers start a new one.
