@@ -168,6 +168,10 @@ def test_publish_rechecks_flights_against_confirmed_limits(ready_room, client, w
     spread = record_flights(room, worker, job_id, {"dave": {"arrival_epoch": 1}})
     expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, spread)
     expect_error("INVALID_EVIDENCE_REF", publish_selected, room, worker, job_id, ["not-recorded"])
+    observed_only = record_flights(room, worker, job_id, {"carol": {"cost_basis": "OBSERVED_FLIGHT_PRICE"}})
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, observed_only)
+    missing_fees = record_flights(room, worker, job_id, {"carol": {"missing_critical_fields": ["taxes"]}})
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, missing_fees)
     good = record_flights(room, worker, job_id)
     assert publish_selected(room, worker, job_id, good)["version"] == 1
 

@@ -96,7 +96,7 @@ All take `jobId` + `attempt` and run the checks in §2 unless noted. "Key" = `re
 - open proposals
 
 **Publication.** Everything happens in one transaction:
-1. If `selectedCandidateRefs` is non-empty, the flight selection is re-checked (policy `flight_cost_v1`). Each candidate's `facts_json` must carry `owner_member_id`, `total_cents`, `arrival_epoch`, `observed_at`, `valid_until` (epoch seconds) and `baggage_included`. The checks: one per active member, at or under each HARD `flight_budget_total`, baggage where `baggage_required` is true, prices not expired, arrivals within the room's `arrival_overlap_seconds`, and every traveller's preferences confirmed. Failures return `INVALID_PROPOSAL` / `INVALID_COVERAGE` / `INVALID_EVIDENCE_REF`.
+1. If `selectedCandidateRefs` is non-empty, the flight selection is re-checked (policy `flight_cost_v1`). Each candidate's `facts_json` must carry `owner_member_id`, `total_cents`, `arrival_epoch`, `observed_at`, `valid_until` (epoch seconds), `baggage_included`, and `cost_basis: "COMPLETE_FLIGHT_TOTAL"` with no `missing_critical_fields` (an observed price with unknown taxes or fees can't be published). The checks: one per active member, at or under each HARD `flight_budget_total`, baggage where `baggage_required` is true, prices not expired, arrivals within the room's `arrival_overlap_seconds`, and every traveller's preferences confirmed. Failures return `INVALID_PROPOSAL` / `INVALID_COVERAGE` / `INVALID_EVIDENCE_REF`.
 2. The stage's previous proposal is superseded.
 3. Immutable terms are stored with `terms_digest = sha256(termsJson bytes)`. **Send canonical JSON.**
 4. Private impacts and `PENDING` consents are created, reminders scheduled, and the milestone set to `IN_REVIEW`.

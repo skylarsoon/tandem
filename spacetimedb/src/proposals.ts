@@ -35,6 +35,8 @@ type FlightFacts = {
   observed_at?: unknown;
   valid_until?: unknown;
   baggage_included?: unknown;
+  cost_basis?: unknown;
+  missing_critical_fields?: unknown;
 };
 
 function constraintValue(ctx: Ctx, roomId: bigint, owner: Identity, key: string, hardOnly: boolean): unknown {
@@ -49,7 +51,8 @@ function constraintValue(ctx: Ctx, roomId: bigint, owner: Identity, key: string,
 // so a buggy or compromised worker can't publish a plan that breaks someone's
 // confirmed hard limits. Each selected candidate's facts_json must carry
 // owner_member_id, total_cents, arrival_epoch, observed_at, valid_until (epoch
-// seconds) and baggage_included.
+// seconds) and baggage_included; the price must be a complete trip total
+// (cost_basis COMPLETE_FLIGHT_TOTAL) with no missing_critical_fields.
 function validateFlightSelection(ctx: Ctx, r: RoomRow, refs: string[]): void {
   const active = [...ctx.db.membership.byRoomMember.filter(r.id)].filter(m => m.active);
   const nowSeconds = Number(ctx.timestamp.microsSinceUnixEpoch / 1000n) / 1000;
@@ -67,6 +70,10 @@ function validateFlightSelection(ctx: Ctx, r: RoomRow, refs: string[]): void {
       fail('INVALID_PROPOSAL', 'every traveller must confirm participation preferences');
     }
     if (typeof facts.total_cents !== 'number') fail('INVALID_PROPOSAL', `candidate ${ref} has no known total price`);
+    const missing = Array.isArray(facts.missing_critical_fields) ? facts.missing_critical_fields : [];
+    if (facts.cost_basis !== 'COMPLETE_FLIGHT_TOTAL' || missing.length > 0) {
+      fail('INVALID_PROPOSAL', `candidate ${ref} has incomplete cost evidence`);
+    }
     const cap = constraintValue(ctx, r.id, member.member, 'flight_budget_total', true);
     if (typeof cap === 'number' && facts.total_cents > cap) fail('INVALID_PROPOSAL', `candidate ${ref} exceeds a hard limit`);
     if (constraintValue(ctx, r.id, member.member, 'baggage_required', false) === true && facts.baggage_included !== true) {
