@@ -1,7 +1,8 @@
 {
+  "http_status": 200,
   "raw_body": {
     "ok": false,
-    "code": "INVALID_STATE",
+    "code": "JOB_NOT_ELIGIBLE",
     "detail": "job 4 is SUCCEEDED"
   }
 }

@@ -1,6 +1,6 @@
 {
-  "raw_body": "LEASE_LOST: job 4 is SUCCEEDED",
   "http_status": 530,
+  "raw_body": "LEASE_LOST: job 4 is SUCCEEDED",
   "code": "LEASE_LOST",
   "detail": "job 4 is SUCCEEDED"
 }

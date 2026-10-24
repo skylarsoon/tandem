@@ -1,0 +1,47 @@
+{
+  "job_id": 4,
+  "attempt": 1,
+  "request_key": "4:candidates:1",
+  "candidates": [
+    {
+      "candidate_ref": "alice-initial",
+      "candidate_set_version": 5,
+      "category": "FLIGHT",
+      "mode": "FIXTURE",
+      "source_url": "https://fixtures.invalid/alice",
+      "observed_at": "2026-10-24T11:05:03Z",
+      "facts_json": "{\"arrival_epoch\": 1792926303, \"baggage_included\": true, \"cost_basis\": \"COMPLETE_FLIGHT_TOTAL\", \"currency\": \"USD\", \"observed_at\": 1792839903.277, \"owner_member_id\": 1, \"total_cents\": 48000, \"valid_until\": 1792843503.277}",
+      "missing_fields": []
+    },
+    {
+      "candidate_ref": "bob-initial",
+      "candidate_set_version": 5,
+      "category": "FLIGHT",
+      "mode": "FIXTURE",
+      "source_url": "https://fixtures.invalid/bob",
+      "observed_at": "2026-10-24T11:05:03Z",
+      "facts_json": "{\"arrival_epoch\": 1792926903, \"baggage_included\": true, \"cost_basis\": \"COMPLETE_FLIGHT_TOTAL\", \"currency\": \"USD\", \"observed_at\": 1792839903.277, \"owner_member_id\": 2, \"total_cents\": 63000, \"valid_until\": 1792843503.277}",
+      "missing_fields": []
+    },
+    {
+      "candidate_ref": "carol-initial",
+      "candidate_set_version": 5,
+      "category": "FLIGHT",
+      "mode": "FIXTURE",
+      "source_url": "https://fixtures.invalid/carol",
+      "observed_at": "2026-10-24T11:05:03Z",
+      "facts_json": "{\"arrival_epoch\": 1792927503, \"baggage_included\": true, \"cost_basis\": \"COMPLETE_FLIGHT_TOTAL\", \"currency\": \"USD\", \"observed_at\": 1792839903.277, \"owner_member_id\": 3, \"total_cents\": 63000, \"valid_until\": 1792843503.277}",
+      "missing_fields": []
+    },
+    {
+      "candidate_ref": "dave-initial",
+      "candidate_set_version": 5,
+      "category": "FLIGHT",
+      "mode": "FIXTURE",
+      "source_url": "https://fixtures.invalid/dave",
+      "observed_at": "2026-10-24T11:05:03Z",
+      "facts_json": "{\"arrival_epoch\": 1792928103, \"baggage_included\": true, \"cost_basis\": \"COMPLETE_FLIGHT_TOTAL\", \"currency\": \"USD\", \"observed_at\": 1792839903.277, \"owner_member_id\": 4, \"total_cents\": 63000, \"valid_until\": 1792843503.277}",
+      "missing_fields": []
+    }
+  ]
+}

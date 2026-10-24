@@ -1,19 +1,20 @@
 {
   "job_id": 4,
   "attempt": 1,
-  "message_key": "room:1:gen:4:round-1:propose:agent-2",
+  "message_key": "msg-3b1f0c9e2a7d4c5b8e6f1a2d",
   "schema_version": 2,
-  "round_id": "round-1",
+  "round_id": "round-0",
   "thread_id": null,
   "open_thread": {
     "some": {
-      "topic_ref": "topic:arrival_overlap",
+      "topic_ref": "conversation-alice-r0",
       "participant_agent_ids": [
         1,
-        2,
-        5
+        2
       ],
-      "turn_budget": null,
+      "turn_budget": {
+        "some": 6
+      },
       "successor_of": null
     }
   },
@@ -22,20 +23,20 @@
   "type": "PROPOSE",
   "reply_to": null,
   "draft_ref": {
-    "some": "draft-r1-1"
+    "some": "draft-1"
   },
   "proposal_id": null,
   "proposal_version": null,
-  "payload_json": "{\"category\": \"flight\", \"operation\": \"evaluate_draft\", \"candidate_refs\": [\"cand_sfo_1005\"]}",
-  "utterance": "Here's a draft where everyone lands within two hours of each other. Does it work on your side?",
+  "payload_json": "{\"candidate_refs\": [\"alice-initial\"], \"draft_ref\": \"draft-1\", \"evaluation\": \"REQUESTED\"}",
+  "utterance": "Could you evaluate this option?",
   "claim_refs": [
-    "cand_sfo_1005"
+    "act:PROPOSE"
   ],
   "evidence_refs": [
-    "draft:draft-r1-1"
+    "alice-initial"
   ],
   "audience": "ROOM",
   "audience_member_id": null,
-  "sanitization_status": "VALIDATED",
-  "grant_ref": null
+  "sanitization_status": "TEMPLATE_FALLBACK",
+  "validation_digest": null
 }

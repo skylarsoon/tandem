@@ -9,13 +9,16 @@
     "input_revision": 5,
     "membership_revision": 4,
     "permission_revision": 5,
-    "lease_expires_at_micros": "1792836055489430",
+    "lease_expires_at_micros": "1792839963270410",
     "graph_thread_ref": null
   },
   "room": {
     "room_id": 1,
     "goal": "Hawaii trip",
-    "status": "NEGOTIATING"
+    "status": "NEGOTIATING",
+    "settings": {
+      "arrival_overlap_seconds": 7200
+    }
   },
   "mediator_agent_id": 1,
   "members": [
@@ -34,6 +37,7 @@
         "speak_up_for_me": false,
         "ask_me_first": true,
         "give_me_time": true,
+        "reminders_opted_in": false,
         "confirmed": true,
         "revision": 1
       },
@@ -59,6 +63,7 @@
         "speak_up_for_me": false,
         "ask_me_first": true,
         "give_me_time": true,
+        "reminders_opted_in": false,
         "confirmed": true,
         "revision": 1
       },
@@ -84,6 +89,7 @@
         "speak_up_for_me": false,
         "ask_me_first": true,
         "give_me_time": true,
+        "reminders_opted_in": false,
         "confirmed": true,
         "revision": 1
       },
@@ -109,6 +115,7 @@
         "speak_up_for_me": false,
         "ask_me_first": true,
         "give_me_time": true,
+        "reminders_opted_in": false,
         "confirmed": true,
         "revision": 1
       },
@@ -169,14 +176,12 @@
   "questions": [
     {
       "question_id": 1,
-      "request_key": "q:room:1:gen:4:alice:disclose",
+      "request_key": "question-6a0d2f\u2026",
       "member_id": 1,
       "kind": "OBJECTION_DISCLOSURE",
       "version": 1,
       "action": {
-        "action": "surface_objection",
-        "draft_ref": "draft-r1-1",
-        "thread_id": 1
+        "action_ref": "draft-1"
       },
       "state": "OPEN",
       "answer": null,
@@ -187,12 +192,11 @@
   "threads": [
     {
       "thread_id": 1,
-      "round_id": "round-1",
-      "topic_ref": "topic:arrival_overlap",
+      "round_id": "round-0",
+      "topic_ref": "conversation-alice-r0",
       "participant_agent_ids": [
         1,
-        2,
-        5
+        2
       ],
       "turn_budget": 6,
       "turns_used": 1,
@@ -203,22 +207,22 @@
   "messages": [
     {
       "message_id": 1,
-      "message_key": "room:1:gen:4:round-1:propose:agent-2",
+      "message_key": "msg-3b1f0c9e2a7d4c5b8e6f1a2d",
       "thread_id": 1,
-      "round_id": "round-1",
+      "round_id": "round-0",
       "sender_agent_id": 1,
       "recipient_agent_id": 2,
       "type": "PROPOSE",
       "reply_to": null,
-      "draft_ref": "draft-r1-1",
+      "draft_ref": "draft-1",
       "payload": {
-        "category": "flight",
-        "operation": "evaluate_draft",
         "candidate_refs": [
-          "cand_sfo_1005"
-        ]
+          "alice-initial"
+        ],
+        "draft_ref": "draft-1",
+        "evaluation": "REQUESTED"
       },
-      "utterance": "Here's a draft where everyone lands within two hours of each other. Does it work on your side?",
+      "utterance": "Could you evaluate this option?",
       "effective_audience": "ROOM",
       "processing_state": "DELIVERED",
       "processed_reply_ids": []
@@ -226,19 +230,88 @@
   ],
   "candidates": [
     {
-      "candidate_ref": "cand_sfo_1005",
-      "candidate_set_version": 1,
+      "candidate_ref": "alice-initial",
+      "candidate_set_version": 5,
       "category": "FLIGHT",
       "mode": "FIXTURE",
-      "source_url": "fixture://flights/sfo-hnl",
-      "observed_at": "2026-10-24T09:00:00Z",
+      "source_url": "https://fixtures.invalid/alice",
+      "observed_at": "2026-10-24T11:05:03Z",
       "facts": {
-        "price_cents": 48000,
-        "arrive_local": "2026-11-20T13:05:00-10:00"
+        "arrival_epoch": 1792926303,
+        "baggage_included": true,
+        "cost_basis": "COMPLETE_FLIGHT_TOTAL",
+        "currency": "USD",
+        "observed_at": 1792839903.277,
+        "owner_member_id": 1,
+        "total_cents": 48000,
+        "valid_until": 1792843503.277
       },
-      "missing_fields": [
-        "baggage"
-      ]
+      "missing_fields": [],
+      "input_revision": 5,
+      "membership_revision": 4
+    },
+    {
+      "candidate_ref": "bob-initial",
+      "candidate_set_version": 5,
+      "category": "FLIGHT",
+      "mode": "FIXTURE",
+      "source_url": "https://fixtures.invalid/bob",
+      "observed_at": "2026-10-24T11:05:03Z",
+      "facts": {
+        "arrival_epoch": 1792926903,
+        "baggage_included": true,
+        "cost_basis": "COMPLETE_FLIGHT_TOTAL",
+        "currency": "USD",
+        "observed_at": 1792839903.277,
+        "owner_member_id": 2,
+        "total_cents": 63000,
+        "valid_until": 1792843503.277
+      },
+      "missing_fields": [],
+      "input_revision": 5,
+      "membership_revision": 4
+    },
+    {
+      "candidate_ref": "carol-initial",
+      "candidate_set_version": 5,
+      "category": "FLIGHT",
+      "mode": "FIXTURE",
+      "source_url": "https://fixtures.invalid/carol",
+      "observed_at": "2026-10-24T11:05:03Z",
+      "facts": {
+        "arrival_epoch": 1792927503,
+        "baggage_included": true,
+        "cost_basis": "COMPLETE_FLIGHT_TOTAL",
+        "currency": "USD",
+        "observed_at": 1792839903.277,
+        "owner_member_id": 3,
+        "total_cents": 63000,
+        "valid_until": 1792843503.277
+      },
+      "missing_fields": [],
+      "input_revision": 5,
+      "membership_revision": 4
+    },
+    {
+      "candidate_ref": "dave-initial",
+      "candidate_set_version": 5,
+      "category": "FLIGHT",
+      "mode": "FIXTURE",
+      "source_url": "https://fixtures.invalid/dave",
+      "observed_at": "2026-10-24T11:05:03Z",
+      "facts": {
+        "arrival_epoch": 1792928103,
+        "baggage_included": true,
+        "cost_basis": "COMPLETE_FLIGHT_TOTAL",
+        "currency": "USD",
+        "observed_at": 1792839903.277,
+        "owner_member_id": 4,
+        "total_cents": 63000,
+        "valid_until": 1792843503.277
+      },
+      "missing_fields": [],
+      "input_revision": 5,
+      "membership_revision": 4
     }
   ],
   "proposals": []

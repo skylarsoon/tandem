@@ -1,31 +1,40 @@
 {
   "job_id": 4,
   "attempt": 1,
-  "request_key": "publish:room:1:gen:4:TRAVEL",
+  "request_key": "4:publish",
   "stage": "TRAVEL",
-  "terms_json": "{\"flights\":{\"alice\":\"cand_sfo_1005\",\"bob\":\"cand_lax_2001\",\"carol\":\"cand_sea_3001\",\"dave\":\"cand_jfk_4001\"}}",
-  "shared_summary_json": "{\"headline\": \"Everyone lands between 12:10 and 13:55 local time\"}",
-  "validation_json": "{\"validator_version\": \"v1\", \"hard_constraints\": \"PASS\"}",
+  "terms_json": "{\"policy\":\"flight_cost_v1\",\"scope\":\"FLIGHTS_ONLY\",\"selected\":[\"alice-initial\",\"bob-initial\",\"carol-initial\",\"dave-initial\"]}",
+  "shared_summary_json": "{\"scope\": \"FLIGHTS_ONLY\", \"travellers\": 4}",
+  "validation_json": "{\"valid\": true, \"checks\": [], \"validator_version\": \"flight-validator-v1\"}",
   "evidence_refs": [
-    "cand_sfo_1005"
+    "alice-initial",
+    "bob-initial",
+    "carol-initial",
+    "dave-initial"
   ],
   "affected_member_ids": [],
+  "selected_candidate_refs": [
+    "alice-initial",
+    "bob-initial",
+    "carol-initial",
+    "dave-initial"
+  ],
   "impacts": [
     {
       "member_id": 1,
-      "impact_json": "{\"cost_cents\": 45000}"
+      "impact_json": "{\"total_cents\": 48000}"
     },
     {
       "member_id": 2,
-      "impact_json": "{\"cost_cents\": 45000}"
+      "impact_json": "{\"total_cents\": 63000}"
     },
     {
       "member_id": 3,
-      "impact_json": "{\"cost_cents\": 45000}"
+      "impact_json": "{\"total_cents\": 63000}"
     },
     {
       "member_id": 4,
-      "impact_json": "{\"cost_cents\": 45000}"
+      "impact_json": "{\"total_cents\": 63000}"
     }
   ]
 }
