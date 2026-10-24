@@ -132,3 +132,101 @@ def test_room_conflict_text_counts_causes_without_names():
                                "2 travellers: every fare found is above a private limit. "
                                "Each affected traveller has a private note from their agent.")
     assert not {"alice", "bob", "carol", "292"} & set(json.dumps(payload).replace(".", " ").split())
+
+
+# ---------- whole trips: shared stay and transfer, split equally ----------
+
+def settle(backend, worker, answers, rounds=4):
+    """Answer each owner's open questions until the run stops waiting."""
+    result = None
+    for _ in range(rounds):
+        for owner, answer in answers.items():
+            answer_all(backend, owner, answer)
+        result = worker.reconcile()[-1]
+        if result["outcome"] != "WAITING_FOR_INPUT":
+            return result
+    return result
+
+
+def test_trip_plan_splits_the_stay_and_transfer_and_explains_each_share(setup_worker):
+    backend, worker, job, model, research, _ = setup_worker("trip-happy")
+    assert worker.run_one(job)["outcome"] == "AWAITING_REVIEW"
+    assert research.requests[0]["categories"] == ["FLIGHT", "STAY", "TRANSFER", "ACTIVITY", "DINNER"]
+    assert selected(backend) == ["p1-noon", "p2-noon", "p3-noon", "p4-noon", "stay-condo", "transfer-van"]
+    [proposal] = backend.shared_report()["proposals"].values()
+    assert "Stay: Condo, $1,200.00 in total. Airport transfer: Airport van, $120.00." in proposal["summary"]
+    assert "Shared costs are split equally: $330.00 each." in proposal["summary"]
+    assert "Things to do: Sunrise snorkel tour (about $89.00 per person); Diamond Head hike." in proposal["summary"]
+    [note] = backend.owner_view("p4")["impacts"].values()
+    assert note["text"] == ("Your trip costs $730.00: your $400.00 flight plus a $330.00 equal share of the stay and transfer. "
+                            "That's the cheapest trip available to you.")
+    first = backend.shared_report()["messages"][0]
+    assert first["type"] == "PROPOSE" and "The stay costs $1,200.00 in total, taxes included." in first["utterance"]
+    assert any(ref.endswith("#rooms") for ref in first["claim_refs"])
+    assert_room_safe(backend)
+
+
+def test_own_room_requests_raise_the_stay_for_everyone_and_say_so_without_names(setup_worker):
+    backend, worker, job, *_ = setup_worker("own-room")
+    assert worker.run_one(job)["outcome"] == "AWAITING_REVIEW"
+    assert "stay-beach-house" in selected(backend)
+    [proposal] = backend.shared_report()["proposals"].values()
+    assert "The group's room needs add $400.00 over the cheapest place that sleeps everyone." in proposal["summary"]
+    assert not {"p1", "p2"} & set(proposal["summary"].replace(".", " ").split())
+    assert_room_safe(backend)
+
+
+def test_room_request_that_breaks_someones_limit_is_negotiated_privately(setup_worker):
+    backend, worker, job, *_ = setup_worker("own-room-squeeze")
+    assert worker.run_one(job)["outcome"] == "WAITING_FOR_INPUT"
+    for owner in ("p1", "p2"):
+        [question] = backend.owner_questions(owner)
+        assert question.kind == "CONSULTATION" and question.action_ref == "relax-bedrooms-r1"
+        assert question.prompt == ("Your own-room request: the stay that fits it costs enough to put the trip over another "
+                                   "traveller's limit. May your agent drop it for this trip so you share a room? "
+                                   "You'll still review the final plan.")
+    assert backend.owner_questions("p4") == [] and backend.shared_report()["messages"] == []
+    # Both agree (each yes restarts planning, which may ask again): the condo fits everyone.
+    assert settle(backend, worker, {"p1": True, "p2": True})["outcome"] == "AWAITING_REVIEW"
+    assert "stay-condo" in selected(backend)
+    [note] = backend.owner_view("p4")["impacts"].values()
+    assert note["impact"]["price_cents"] == 73000, "within p4's $750 trip limit"
+    assert_room_safe(backend)
+
+
+def test_refused_room_request_explains_the_clash_to_both_sides_only(setup_worker):
+    backend, worker, job, *_ = setup_worker("own-room-squeeze")
+    worker.run_one(job)
+    assert settle(backend, worker, {"p1": False, "p2": False})["outcome"] == "NO_FEASIBLE_CANDIDATE"
+    assert backend.owner_view("p4")["notes"] == [
+        "No plan fits yet: the cheapest trip found for you is $830.00 (your flight plus an equal share of the stay and "
+        "transfer), above your $750.00 trip limit. Raising your limit to at least $830.00 would unblock the plan. "
+        "The group's room requirements raise the stay; your agent has asked privately whether they can be relaxed."]
+    for owner in ("p1", "p2"):
+        assert backend.owner_view(owner)["notes"] == [
+            "No plan fits yet: the stay that meets your own-room request costs enough that the trip goes over another "
+            "traveller's limit. Sharing a room would unblock the plan."]
+    assert backend.owner_view("p3")["notes"] == []
+    [event] = backend.shared_report()["events"]
+    assert event["payload"]["text"] == ("No plan fits yet. 1 traveller: the cheapest trip found is above a private limit. "
+                                        "Each affected traveller has a private note from their agent.")
+    assert_room_safe(backend)
+
+
+@pytest.mark.parametrize("answer,outcome", [(True, "AWAITING_REVIEW"), (False, "NO_FEASIBLE_CANDIDATE")])
+def test_unmeetable_rating_asks_only_the_person_who_set_it(setup_worker, answer, outcome):
+    backend, worker, job, model, research, _ = setup_worker("stay-rating")
+    assert worker.run_one(job)["outcome"] == "WAITING_FOR_INPUT"
+    [question] = backend.owner_questions("p3")
+    assert question.prompt.startswith("Your minimum stay rating of 4.95: no stay found meets it.")
+    assert all(backend.owner_questions(o) == [] for o in ("p1", "p2", "p4"))
+    assert settle(backend, worker, {"p3": answer})["outcome"] == outcome
+    if answer:
+        assert "stay-condo" in selected(backend)
+    else:
+        assert backend.owner_view("p3")["notes"] == [
+            "No stay found meets your minimum rating of 4.95. Lowering it, or another search, would unblock the plan."]
+        assert any(r["categories"] == ["STAY"] for r in research.requests[1:]), "targeted searches look for other stays"
+        [event] = backend.shared_report()["events"]
+        assert "No stay found meets the group's minimum rating." in event["payload"]["text"]
+    assert_room_safe(backend)

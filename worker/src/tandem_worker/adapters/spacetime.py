@@ -175,7 +175,8 @@ class SpacetimeBackend:
         job, settings = ctx["job"], ctx["room"].get("settings") or {}
         return Snapshot(room_id=str(job["room_id"]), input_revision=job["input_revision"],
             membership_revision=job["membership_revision"], permission_revision=job["permission_revision"],
-            members=tuple(self._members(ctx)), arrival_overlap_seconds=settings.get("arrival_overlap_seconds", 7200))
+            members=tuple(self._members(ctx)), arrival_overlap_seconds=settings.get("arrival_overlap_seconds", 7200),
+            components=tuple(settings.get("components", ("FLIGHT",))))
 
     def _claim(self, job: dict, worker_id: str) -> Claim:
         # snapshot_ref = digest(Snapshot), exactly what FlightValidator stamps on its report.
@@ -235,7 +236,15 @@ class SpacetimeBackend:
             allowed = budget["authorized_range"] if isinstance(budget["authorized_range"], dict) else {}
             cap = int(budget["value"] if budget["hardness"] == "HARD" else allowed.get("max", budget["value"]))
         prefs = member["participation_preferences"]
+
+        def hard(key):
+            row = mine.get(key)
+            return row["value"] if row and row["hardness"] == "HARD" else None
+        trip_cap = hard("trip_budget_total")
         return Brief(owner=owner, hard_cap_cents=cap,
+            trip_cap_cents=int(trip_cap) if trip_cap is not None else None,
+            own_bedroom=bool((mine.get("own_bedroom") or {}).get("value")),
+            stay_min_rating=(mine.get("stay_min_rating") or {}).get("value"),
             preferences=Preferences(speak_up_for_me=prefs["speak_up_for_me"], ask_me_first=prefs["ask_me_first"],
                 give_me_time=prefs["give_me_time"], confirmed=prefs["confirmed"], revision=prefs["revision"]),
             private_reason=(budget or {}).get("private_rationale") or "",
@@ -264,18 +273,20 @@ class SpacetimeBackend:
         rows = []
         for candidate in candidates:
             candidate = Candidate.model_validate(primitive(candidate))
-            if candidate.owner not in members:
+            if candidate.owner is not None and candidate.owner not in members:
                 raise ContractError("NOT_AUTHORIZED")
-            facts = {**candidate.model_dump(mode="json"), "owner_member_id": members[candidate.owner]["member_id"],
-                     "total_cents": candidate.total_cents}
+            facts = {**candidate.model_dump(mode="json"), "total_cents": candidate.total_cents}
+            if candidate.owner is not None:
+                facts["owner_member_id"] = members[candidate.owner]["member_id"]
             old = existing.get(candidate.id)
             if old is not None and old != facts:
                 raise ContractError("CANDIDATE_ID_CONFLICT")
             rows.append({"candidate_ref": candidate.id, "candidate_set_version": ctx["job"]["input_revision"],
-                "category": "FLIGHT", "mode": candidate.mode, "source_url": candidate.source_url,
+                "category": candidate.category, "mode": candidate.mode, "source_url": candidate.source_url,
                 "observed_at": datetime.fromtimestamp(candidate.observed_at, timezone.utc).isoformat(),
                 "facts_json": json.dumps(facts, sort_keys=True),
-                "missing_fields": ["baggage"] if candidate.baggage_included is None else []})
+                "missing_fields": (["baggage"] if candidate.category == "FLIGHT" and candidate.baggage_included is None
+                                   else list(candidate.missing_critical_fields))})
         if rows:
             self.http.call(self.token, "record_candidates", request_key=f"{claim.job_id}:candidates:{digest(rows)}",
                 candidates=rows, **self._attempt(claim))
@@ -441,11 +452,13 @@ class SpacetimeBackend:
         members = self._members(ctx)
         chosen = {c.id: c for c in (Candidate.model_validate(primitive(c)) for c in candidates)}
         records = [chosen[ref] for ref in selected]
-        terms = {"scope": "FLIGHTS_ONLY", "policy": "minimax_v1", "selected": [primitive(r) for r in records]}
-        summary = {"scope": "FLIGHTS_ONLY", "travellers": len(records)}
+        scope = "TRIP" if any(r.category != "FLIGHT" for r in records) else "FLIGHTS_ONLY"
+        terms = {"scope": scope, "policy": "minimax_v1", "selected": [primitive(r) for r in records]}
+        summary = {"scope": scope, "travellers": sum(1 for r in records if r.category == "FLIGHT")}
         notes = {}
         if explanation is not None:
-            summary.update(text=explanation.summary, group=explanation.group.model_dump(mode="json"))
+            summary.update(text=explanation.summary, group=explanation.group.model_dump(mode="json"),
+                           suggestions=[i.model_dump(mode="json") for i in explanation.suggestions])
             notes = {n.impact.owner: {**n.impact.model_dump(mode="json"), "text": n.text} for n in explanation.impacts}
         result = self.http.procedure(self.token, "publish_proposal", request_key=f"{claim.job_id}:{key}", stage="TRAVEL",
             terms_json=json.dumps(terms, sort_keys=True, separators=(",", ":")),
@@ -454,7 +467,7 @@ class SpacetimeBackend:
             evidence_refs=list(selected), affected_member_ids=[],
             impacts=[{"member_id": members[r.owner]["member_id"],
                       "impact_json": json.dumps(notes.get(r.owner, {"total_cents": r.total_cents}), sort_keys=True)}
-                     for r in records],
+                     for r in records if r.owner],
             selected_candidate_refs=list(selected), **self._attempt(claim))
         return str(result["proposal_id"])
 
@@ -478,7 +491,7 @@ class SpacetimeBackend:
             retryable=False, code=code, detail="", **self._attempt(claim))
 
 
-def seed_room(http: StdbHttp, briefs, goal: str = "Group trip") -> dict:
+def seed_room(http: StdbHttp, briefs, goal: str = "Group trip", settings: dict | None = None) -> dict:
     """Creates one human identity per brief (display name = owner), confirms the
     settings each brief marks as confirmed, and enters budgets as HARD
     constraints with the brief's private reason. For demos and tests without the
@@ -498,7 +511,12 @@ def seed_room(http: StdbHttp, briefs, goal: str = "Group trip") -> dict:
         http.call(token, "set_constraint", room_id=room["id"], key="flight_budget_total", value_json=str(b.hard_cap_cents),
                   unit="USD_cents", hardness="HARD", authorized_range_json=None,
                   private_rationale=some(b.private_reason) if b.private_reason else None)
-        if b.baggage_required:
-            http.call(token, "set_constraint", room_id=room["id"], key="baggage_required", value_json="true", unit="",
-                      hardness="HARD", authorized_range_json=None, private_rationale=None)
+        extra = {"baggage_required": (b.baggage_required or None, ""), "trip_budget_total": (b.trip_cap_cents, "USD_cents"),
+                 "own_bedroom": (b.own_bedroom or None, ""), "stay_min_rating": (b.stay_min_rating, "")}
+        for key, (value, unit) in extra.items():
+            if value is not None:
+                http.call(token, "set_constraint", room_id=room["id"], key=key, value_json=json.dumps(value), unit=unit,
+                          hardness="HARD", authorized_range_json=None, private_rationale=None)
+    if settings:
+        http.call(tokens[organizer], "set_room_settings", room_id=room["id"], settings_json=json.dumps(settings))
     return {"room_id": room["id"], "invite_code": room["invite_code"], "owner_tokens": tokens}

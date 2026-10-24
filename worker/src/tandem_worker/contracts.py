@@ -42,6 +42,10 @@ class Brief(Record):
     baggage_required: bool = False
     # Explicit consent to reminders remains required even if Give me time is off.
     reminders_opted_in: bool = False
+    # Whole-trip limit: own flight plus an equal share of the stay and transfer.
+    trip_cap_cents: int | None = Field(default=None, ge=0)
+    own_bedroom: bool = False
+    stay_min_rating: float | None = Field(default=None, ge=0, le=5)
 
 
 class Snapshot(Record):
@@ -52,6 +56,8 @@ class Snapshot(Record):
     members: tuple[str, ...]
     arrival_overlap_seconds: int = Field(default=7200, ge=0)
     policy_version: Literal["flight_cost_v1", "minimax_v1"] = "minimax_v1"
+    # Parts the plan must choose. Activities and dinner are suggestions, never required.
+    components: tuple[Literal["FLIGHT", "STAY", "TRANSFER"], ...] = ("FLIGHT",)
 
     @model_validator(mode="after")
     def valid_members(self):
@@ -60,18 +66,29 @@ class Snapshot(Record):
         return self
 
 
+Category = Literal["FLIGHT", "STAY", "TRANSFER", "ACTIVITY", "DINNER"]
+# A complete total can go into an approvable plan; the others are observations or estimates.
+COMPLETE_BASIS = {"FLIGHT": "COMPLETE_FLIGHT_TOTAL", "STAY": "COMPLETE_STAY_TOTAL", "TRANSFER": "COMPLETE_TRANSFER_TOTAL"}
+SHARED = ("STAY", "TRANSFER")
+
+
 class Candidate(Record):
     id: str
-    owner: str
+    category: Category = "FLIGHT"
+    # Flights belong to one traveller; stays, transfers and suggestions to the group (None).
+    owner: str | None = None
+    # Whole price for what this candidate covers (the full stay, the vehicle);
+    # for ACTIVITY/DINNER, a per-person estimate.
     total_cents: int | None = Field(ge=0)
     currency: Literal["USD"] = "USD"
-    arrival_epoch: int
+    arrival_epoch: int | None = None
     observed_at: float
     valid_until: float
     source_url: str
     run_ref: str
     mode: Literal["FIXTURE", "APIFY_OBSERVED", "PROVIDER_VERIFIED", "CACHED_WITH_TIMESTAMP", "SANDBOX"]
-    cost_basis: Literal["COMPLETE_FLIGHT_TOTAL", "OBSERVED_FLIGHT_PRICE"]
+    cost_basis: Literal["COMPLETE_FLIGHT_TOTAL", "OBSERVED_FLIGHT_PRICE", "COMPLETE_STAY_TOTAL",
+                        "COMPLETE_TRANSFER_TOTAL", "OBSERVED_PRICE", "ESTIMATE_PER_PERSON"]
     baggage_included: bool | None = None
     missing_critical_fields: tuple[str, ...] = ()
     actor_id: str | None = None
@@ -84,12 +101,29 @@ class Candidate(Record):
     checked_bags_included: int | None = None
     # valid_until is a local freshness deadline, never a held fare's expiry.
     provider_expires_at: float | None = None
+    # Stays, transfers and suggestions.
+    title: str | None = None
+    capacity: int | None = Field(default=None, ge=1)  # guests (stay) or passengers (transfer)
+    bedrooms: int | None = Field(default=None, ge=0)
+    rating: float | None = Field(default=None, ge=0, le=5)  # normalized to 0-5
+    free_cancellation: bool | None = None
+    check_in: str | None = None
+    check_out: str | None = None
 
     @model_validator(mode="after")
     def valid_evidence(self):
         if self.valid_until <= self.observed_at or not self.source_url or not self.run_ref:
             raise ValueError("INVALID_EVIDENCE")
+        if (self.category == "FLIGHT") != (self.owner is not None):
+            raise ValueError("INVALID_OWNER")
+        if self.category == "FLIGHT" and self.arrival_epoch is None:
+            raise ValueError("INVALID_EVIDENCE")
         return self
+
+    @property
+    def complete(self) -> bool:
+        return (self.total_cents is not None and not self.missing_critical_fields
+                and self.cost_basis == COMPLETE_BASIS.get(self.category))
 
 
 class Claim(Record):
@@ -181,7 +215,7 @@ class VoiceSegment(Record):
 class VoiceDraft(Record):
     # Free-form claims are deliberately not accepted. Claude selects/orders
     # canonical permitted sentences, with a small checked connective vocabulary.
-    segments: tuple[VoiceSegment, ...] = Field(min_length=1, max_length=8)
+    segments: tuple[VoiceSegment, ...] = Field(min_length=1, max_length=16)
     connector: Literal[" ", " Also, ", " Next, "] = " "
 
 
@@ -201,10 +235,12 @@ class Impact(Record):
     """One traveller's position in a plan. Private to that traveller."""
     owner: str
     candidate: str
-    price_cents: int
+    price_cents: int  # what they pay in total: flight plus their share
     cheapest_alone_cents: int
     extra_cents: int = Field(ge=0)
-    reason: Literal["NONE", "ARRIVAL_WINDOW"] = "NONE"
+    reason: Literal["NONE", "ARRIVAL_WINDOW", "SHARED_CHOICE"] = "NONE"
+    flight_cents: int | None = None
+    share_cents: int = 0  # equal share of the stay and transfer
 
 
 class GroupSummary(Record):
@@ -218,13 +254,25 @@ class GroupSummary(Record):
     # The cheapest combination ignoring the shared arrival rule, when it differs.
     cheapest_total_cents: int | None = None
     cheapest_spread_seconds: int | None = None
+    stay: str | None = None
+    stay_total_cents: int | None = None
+    transfer: str | None = None
+    transfer_total_cents: int | None = None
+    share_each_cents: int = 0
+    # How much the group's room requirements add over the cheapest stay that fits everyone.
+    stay_premium_cents: int = 0
 
 
 class Conflict(Record):
     """Why no plan exists. Owner-specific conflicts go only to that owner."""
-    code: Literal["HARD_LIMIT", "BAGGAGE_UNAVAILABLE", "NO_CANDIDATES", "ARRIVAL_WINDOW"]
+    code: Literal["HARD_LIMIT", "BAGGAGE_UNAVAILABLE", "NO_CANDIDATES", "ARRIVAL_WINDOW",
+                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE"]
     owner: str | None = None
     cheapest_cents: int | None = None
+    # TRIP_LIMIT: the cheapest trip for this owner and their limit; STAY_UNAVAILABLE:
+    # which requirement no stay meets (never whose).
+    trip_cap_cents: int | None = None
+    requirement: Literal["CAPACITY", "BEDROOMS", "RATING"] | None = None
     closest_spread_seconds: int | None = None
     required_seconds: int | None = None
 
@@ -234,12 +282,24 @@ class ImpactNote(Record):
     text: str
 
 
+class Suggestion(Record):
+    """An activity or dinner idea with an estimated per-person price. Never part
+    of what people approve."""
+    candidate: str
+    category: Literal["ACTIVITY", "DINNER"]
+    title: str
+    estimate_per_person_cents: int | None = None
+    rating: float | None = None
+    source_url: str
+
+
 class Explanation(Record):
-    """Published with a proposal: `summary`/`group` are room-safe; each impact
-    note goes only to its owner."""
+    """Published with a proposal: `summary`/`group`/`suggestions` are room-safe;
+    each impact note goes only to its owner."""
     summary: str
     group: GroupSummary
     impacts: tuple[ImpactNote, ...] = ()
+    suggestions: tuple[Suggestion, ...] = ()
 
 
 class SolverResult(Record):
@@ -255,13 +315,16 @@ class ResearchRequest(Record):
     purpose: Literal["INITIAL", "TARGETED", "REFRESH"]
     members: tuple[str, ...]
     target_owners: tuple[str, ...]
-    scope: Literal["FLIGHTS_ONLY"] = "FLIGHTS_ONLY"
+    scope: Literal["FLIGHTS_ONLY", "TRIP"] = "FLIGHTS_ONLY"
     room_id: str
     input_revision: int
     permission_revision: int
     observed_at: float
     blocker_message_ref: str = ""
-    blocker_code: Literal["NONE", "HARD_LIMIT", "BAGGAGE_UNKNOWN", "MISSING_FACT", "NO_MATCHING_CANDIDATE", "ARRIVAL_OVERLAP"] = "NONE"
+    blocker_code: Literal["NONE", "HARD_LIMIT", "BAGGAGE_UNKNOWN", "MISSING_FACT", "NO_MATCHING_CANDIDATE", "ARRIVAL_OVERLAP",
+                          "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE"] = "NONE"
+    # Which categories to search; flights are per target owner, the others are shared.
+    categories: tuple[Category, ...] = ("FLIGHT",)
 
     @model_validator(mode="after")
     def check_targets(self):
@@ -278,7 +341,7 @@ class ValidationReport(Record):
     candidate_digest: str
     selected: tuple[str, ...]
     checks: tuple[str, ...]
-    validator_version: Literal["flight-validator-v1"] = "flight-validator-v1"
+    validator_version: Literal["flight-validator-v1", "trip-validator-v1"] = "flight-validator-v1"
 
 
 class Limits(Record):

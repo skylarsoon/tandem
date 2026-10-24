@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .contracts import Act, Brief, Decision, Payload, VoiceDraft, ContractError
+from .contracts import COMPLETE_BASIS, Act, Brief, Decision, Payload, VoiceDraft, ContractError
 
 
 def needed_permissions(brief: Brief, decision: Decision) -> list[str]:
@@ -40,7 +40,10 @@ def candidate_facts(candidate: dict) -> dict[str, str]:
     """Room-safe facts about one option. Each cites `<candidate id>#<field>` so the
     backend can resolve the claim to recorded evidence. Never caps or reasons."""
     ref = candidate["id"]
-    complete = candidate.get("cost_basis") == "COMPLETE_FLIGHT_TOTAL" and not candidate.get("missing_critical_fields")
+    category = candidate.get("category", "FLIGHT")
+    complete = candidate.get("cost_basis") == COMPLETE_BASIS.get(category) and not candidate.get("missing_critical_fields")
+    if category != "FLIGHT":
+        return shared_facts(candidate, complete)
     facts = {}
     if candidate.get("total_cents") is not None:
         facts[f"{ref}#price"] = (f"The fare is {money(candidate['total_cents'])} including taxes." if complete else
@@ -52,8 +55,33 @@ def candidate_facts(candidate: dict) -> dict[str, str]:
     return facts
 
 
-def permitted_facts(act: Act, payload: Payload, candidate: dict | None = None,
-                    group_window: tuple[int, int, str | None] | None = None) -> dict[str, str]:
+def shared_facts(candidate: dict, complete: bool) -> dict[str, str]:
+    ref, price = candidate["id"], candidate.get("total_cents")
+    facts = {}
+    if candidate.get("title"):
+        facts[f"{ref}#title"] = f"The {'stay' if candidate['category'] == 'STAY' else 'transfer'} is {candidate['title']}."
+    if candidate["category"] == "STAY":
+        if price is not None:
+            facts[f"{ref}#price"] = (f"The stay costs {money(price)} in total, taxes included." if complete else
+                                     f"The stay is listed at {money(price)}; some fees are not confirmed.")
+        if candidate.get("capacity") is not None:
+            rooms = candidate.get("bedrooms")
+            facts[f"{ref}#rooms"] = (f"It sleeps {candidate['capacity']}" +
+                                     ("." if rooms is None else " in a studio." if rooms == 0 else
+                                      f" with {rooms} bedroom{'s' if rooms != 1 else ''}."))
+        if candidate.get("rating") is not None:
+            facts[f"{ref}#rating"] = f"Guests rate it {candidate['rating']:.2g} out of 5."
+    elif candidate["category"] == "TRANSFER":
+        if price is not None:
+            facts[f"{ref}#price"] = (f"The airport transfer costs {money(price)} for the whole vehicle." if complete else
+                                     f"The airport transfer is listed at {money(price)}; some fees are not confirmed.")
+        if candidate.get("capacity") is not None:
+            facts[f"{ref}#seats"] = f"It seats {candidate['capacity']}."
+    return facts
+
+
+def permitted_facts(act: Act, payload: Payload, candidate: dict | list[dict] | None = None,
+                    group_window: tuple[int, int, str | None] | None = None, share_cents: int = 0) -> dict[str, str]:
     # Fixed sentences deliberately exclude raw reasons, owner caps, burden and
     # headroom. Candidate facts come only from typed evidence (candidate_facts);
     # personal trade-offs are never phrased for the room.
@@ -83,8 +111,10 @@ def permitted_facts(act: Act, payload: Payload, candidate: dict | None = None,
     if act == Act.EVALUATE and payload.evaluation == "ELIGIBLE":
         sentence = "This works for my traveller; they will still review and approve it themselves."
     facts = {f"act:{act.value}": sentence}
-    if candidate is not None:
-        facts.update(candidate_facts(candidate))
+    for one in [candidate] if isinstance(candidate, dict) else candidate or []:
+        facts.update(candidate_facts(one))
+    if share_cents:
+        facts[f"draft:{payload.draft_ref}#share"] = f"Shared costs come to {money(share_cents)} per traveller."
     if group_window is not None:
         earliest, latest, zone = group_window
         facts[f"draft:{payload.draft_ref}#arrival_window"] = (

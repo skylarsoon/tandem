@@ -42,8 +42,8 @@ class Room:
         return [r for r in self.backend.http.view(self.tokens[owner], name) if r.get("room_id") == self.room_id]
 
 
-def make_room(briefs: list[Brief], *, limits: Limits | None = None) -> Room:
-    seeded = seed_room(StdbHttp(URL, DB), briefs, goal="Hawaii trip (integration test)")
+def make_room(briefs: list[Brief], *, limits: Limits | None = None, settings: dict | None = None) -> Room:
+    seeded = seed_room(StdbHttp(URL, DB), briefs, goal="Hawaii trip (integration test)", settings=settings)
     backend = SpacetimeBackend(URL, DB, WORKER_TOKEN, limits=limits, room_id=seeded["room_id"],
                                owner_name=lambda member: member["display_name"], owner_tokens=seeded["owner_tokens"])
     return Room(backend=backend, room_id=seeded["room_id"], tokens=seeded["owner_tokens"])
@@ -52,5 +52,7 @@ def make_room(briefs: list[Brief], *, limits: Limits | None = None) -> Room:
 @pytest.fixture
 def stdb_room():
     def create(scenario: str = "happy", briefs: list[Brief] | None = None, limits: Limits | None = None) -> Room:
-        return make_room(briefs or scenario_inputs(scenario)[1], limits=limits)
+        snapshot, defaults = scenario_inputs(scenario)
+        settings = {"components": list(snapshot.components)} if len(snapshot.components) > 1 else None
+        return make_room(briefs or defaults, limits=limits, settings=settings)
     return create

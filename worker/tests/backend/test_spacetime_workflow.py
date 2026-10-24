@@ -178,3 +178,53 @@ def test_budget_blocked_room_gets_a_neutral_event_and_the_owner_a_private_note(s
     assert notes == ["No plan fits yet: the cheapest complete fare found for you is $290.00, above your $250.00 flight "
                      "limit. Raising your limit to at least $290.00 would unblock the plan."]
     assert [m for m in room.view("p2", "my_private_messages") if m["sender"] == "AGENT"] == []
+
+
+def test_trip_plan_publishes_shared_stay_and_transfer_with_server_checks(stdb_room, tmp_path):
+    room = stdb_room("trip-happy")
+    worker, _ = make_worker(room, tmp_path, "trip-happy")
+    assert worker.run_one(room.plan_job())["outcome"] == "AWAITING_REVIEW"
+    [proposal] = shared_view(room, "room_proposals")
+    terms = json.loads(proposal["terms_json"])
+    assert terms["scope"] == "TRIP"
+    assert sorted(c["category"] for c in terms["selected"]) == ["FLIGHT"] * 4 + ["STAY", "TRANSFER"]
+    summary = json.loads(proposal["shared_summary_json"])
+    assert "Shared costs are split equally: $330.00 each." in summary["text"]
+    assert [s["category"] for s in summary["suggestions"]] == ["ACTIVITY", "ACTIVITY", "DINNER"]
+    assert impact_of(room, "p4")["share_cents"] == 33000
+    categories = {c["category"] for c in shared_view(room, "room_candidates")}
+    assert categories == {"FLIGHT", "STAY", "TRANSFER", "ACTIVITY", "DINNER"}
+
+
+def test_room_request_clash_is_negotiated_on_spacetimedb(stdb_room, tmp_path):
+    room = stdb_room("own-room-squeeze")
+    worker, _ = make_worker(room, tmp_path, "own-room-squeeze")
+    assert worker.run_one(room.plan_job())["outcome"] == "WAITING_FOR_INPUT"
+    for owner in ("p1", "p2"):
+        [question] = room.view(owner, "my_questions")
+        assert question["kind"] == "CONCESSION_CONSULTATION" and question["prompt"].startswith("Your own-room request")
+    result = None
+    for _ in range(4):
+        for owner in ("p1", "p2"):
+            answer_mine(room, owner, True)
+        result = worker.reconcile()[-1]
+        if result["outcome"] != "WAITING_FOR_INPUT":
+            break
+    assert result["outcome"] == "AWAITING_REVIEW"
+    [proposal] = [p for p in shared_view(room, "room_proposals") if p["state"] == "AWAITING_REVIEW"]
+    assert "stay-condo" in proposal["terms_json"]
+    assert impact_of(room, "p4")["price_cents"] == 73000
+
+
+def test_trip_budget_from_the_database_blocks_privately(stdb_room, tmp_path):
+    room = stdb_room("trip-happy")
+    room.backend.http.call(room.tokens["p1"], "set_constraint", room_id=room.room_id, key="trip_budget_total",
+                           value_json="60000", unit="USD_cents", hardness="HARD", authorized_range_json=None, private_rationale=None)
+    worker, _ = make_worker(room, tmp_path, "trip-happy")
+    assert worker.run_one(room.plan_job())["outcome"] == "NO_FEASIBLE_CANDIDATE"
+    notes = [m["body"] for m in room.view("p1", "my_private_messages") if m["sender"] == "AGENT"]
+    assert notes == ["No plan fits yet: the cheapest trip found for you is $630.00 (your flight plus an equal share of the "
+                     "stay and transfer), above your $600.00 trip limit. Raising your limit to at least $630.00 would "
+                     "unblock the plan."]
+    [event] = [e for e in shared_view(room, "room_events") if e["type"] == "NO_FEASIBLE_PLAN"]
+    assert "600" not in event["safe_payload_json"] and json.loads(event["safe_payload_json"])["blocked_travellers"] == {"TRIP_LIMIT": 1}

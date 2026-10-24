@@ -10,6 +10,15 @@ HOUR = 3600
 
 # Social-friction scenarios: offers are (owner, name, price_cents, hours after the
 # first landing, checked bag). Members default to speak-up on, ask-me-first off.
+# Trip scenarios add shared stays (name, price, guests, bedrooms, rating),
+# transfers (name, price, seats) and ideas (category, name, per-person price, rating).
+ON_TIME = [("p1", "noon", 30_000, 0, True), ("p2", "noon", 32_000, 0.2, True), ("p3", "noon", 35_000, 0.4, True),
+           ("p4", "noon", 40_000, 0.5, True)]
+TRIP = dict(components=("FLIGHT", "STAY", "TRANSFER"), offers=ON_TIME,
+    stays=[("beach-house", 160_000, 6, 3, 4.9), ("condo", 120_000, 4, 2, 4.6), ("studio", 60_000, 2, 0, 4.7)],
+    transfers=[("van", 12_000, 6), ("sedan", 5_000, 3)],
+    ideas=[("ACTIVITY", "Sunrise snorkel tour", 8_900, 4.8), ("ACTIVITY", "Diamond Head hike", None, 4.7),
+           ("DINNER", "Family-style luau", 9_500, 4.6)])
 FRICTION = {
     # p4's cheap fare lands 5h after everyone; landing with the group costs them
     # $125 more. They asked to be consulted first.
@@ -26,6 +35,16 @@ FRICTION = {
     "budget-blocked": dict(caps={"p1": 25_000}, offers=[
         ("p1", "noon", 30_000, 0, True), ("p2", "noon", 32_000, 0.2, True), ("p3", "noon", 35_000, 0.4, True),
         ("p4", "noon", 40_000, 0.5, True)], targeted=[("p1", "saver", 29_000, 1, True)]),
+    # Full trip: flights, the cheapest stay that sleeps four in two bedrooms, a van.
+    "trip-happy": TRIP,
+    # Two travellers want their own room: three bedrooms, so the stay costs everyone more.
+    "own-room": dict(TRIP, briefs={"p1": {"own_bedroom": True}, "p2": {"own_bedroom": True}}),
+    # Same, but p4's trip limit only fits the two-bedroom condo. The clash is
+    # between the room requests and p4's limit; each side is told privately.
+    "own-room-squeeze": dict(TRIP, briefs={"p1": {"own_bedroom": True}, "p2": {"own_bedroom": True},
+                                           "p4": {"trip_cap_cents": 75_000}}),
+    # p3 wants a near-perfect rating that no stay found has.
+    "stay-rating": dict(TRIP, briefs={"p3": {"stay_min_rating": 4.95}}),
     # No combination lands everyone within the room's 2h window.
     "arrival-impossible": dict(offers=[
         ("p1", "noon", 30_000, 0, True), ("p2", "noon", 32_000, 0.2, True), ("p3", "noon", 35_000, 0.4, True),
@@ -38,9 +57,10 @@ def scenario_inputs(name: str):
     snapshot = Snapshot(room_id="fixture-room", members=members)
     if name in FRICTION:
         spec = FRICTION[name]
+        snapshot = snapshot.model_copy(update={"components": spec.get("components", ("FLIGHT",))})
         briefs = [Brief(owner=o, hard_cap_cents=spec.get("caps", {}).get(o, 65_000), private_reason=f"PRIVATE_CANARY_{o}",
-            preferences=Preferences(**{"confirmed": True, "speak_up_for_me": True, "ask_me_first": False, **spec.get("prefs", {}).get(o, {})}))
-            for o in members]
+            preferences=Preferences(**{"confirmed": True, "speak_up_for_me": True, "ask_me_first": False, **spec.get("prefs", {}).get(o, {})}),
+            **spec.get("briefs", {}).get(o, {})) for o in members]
         return snapshot, briefs
     briefs = [Brief(owner=o, hard_cap_cents=50_000 if o == "p1" else 65_000,
         preferences=Preferences(confirmed=True, speak_up_for_me=True),
@@ -60,11 +80,13 @@ class FixtureResearch:
         if self.scenario in FRICTION:
             spec = FRICTION[self.scenario]
             offers = spec.get("targeted", []) if targeted else spec["offers"]
-            return [Candidate(id=f"{owner}-{name}-{request['purpose'].lower()}-{int(now * 1000)}", owner=owner, total_cents=price,
+            if "FLIGHT" not in request.get("categories", ["FLIGHT"]):
+                offers = []
+            return [*self._shared(spec, request), *(Candidate(id=f"{owner}-{name}-{request['purpose'].lower()}-{int(now * 1000)}", owner=owner, total_cents=price,
                 arrival_epoch=1_800_052_000 + int(hours * HOUR), arrival_timezone="Pacific/Honolulu", observed_at=now,
                 valid_until=now + 3600, source_url=f"https://fixtures.invalid/{owner}/{name}", run_ref=f"fixture-{request['purpose']}",
                 mode="FIXTURE", cost_basis="COMPLETE_FLIGHT_TOTAL", baggage_included=bag, flight_identity=f"{owner}-{name}")
-                for owner, name, price, hours, bag in offers if owner in request["target_owners"]]
+                for owner, name, price, hours, bag in offers if owner in request["target_owners"])]
         results = []
         for i, owner in enumerate(request["members"]):
             if targeted and self.scenario == "agent-objection" and owner != "p2":
@@ -83,6 +105,25 @@ class FixtureResearch:
                 mode="FIXTURE", cost_basis="COMPLETE_FLIGHT_TOTAL",
                 baggage_included=None if self.scenario == "agent-objection" and owner == "p2" and not targeted else True))
         return results
+
+
+    @staticmethod
+    def _shared(spec, request):
+        now, wanted, tag = request["observed_at"], set(request.get("categories", ())), request["purpose"].lower()
+        common = dict(observed_at=now, valid_until=now + 3600, run_ref=f"fixture-{request['purpose']}", mode="FIXTURE")
+        items = []
+        if "STAY" in wanted:
+            items += [Candidate(id=f"stay-{name}-{tag}-{int(now * 1000)}", category="STAY", total_cents=price, capacity=guests,
+                bedrooms=rooms, rating=rating, title=name.replace("-", " ").title(), cost_basis="COMPLETE_STAY_TOTAL",
+                source_url=f"https://fixtures.invalid/stay/{name}", **common) for name, price, guests, rooms, rating in spec.get("stays", [])]
+        if "TRANSFER" in wanted:
+            items += [Candidate(id=f"transfer-{name}-{tag}-{int(now * 1000)}", category="TRANSFER", total_cents=price, capacity=seats,
+                title=f"Airport {name}", cost_basis="COMPLETE_TRANSFER_TOTAL", source_url=f"https://fixtures.invalid/transfer/{name}",
+                **common) for name, price, seats in spec.get("transfers", [])]
+        items += [Candidate(id=f"{category.lower()}-{i}-{tag}-{int(now * 1000)}", category=category, total_cents=price, title=name,
+            rating=rating, cost_basis="ESTIMATE_PER_PERSON", source_url=f"https://fixtures.invalid/{category.lower()}/{i}", **common)
+            for i, (category, name, price, rating) in enumerate(spec.get("ideas", [])) if category in wanted]
+        return items
 
 
 class ScriptedModel:

@@ -55,6 +55,8 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         context = {"owner": brief.owner, "hard_cap_cents": brief.hard_cap_cents,
             "private_reason": brief.private_reason, "preferences": brief.preferences.model_dump(mode="json"),
             "baggage_required": brief.baggage_required, "candidate": task["candidate"],
+            "trip_cap_cents": brief.trip_cap_cents, "own_bedroom": brief.own_bedroom, "stay_min_rating": brief.stay_min_rating,
+            "shared": task.get("shared", []), "share_cents": task.get("share_cents", 0),
             "sender": task["sender"], "inbound_type": task["inbound_type"],
             "inbound_payload": task["inbound_payload"], "inbound_evidence": task["inbound_evidence"],
             "permitted_recipients": task["permitted_recipients"], "impact": impact_of(task["owner"]),
@@ -73,7 +75,9 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             raise ContractError("INVALID_MODEL_OUTPUT")
         # Model eligibility cannot override numeric checks or required evidence.
         candidate = task["candidate"]
-        if candidate["total_cents"] is None or candidate["total_cents"] > brief.hard_cap_cents:
+        trip_cost = None if candidate["total_cents"] is None else candidate["total_cents"] + context["share_cents"]
+        if (trip_cost is None or candidate["total_cents"] > brief.hard_cap_cents
+                or (brief.trip_cap_cents is not None and trip_cost > brief.trip_cap_cents)):
             decision = Decision(act=Act.OBJECT, evaluation="INELIGIBLE", blocker="HARD_LIMIT")
         elif brief.baggage_required and candidate["baggage_included"] is not True and decision.evaluation == "ELIGIBLE":
             decision = Decision(act=Act.OBJECT, evaluation="INCOMPLETE_EVIDENCE", blocker="BAGGAGE_UNKNOWN", research=True)
@@ -83,7 +87,7 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         if impact and impact.extra_cents > 0 and decision.evaluation == "ELIGIBLE":
             decision = decision.model_copy(update={"concession": True})
         payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
-            candidate_refs=(candidate["id"],))
+            candidate_refs=(candidate["id"], *(c["id"] for c in task.get("shared", []))))
         questions = []
         for kind in needed_permissions(brief, decision):
             if kind != "PARTICIPATION" and backend.has_permission(claim, brief.owner, kind, task["draft_ref"]):
@@ -102,10 +106,10 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         task = state["task"]
         decision = Decision.model_validate(state["decision"])
         payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
-            candidate_refs=(task["candidate"]["id"],), research=decision.research,
+            candidate_refs=(task["candidate"]["id"], *(c["id"] for c in task.get("shared", []))), research=decision.research,
             concession=decision.concession, exceeds_exploration=decision.exceeds_exploration)
         # The mediator states the group window; each agent speaks to its own fare.
-        facts = permitted_facts(decision.act, payload, task["candidate"])
+        facts = permitted_facts(decision.act, payload, task["candidate"], share_cents=task.get("share_cents", 0))
         context = {"act": decision.act.value, "facts": facts}
         text, refs = fallback_voice(facts)
         status = "TEMPLATE_FALLBACK"
@@ -141,9 +145,9 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
 
 def send_message(backend, claim, snapshot, sender, recipient, act, payload, thread_id, participants, round_id,
                  text=None, refs=None, status="TEMPLATE_FALLBACK", reply_to=None, operation_ref="",
-                 candidate=None, group_window=None):
+                 candidate=None, group_window=None, share_cents=0):
     if text is None:
-        text, refs = fallback_voice(permitted_facts(act, payload, candidate, group_window))
+        text, refs = fallback_voice(permitted_facts(act, payload, candidate, group_window, share_cents))
     evidence = payload.candidate_refs
     content = {"type": act.value, "utterance": text, "payload": payload.model_dump(mode="json"), "claim_refs": refs, "evidence_refs": evidence}
     key = digest([claim.generation, operation_ref, thread_id, sender, recipient, act, content, reply_to])

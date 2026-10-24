@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .contracts import Brief, Candidate, Claim, ContractError, Limits, Message, Preferences, Question, Snapshot, ValidationReport, digest
 from .ports import Clock, SystemClock
+from .solver import TripValidator, relaxed
 
 
 def primitive(value):
@@ -229,7 +230,7 @@ class LocalBackend:
             self._checked(state, claim)
             for candidate in candidates:
                 candidate = Candidate.model_validate(primitive(candidate))
-                if candidate.owner not in state["snapshot"]["members"]:
+                if candidate.owner is not None and candidate.owner not in state["snapshot"]["members"]:
                     raise ContractError("NOT_AUTHORIZED")
                 old = state["candidates"].get(candidate.id)
                 if old and old != primitive(candidate):
@@ -352,15 +353,15 @@ class LocalBackend:
             records = [Candidate.model_validate(state["candidates"][ref]) for ref in selected]
             if not report.valid or report.snapshot_ref != claim.snapshot_ref or report.selected != tuple(selected) or report.candidate_digest != digest([primitive(c) for c in candidates]):
                 raise ContractError("INVALID_VALIDATION_REPORT")
-            if len(records) != len(snapshot.members) or {r.owner for r in records} != set(snapshot.members):
+            # The backend re-checks every hard rule from its own records.
+            briefs = relaxed([Brief.model_validate(state["briefs"][o]) for o in snapshot.members], snapshot.input_revision,
+                             lambda owner, ref: self._has_grant(state, owner, "CONSULTATION", ref))
+            checked = TripValidator().validate(snapshot, briefs, records, tuple(selected), self.clock.now())
+            if "INVALID_COVERAGE" in checked.checks:
                 raise ContractError("INVALID_COVERAGE")
-            for c in records:
-                brief = Brief.model_validate(state["briefs"][c.owner])
-                if c.cost_basis != "COMPLETE_FLIGHT_TOTAL" or c.missing_critical_fields or c.total_cents is None or c.total_cents > brief.hard_cap_cents or c.observed_at > self.clock.now() or c.valid_until <= self.clock.now() or (brief.baggage_required and c.baggage_included is not True) or not brief.preferences.confirmed:
-                    raise ContractError("INVALID_PROPOSAL")
-            if max(c.arrival_epoch for c in records) - min(c.arrival_epoch for c in records) > snapshot.arrival_overlap_seconds:
+            if not checked.valid or not all(b.preferences.confirmed for b in briefs):
                 raise ContractError("INVALID_PROPOSAL")
-            terms = {"scope": "FLIGHTS_ONLY", "selected": [primitive(r) for r in records]}
+            terms = {"scope": "TRIP" if len(snapshot.components) > 1 else "FLIGHTS_ONLY", "selected": [primitive(r) for r in records]}
             proposal_id = f"proposal-{digest(terms)[:16]}-{claim.generation}"
             state["proposals"][proposal_id] = dict(terms=terms, terms_digest=digest(terms), snapshot_ref=claim.snapshot_ref,
                 state="AWAITING_REVIEW", required_members=list(snapshot.members),

@@ -17,7 +17,7 @@ from .fixtures import FRICTION
 
 SCENARIOS = ("happy", "targeted-budget", "agent-objection", "clarification-restart", *FRICTION)
 # How each owner answers questions when a scenario pauses for them.
-ANSWERS = {"clarification-restart": True, "group-arrival": True, "concession-declined": False}
+ANSWERS = {"clarification-restart": True, "group-arrival": True, "concession-declined": False, "own-room-squeeze": True, "stay-rating": False}
 
 
 def run_scenario(name, directory):
@@ -29,7 +29,11 @@ def run_scenario(name, directory):
     model = ScriptedModel(name)
     worker = Worker(backend, model, FixtureResearch(clock, name), directory / "checkpoints.sqlite", clock=clock)
     result = worker.run_one(job)
-    if name in ANSWERS and result["outcome"] == "WAITING_FOR_INPUT":
+    # A granted permission restarts planning, which may ask the next owner; answer
+    # until the run settles.
+    for _ in range(len(snapshot.members) + 1):
+        if name not in ANSWERS or result["outcome"] != "WAITING_FOR_INPUT":
+            break
         # Reopen all connections/dependencies. The test suite also verifies this
         # sequence across two distinct Python OS processes.
         for owner in snapshot.members:
