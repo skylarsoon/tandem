@@ -15,8 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-claude = ["anthropic>=0.60,<1"]
-test = ["pytest>=8,<10", "pytest-socket>=0.7,<1"]
+claude = ["anthropic>=0.125,<1"]
+live = ["anthropic>=0.125,<1", "python-dotenv>=1,<2"]
+test = ["pytest>=8,<10", "pytest-socket>=0.7,<1", "python-dotenv>=1,<2"]
 
 [project.scripts]
 tandem-worker = "tandem_worker.cli:main"

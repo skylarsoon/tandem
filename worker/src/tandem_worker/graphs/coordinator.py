@@ -23,6 +23,9 @@ class CoordinatorState(TypedDict, total=False):
     need_research: bool
     research_cause_ref: str
     proposal_ref: str
+    research_target_owners: list[str]
+    research_blocker_code: str
+    validation_checks: list[str]
 
 
 def build_coordinator(backend, claim, model, research, solver, validator, clock, limits, checkpointer):
@@ -44,12 +47,14 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             reused = backend.reusable_candidates(claim)
             if reused:
                 return {"candidates": candidates_data(reused), "need_research": False}
-        purpose = "INITIAL" if not state["candidates"] else "TARGETED"
+        purpose = "INITIAL" if state["round"] == 0 else "TARGETED"
         # Stable observation/request time across a replay, persisted in the op receipt.
         stamp = backend.operation(claim, f"research-time:{state['round']}", {}, "local", clock.now)
         request = {"purpose": purpose, "members": list(snapshot.members), "scope": "FLIGHTS_ONLY", "room_id": snapshot.room_id,
             "input_revision": snapshot.input_revision, "permission_revision": snapshot.permission_revision, "observed_at": stamp,
-            "blocker_message_ref": state.get("research_cause_ref", "")}
+            "blocker_message_ref": state.get("research_cause_ref", ""),
+            "target_owners": state.get("research_target_owners") or list(snapshot.members),
+            "blocker_code": state.get("research_blocker_code", "NONE")}
         # No private caps, reasons or transcripts leave through ResearchPort.
         raw = backend.operation(claim, f"research:{state['round']}", request, "research", lambda: research.search(request))
         candidates = {c["id"]: Candidate.model_validate(c) for c in state["candidates"]}
@@ -72,7 +77,12 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         result = SolverResult.model_validate(raw)
         draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
         outcome = "" if result.status in {"OPTIMAL", "FEASIBLE", "INFEASIBLE"} else result.status
-        return {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome}
+        update = {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome}
+        if result.status == "INFEASIBLE":
+            missing = [b.owner for b in briefs if not any(c.owner == b.owner and c.total_cents is not None and c.total_cents <= b.hard_cap_cents for c in candidates)]
+            update.update(research_target_owners=missing or list(snapshot.members),
+                research_blocker_code="NO_MATCHING_CANDIDATE" if not candidates else ("HARD_LIMIT" if missing else "ARRIVAL_OVERLAP"))
+        return update
 
     def dialogue(state):
         snapshot = current()
@@ -108,7 +118,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     return {"outcome": "NO_PROGRESS", "questions": []}
                 fingerprints.add(fingerprint)
                 if decision.research:
-                    return {"need_research": True, "research_cause_ref": result["message_ref"], "questions": []}
+                    evidence = task["inbound_evidence"] if decision.act == Act.COUNTERPROPOSE and task["inbound_payload"]["blocker"] == decision.blocker else [selected[recipient]]
+                    return {"need_research": True, "research_cause_ref": result["message_ref"], "questions": [],
+                        "research_target_owners": sorted({c["owner"] for c in evidence}),
+                        "research_blocker_code": decision.blocker if decision.blocker != "NONE" else "MISSING_FACT"}
                 if decision.evaluation == "ELIGIBLE":
                     eligible.add(recipient)
                 if decision.recipient == "mediator":
@@ -149,7 +162,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         report = validator.validate(snapshot, briefs, candidates, tuple(state["selected"]), clock.now())
         report = ValidationReport.model_validate(report)
         if not report.valid:
-            return {"outcome": "VALIDATION_FAILED"}
+            evidence_only = bool(report.checks) and set(report.checks) <= {"INCOMPLETE_COST_EVIDENCE", "BAGGAGE_UNKNOWN"}
+            return {"outcome": "EXPLORATORY_ONLY" if evidence_only else "VALIDATION_FAILED", "validation_checks": list(report.checks)}
         ref = backend.publish_proposal(claim, tuple(state["selected"]), candidates, report, "publish")
         return {"proposal_ref": ref, "outcome": "AWAITING_REVIEW"}
 

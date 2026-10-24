@@ -27,6 +27,8 @@ spacetime.local.json
 *.sqlite3-shm
 .pytest_cache/
 *.egg-info/
+/worker/live.json
+/worker/live-state/
 
 # OS / editor
 .DS_Store

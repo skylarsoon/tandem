@@ -110,3 +110,43 @@ def test_bad_actor_item_is_quarantined_not_fabricated(tmp_path):
     gateway, client, request = setup_gateway(tmp_path)
     gateway.normalize_item = lambda *args: {"unexpected": "schema changed"}
     assert gateway.search(request) == []
+
+
+def test_dataset_pagination_is_bounded_and_duplicate_records_are_deduplicated(tmp_path):
+    class Paged(Client):
+        def items(self, dataset_id, offset, limit):
+            self.pages.append((offset, limit))
+            return [{"price": 42000}] * max(0, min(limit, 75 - offset))
+    gateway, client, request = setup_gateway(tmp_path, Paged())
+    results = gateway.search(request)
+    assert len(results) == 1
+    assert client.pages == [(0, 50), (50, 50)]
+    report = gateway.ledger.report()[0]
+    assert report["duplicates"] == 74
+    assert report["collection_truncated"] is False
+
+
+def test_polling_deadline_stops_without_starting_another_run(tmp_path):
+    class Running(Client):
+        def run(self, run_id):
+            self.polls += 1
+            return {"status": "RUNNING"}
+    gateway, client, request = setup_gateway(tmp_path, Running(), max_polls=20)
+    now = [0.0]
+    gateway.monotonic = lambda: now[0]
+    gateway.poll_deadline_seconds = 2
+    gateway.pause = lambda seconds: now.__setitem__(0, now[0] + seconds)
+    with pytest.raises(ContractError, match="APIFY_POLL_DEADLINE_EXCEEDED"):
+        gateway.search(request)
+    assert client.starts == 1 and client.polls == 2
+
+
+def test_normalizer_update_reprocesses_existing_dataset_without_new_paid_run(tmp_path):
+    gateway, client, request = setup_gateway(tmp_path)
+    first = gateway.search(request)
+    gateway.normalizer_version = "corrected-mapping-v2"
+    second = gateway.search(request)
+    assert second == first
+    assert client.starts == client.polls == 1
+    assert len(client.pages) == 2
+    assert first[0].observed_at == second[0].observed_at

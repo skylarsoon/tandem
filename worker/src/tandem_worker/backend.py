@@ -355,7 +355,7 @@ class LocalBackend:
                 raise ContractError("INVALID_COVERAGE")
             for c in records:
                 brief = Brief.model_validate(state["briefs"][c.owner])
-                if c.total_cents is None or c.total_cents > brief.hard_cap_cents or c.observed_at > self.clock.now() or c.valid_until <= self.clock.now() or (brief.baggage_required and c.baggage_included is not True) or not brief.preferences.confirmed:
+                if c.cost_basis != "COMPLETE_FLIGHT_TOTAL" or c.missing_critical_fields or c.total_cents is None or c.total_cents > brief.hard_cap_cents or c.observed_at > self.clock.now() or c.valid_until <= self.clock.now() or (brief.baggage_required and c.baggage_included is not True) or not brief.preferences.confirmed:
                     raise ContractError("INVALID_PROPOSAL")
             if max(c.arrival_epoch for c in records) - min(c.arrival_epoch for c in records) > snapshot.arrival_overlap_seconds:
                 raise ContractError("INVALID_PROPOSAL")
@@ -421,6 +421,11 @@ class LocalBackend:
         with self._tx() as state:
             return [j["id"] for j in state["jobs"].values() if j["snapshot_ref"] == digest(state["snapshot"]) and
                     (j["status"] == "QUEUED" or (j["status"] == "RUNNING" and j["expiry"] <= self.clock.now()))]
+
+    def current_snapshot(self):
+        """Local harness inspection only; production uses authorized job reads."""
+        with self._tx() as state:
+            return Snapshot.model_validate(state["snapshot"])
 
     def owner_questions(self, owner):
         with self._tx() as state:

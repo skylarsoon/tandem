@@ -9,7 +9,7 @@ other interpreters have not been verified in this repository.
 ```bash
 cd worker
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[test,claude]'
+.venv/bin/python -m pip install -e '.[test,live]'
 .venv/bin/python -m pytest -q
 .venv/bin/tandem-worker scenario targeted-budget --mode fixture
 .venv/bin/tandem-worker scenario agent-objection --mode fixture
@@ -127,28 +127,115 @@ with Ronit's richer implementation when its policy/schema is ready. Unsupported
 currencies/cost bases fail boundary validation; unknown critical data blocks final
 validation. Observed listings are not reservations or guaranteed inventory.
 
-## Optional provider adapters
+## Configure real Claude and Apify
 
-`ClaudeModel(model=..., api_key=...)` uses separate structured decision and voice
-calls. A compatible model must be supplied explicitly (e.g. server `CLAUDE_MODEL`);
-there is no hardcoded entitlement or automatic provider switch. The offline CLI
-always uses `ScriptedModel`, and live Claude access has not been exercised here.
+Run the following from `worker/`. Copy the examples without replacing an existing
+configuration, then edit `.env` privately and set your desired future flight date
+in `live.json`:
 
-`ApifyFlightResearch` requires an allowlisted Actor ID, pinned numeric build,
-confirmed room/revision-bound route/date/count inputs, an Actor-specific input
-builder and item normalizer. These mappings cannot be guessed before selecting and
-testing the Actor. Raw private prompts/caps are never sent to the input builder.
-Runs/datasets are tracked in a durable `RunLedger`; it resumes known run IDs,
-caps polling/collection, quarantines malformed rows and uses `APIFY_OBSERVED`.
-An ambiguous start is stopped for reconciliation rather than automatically paying
-for another run. A crash between provider acceptance and recording its ID remains
-an external-transaction limitation. The poll/run tests use a fake transport;
-**no live Actor schema, coverage, pricing or reliability has been validated**.
+```bash
+cp -n .env.example .env
+cp -n live.example.json live.json
+```
 
-API behavior follows the official [Actor run](https://docs.apify.com/api/v2/actors-runs-post)
-and [dataset items](https://docs.apify.com/api/v2/dataset-items-get) contracts.
-No provider calls are made just by importing either adapter. The CLI currently
-supports fixture mode only; wire live dependencies explicitly after validation.
+Fill `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` and `APIFY_TOKEN` in `.env`. Supply an exact
+model ID available to your account; the worker never chooses a model automatically.
+Keep `APIFY_ACTOR_BUILD=0.0.141`. Process environment values take precedence over
+`.env`, with interpolation disabled. Credentials, `live.json` and `live-state/`
+are ignored by Git. The example participant is a synthetic local-test owner;
+its confirmation flags do not authenticate a real person or grant final consent.
+
+`CLAUDE_API_KEY` and `APIFY_API_KEY` are also accepted. The worker reads `.env.local`
+in the current directory when `.env` is absent. For a shared file in the repository
+root while running from `worker/`, add `--env-file ../.env.local` to the live
+commands below. Process variables take precedence across both key spellings.
+
+```bash
+# Local validation only; no network or charges. Missing variables return exit 2.
+.venv/bin/tandem-worker providers check --config live.json
+
+# Read-only credential, model access, pinned build and input-schema checks.
+# No Claude generation and no Actor starts.
+.venv/bin/tandem-worker providers check --config live.json --online
+
+# Bounded billable provider test: one person, one Actor run, up to four messages.
+.venv/bin/tandem-worker providers smoke --config live.json --state-dir ./live-state/smoke
+
+# The complete LangGraph workflow, using real providers and LOCAL test state.
+.venv/bin/tandem-worker run --providers live --config live.json --state-dir ./live-state/run
+```
+
+The smoke command tests provider access, normalization, a structured Claude decision,
+and checked room wording. It reports `status: OK` when both provider paths work,
+`mode: LIVE_PROVIDERS`, `backend: LOCAL_TEST`, token/call usage and Actor/run/dataset
+references. It does not force an objection or create approval. It also reports
+constraint/evidence checks; a successful API test does not assert feasibility.
+Real graph execution may pause for owner input, a resource limit or missing evidence.
+There is no automatic fixture fallback in live mode.
+
+Successful smoke results are cached in their state directory until evidence becomes
+stale. Repeating that command does not generate more paid calls. Changing the config
+or command kind in the same directory is rejected; use a new directory deliberately
+for a new test. Keep the existing directory to recover an interrupted run. The
+local budgets include retries and persist across client/process recreation; they
+are attempt limits, not a dollar estimate for Claude.
+
+Default live limits are one Actor run with `maxTotalChargeUsd=1` where supported,
+ten collected results, four Claude message attempts, 512 output tokens/message,
+30-second request timeouts, a two-minute Actor polling deadline and 15-minute local
+evidence freshness. Actor charge caps do not establish a universal total-cost
+guarantee for every provider charge category. SDK retries are disabled; transient
+Claude retries, corrections and voice regeneration share the same message budget.
+
+### Provider details and teammate handoff
+
+`ClaudeModel` uses the SDK's structured JSON parsing with Pydantic `Decision` and
+`VoiceDraft`. Tests exercise the installed SDK over a mock HTTP transport, including
+refusal and truncated non-JSON responses. Decision and room-voice contexts remain
+separate. Operational metrics contain IDs, token counts, latency and safe outcomes,
+never raw private prompts. No model generation occurs during metadata preflight.
+
+The concrete mapper targets [`memo23/google-flights-scraper`](https://apify.com/memo23/google-flights-scraper),
+Actor `ulPbFXCmcjxx3iPnp`, build `0.0.141` (build ID `eByt1QXZwUhbeMtQr`). Before
+any paid run, preflight verifies account access, the pinned build and required input
+fields. It sends an explicit one-way, one-adult, economy, USD search; it does not
+use the Actor's default routes/dates or optional enrichment features. The field
+contract is based on the [published input schema](https://apify.com/memo23/google-flights-scraper/input-schema).
+**Live smoke verified on 24 October 2026:** `claude-sonnet-5-5`, SFO → LAX on
+15 January 2027, ten normalized observed flights, one Actor run and two Claude
+message requests. The result was correctly `EXPLORATORY_ONLY` because mandatory
+fees remained unverified. No human consent or booking was created. This verifies
+that bounded provider path, not all routes or multi-person negotiation behavior.
+
+The normalizer checks route/date, decimal price conversion, source links and local
+times with explicit IANA airport timezones. Ambiguous/nonexistent DST times and
+malformed rows are quarantined. Only flight rows are accepted. The current
+`baggage_required` flag means at least one **checked bag**; absent baggage facts
+remain unknown. Candidate IDs distinguish observations and retain Actor/build/run/
+dataset provenance. `valid_until` is our local freshness deadline, not a held fare.
+
+Scraped prices use `cost_basis: OBSERVED_FLIGHT_PRICE` and retain unknown mandatory
+fees. The solver may explore those prices, but the independent validator and local
+publication guard block approval-ready publication with incomplete cost evidence.
+With otherwise eligible agents, that yields `EXPLORATORY_ONLY`, not a technical
+failure or a claim of verified inventory. A separate source-verification step is
+needed to establish complete costs; configuration cannot waive that check.
+
+`targeted_filters` lists approved changes per blocker. Targeted requests carry
+explicit owner IDs and a typed blocker, and cannot repeat unchanged criteria or
+drop a prior hard search filter. Private caps, raw reasons and transcripts are
+excluded from Actor input. Durable run IDs are reused on recovery; an ambiguous
+start is stopped rather than automatically paying for another run. A new Actor
+start reserves the actual run budget, independently of graph research-batch counts.
+
+`make_providers(config, settings, directory, snapshot=current_snapshot)` returns
+`ModelPort`/`ResearchPort` implementations that your teammate can inject into the
+existing worker. The optional snapshot binds searches to current room/input/
+permission revisions. Call `providers.preflight()` before work. Neither this
+factory nor these CLI commands implement a SpacetimeDB adapter or subscription.
+
+No provider calls occur merely on import. Fixture commands keep using scripted
+providers and do not load `.env` or the live provider factory.
 
 ## Test groups and remaining integration gates
 
@@ -158,11 +245,22 @@ supports fixture mode only; wire live dependencies explicitly after validation.
 .venv/bin/python -m pytest tests/contract -q
 ```
 
+The default suite skips the billable live test. To explicitly opt in after filling
+credentials and reviewing the one-person configuration:
+
+```bash
+TANDEM_RUN_LIVE_TESTS=1 TANDEM_LIVE_CONFIG=live.json .venv/bin/python -m pytest tests/live -q
+```
+
+Only that marked test enables network access. It creates a fresh run directory,
+so invoking it again can incur another bounded provider test.
+
 Tests cover privacy canaries, preference gates, meaningful recipient replies,
 unsupported wording, independent validation, transaction receipts, fencing,
 revocation/cancellation, budgets, heartbeat under blocking calls, early answers,
 lost effects/responses, two-process checkpoint recovery and provider run reuse.
 `tests/contract` currently runs against the local double; it does not establish
 SpacetimeDB security. Real backend integration, subscription dispatcher, human
-consent/UI checks, full solver policy and live provider validation remain team
-integration gates. No placeholder tests claim those gates passed.
+consent/UI checks, full solver policy and credentialed live provider validation remain team
+integration gates beyond the one-person smoke scenario above. No placeholder
+tests claim those broader gates passed.
