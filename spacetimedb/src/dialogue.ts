@@ -442,6 +442,22 @@ export const proposeConstraintPatch = spacetimedb.reducer(
       const j = requireLease(ctx, args.jobId, args.attempt);
       const m = requireMembershipById(ctx, j.roomId, args.memberId);
       constraintFromPatch(args.patchJson);
+      // A patch that quotes the owner must quote them exactly, from their own message.
+      const quote = (JSON.parse(args.patchJson) as { source_quote?: unknown }).source_quote;
+      if (quote !== undefined) {
+        const source = args.sourceMessageId === undefined ? undefined : ctx.db.privateMessage.id.find(args.sourceMessageId);
+        if (
+          typeof quote !== 'string' ||
+          quote.trim().length === 0 ||
+          !source ||
+          source.roomId !== j.roomId ||
+          !source.owner.isEqual(m.member) ||
+          source.sender !== 'HUMAN' ||
+          !source.body.includes(quote)
+        ) {
+          fail('INVALID_EVIDENCE_REF', 'source_quote must be the owner\'s exact words from the cited message');
+        }
+      }
       ctx.db.constraintPatch.insert({
         id: 0n,
         roomId: j.roomId,

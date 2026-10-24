@@ -75,7 +75,7 @@ export function constraintFromPatch(patchJson: string): ConstraintInput {
 
 // The caller is the owner. A confirmed constraint change bumps the input
 // revision and starts a new generation.
-export function upsertConstraint(ctx: Ctx, roomId: bigint, input: ConstraintInput): void {
+export function upsertConstraint(ctx: Ctx, roomId: bigint, input: ConstraintInput, replan = true): void {
   nonEmpty(input.key, 'key');
   oneOf(input.hardness, HARDNESS, 'hardness');
   parseJson(input.valueJson, 'valueJson');
@@ -96,7 +96,8 @@ export function upsertConstraint(ctx: Ctx, roomId: bigint, input: ConstraintInpu
   } else {
     ctx.db.participantConstraint.insert({ id: 0n, roomId, owner: ctx.sender, key: input.key, ...fields, revision: 1n });
   }
-  invalidateRoom(ctx, roomId, { input: true }, 'constraint confirmed');
+  // A batch of confirmations (an onboarding summary) replans once, at the end.
+  if (replan) invalidateRoom(ctx, roomId, { input: true }, 'constraint confirmed');
   emitEvent(ctx, roomId, 'REQUIREMENTS_UPDATED', { message: 'A participant updated their requirements' });
   emitEvent(ctx, roomId, 'MY_CONSTRAINT_SAVED', { key: input.key }, ctx.sender);
 }

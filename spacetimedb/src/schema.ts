@@ -205,6 +205,60 @@ const privateMessage = table(
   }
 );
 
+// ---------- Onboarding ----------
+
+// The organizer's own words about the trip, the structured brief their agent
+// proposes from them (destination, dates, what to plan), and its state
+// DRAFT → PROPOSED → CONFIRMED. A confirmed brief is shared room context.
+const tripBrief = table(
+  { name: 'trip_brief' },
+  {
+    roomId: t.u64().primaryKey(),
+    description: t.string(),
+    briefJson: t.string(),
+    unclearJson: t.string(),
+    state: t.string(),
+    revision: t.u64(),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// One traveller's onboarding conversation for one trip. coverageJson maps each
+// essential topic to OPEN | ANSWERED | UNCLEAR | SKIPPED.
+// State: ASKING → SUMMARY → CONFIRMED (a new message in SUMMARY goes back to ASKING).
+const intake = table(
+  {
+    name: 'intake',
+    indexes: [
+      { accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] },
+      { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    owner: t.identity(),
+    memberId: t.u64(),
+    state: t.string(),
+    coverageJson: t.string(),
+    questionCount: t.u32(),
+    briefRevision: t.u64(),
+    createdAt: t.timestamp(),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// Whose conversation an INTAKE job serves (purpose BRIEF or INTAKE). INTERPRET
+// jobs find their owner through private_message.jobId instead.
+const jobSubject = table(
+  { name: 'job_subject' },
+  {
+    jobId: t.u64().primaryKey(),
+    memberId: t.u64(),
+    purpose: t.string(),
+  }
+);
+
 // ---------- Questions and scoped permissions ----------
 
 const question = table(
@@ -549,6 +603,9 @@ const spacetimedb = schema({
   participantConstraint,
   constraintPatch,
   privateMessage,
+  tripBrief,
+  intake,
+  jobSubject,
   question,
   actionGrant,
   job,
@@ -577,6 +634,8 @@ export {
   participantConstraint,
   constraintPatch,
   privateMessage,
+  tripBrief,
+  intake,
   question,
   job,
   conversationThread,

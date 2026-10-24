@@ -11,6 +11,8 @@ import spacetimedb, {
   participantConstraint,
   participationPreferences,
   privateMessage,
+  tripBrief,
+  intake,
   profile,
   question,
   room,
@@ -344,4 +346,39 @@ export const roomAgentActivity = spacetimedb.view(
 // Only allowlisted worker/dispatcher identities see anything here.
 export const workerPendingJobs = spacetimedb.view({ name: 'worker_pending_jobs', public: true }, t.array(job.rowType), ctx =>
   ctx.db.worker.identity.find(ctx.sender) ? [...ctx.db.job.byStatus.filter('PENDING')] : []
+);
+
+// ---------- Onboarding ----------
+
+export const roomTripBrief = spacetimedb.view({ name: 'room_trip_brief', public: true }, t.array(tripBrief.rowType), ctx =>
+  myRoomIds(ctx.db, ctx.sender).flatMap(roomId => {
+    const b = ctx.db.tripBrief.roomId.find(roomId);
+    return b ? [b] : [];
+  })
+);
+
+export const myIntake = spacetimedb.view({ name: 'my_intake', public: true }, t.array(intake.rowType), ctx => [
+  ...ctx.db.intake.byOwner.filter(ctx.sender),
+]);
+
+// Neutral progress for the room: how many are ready, never who or what they said.
+const IntakeProgressRow = t.row('IntakeProgressRow', {
+  roomId: t.u64().primaryKey(),
+  ready: t.u32(),
+  total: t.u32(),
+});
+
+export const roomIntakeProgress = spacetimedb.view(
+  { name: 'room_intake_progress', public: true },
+  t.array(IntakeProgressRow),
+  ctx =>
+    myRoomIds(ctx.db, ctx.sender).flatMap(roomId => {
+      const b = ctx.db.tripBrief.roomId.find(roomId);
+      if (!b || b.state !== 'CONFIRMED') return [];
+      const active = [...ctx.db.membership.byRoomMember.filter(roomId)].filter(m => m.active);
+      const ready = [...ctx.db.intake.byRoom.filter(roomId)].filter(
+        i => i.state === 'CONFIRMED' && active.some(m => m.member.isEqual(i.owner))
+      ).length;
+      return [{ roomId, ready, total: active.length }];
+    })
 );

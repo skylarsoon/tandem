@@ -11,6 +11,7 @@ import {
   digest,
   emitEvent,
   fail,
+  insideWindow,
   oneOf,
   parseJson,
   refResolves,
@@ -25,6 +26,7 @@ import {
   withReceipt,
 } from './guards';
 import { messageOwnAgent, recomputeAgreement, scheduleReviewReminders } from './effects';
+import { findIntake } from './onboarding';
 
 const ImpactInput = t.object('ImpactInput', { memberId: t.u64(), impactJson: t.string() });
 
@@ -39,6 +41,8 @@ type CandidateFacts = {
   cost_basis?: unknown;
   missing_critical_fields?: unknown;
   capacity?: unknown;
+  arrival_local?: unknown;
+  stops?: unknown;
 };
 
 // A complete total is the only price people can approve.
@@ -114,6 +118,14 @@ function validateTripSelection(ctx: Ctx, r: RoomRow, refs: string[]): void {
       fail('INVALID_PROPOSAL', `candidate ${ref} does not confirm required baggage`);
     }
     if (typeof facts.arrival_epoch !== 'number') fail('INVALID_PROPOSAL', `candidate ${ref} has no arrival time`);
+    const window = constraintValue(ctx, r.id, member.member, 'arrival_window', true);
+    if (window !== undefined && !insideWindow(facts.arrival_local, window)) {
+      fail('INVALID_PROPOSAL', `candidate ${ref} arrives outside a traveller's arrival window`);
+    }
+    const maxStops = constraintValue(ctx, r.id, member.member, 'max_stops', true);
+    if (typeof maxStops === 'number' && (typeof facts.stops !== 'number' || facts.stops > maxStops)) {
+      fail('INVALID_PROPOSAL', `candidate ${ref} has more stops than a traveller allows`);
+    }
     arrivals.push(facts.arrival_epoch);
   }
   if (flights.size !== active.length) fail('INVALID_COVERAGE', 'every active member needs exactly one selected flight');
@@ -165,6 +177,14 @@ export const publishProposal = spacetimedb.procedure(
           parseJson(args.validationJson, 'validationJson');
           for (const ref of args.evidenceRefs) {
             if (!refResolves(tx, r.id, ref)) fail('INVALID_EVIDENCE_REF', `evidence ${ref} is not recorded in this room`);
+          }
+          // A trip that was described and onboarded waits for everyone's confirmed onboarding.
+          if (tx.db.tripBrief.roomId.find(r.id)) {
+            for (const m of tx.db.membership.byRoomMember.filter(r.id)) {
+              if (m.active && findIntake(tx, r.id, m.member)?.state !== 'CONFIRMED') {
+                fail('INTAKE_INCOMPLETE', 'every traveller must finish onboarding first');
+              }
+            }
           }
           if (args.selectedCandidateRefs.length > 0) validateTripSelection(tx, r, args.selectedCandidateRefs);
           if (containsPrivateText(tx, r.id, args.termsJson) || containsPrivateText(tx, r.id, args.sharedSummaryJson)) {

@@ -3,6 +3,7 @@
 export { default } from './schema';
 export * from './rooms';
 export * from './constraints';
+export * from './intake';
 export * from './questions';
 export * from './jobs';
 export * from './dialogue';

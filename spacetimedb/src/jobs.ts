@@ -17,6 +17,7 @@ import {
   runProcedure,
   withReceipt,
 } from './guards';
+import { findIntake } from './onboarding';
 import { resumeJobIfReady } from './effects';
 
 function micros(ts: Timestamp | undefined): string | null {
@@ -268,9 +269,59 @@ function buildContext(ctx: Ctx, j: JobRow) {
       terms: parsed(p.termsJson),
     }));
 
+  // Onboarding: the shared brief, each member's onboarding state (not contents),
+  // and, for an onboarding job, the one member it serves: their private
+  // conversation, pending patches and coverage. Never anyone else's.
+  const brief = ctx.db.tripBrief.roomId.find(r.id);
+  const intakes = members.map(m => ({ member_id: num(m.id), state: findIntake(ctx, r.id, m.member)?.state ?? null }));
+  const subjectRow = ctx.db.jobSubject.jobId.find(j.id);
+  let subject: { memberId: bigint; purpose: string } | undefined = subjectRow ?? undefined;
+  if (!subject && j.kind === 'INTERPRET') {
+    for (const m of members) {
+      for (const pm of ctx.db.privateMessage.byOwner.filter(m.member)) {
+        if (pm.jobId === j.id) subject = { memberId: m.id, purpose: 'MESSAGE' };
+      }
+    }
+  }
+  let subjectContext = null;
+  if (subject) {
+    const m = members.find(x => x.id === subject!.memberId)!;
+    const intakeRow = findIntake(ctx, r.id, m.member);
+    subjectContext = {
+      member_id: num(m.id),
+      purpose: subject.purpose,
+      messages: byId([...ctx.db.privateMessage.byOwner.filter(m.member)].filter(pm => pm.roomId === r.id)).map(pm => ({
+        id: num(pm.id),
+        sender: pm.sender,
+        body: pm.body,
+        job_id: pm.jobId === undefined ? null : num(pm.jobId),
+      })),
+      patches: byId([...ctx.db.constraintPatch.byOwner.filter(m.member)].filter(cp => cp.roomId === r.id)).map(cp => ({
+        id: num(cp.id),
+        patch: parsed(cp.patchJson),
+        state: cp.state,
+        source_message_id: cp.sourceMessageId === undefined ? null : num(cp.sourceMessageId),
+      })),
+      intake: intakeRow
+        ? { state: intakeRow.state, coverage: parsed(intakeRow.coverageJson), question_count: intakeRow.questionCount }
+        : null,
+    };
+  }
+
   return {
     job: leaseFields(j),
     room: { room_id: num(r.id), goal: r.goal, status: r.status, settings: parsed(r.settingsJson) },
+    trip_brief: brief
+      ? {
+          description: brief.description,
+          brief: parsed(brief.briefJson),
+          unclear: parsed(brief.unclearJson),
+          state: brief.state,
+          revision: num(brief.revision),
+        }
+      : null,
+    intakes,
+    subject: subjectContext,
     mediator_agent_id: num(agents.find(a => a.kind === 'MEDIATOR')!.id),
     members: people,
     constraints,

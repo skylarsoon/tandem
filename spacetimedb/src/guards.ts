@@ -12,7 +12,14 @@ export type AgentRow = NonNullable<ReturnType<Ctx['db']['agent']['id']['find']>>
 // ---------- Vocabulary ----------
 
 export const ROOM_STATUS = ['COLLECTING', 'NEGOTIATING', 'AWAITING_REVIEW', 'AGREED'] as const;
-export const JOB_KINDS = ['PLAN', 'INTERPRET'] as const;
+export const JOB_KINDS = ['PLAN', 'INTERPRET', 'INTAKE'] as const;
+export const BRIEF_STATES = ['DRAFT', 'PROPOSED', 'CONFIRMED'] as const;
+export const INTAKE_STATES = ['ASKING', 'SUMMARY', 'CONFIRMED'] as const;
+// Essential onboarding topics; everything else is captured if mentioned or asked just in time.
+export const INTAKE_TOPICS = ['origin', 'dates', 'money', 'settings'] as const;
+export const COVERAGE = ['OPEN', 'ANSWERED', 'UNCLEAR', 'SKIPPED'] as const;
+export const MAX_INTAKE_QUESTIONS = 5;
+export const COMPONENTS = ['FLIGHT', 'STAY', 'TRANSFER'];
 export const OPEN_JOB_STATUSES = ['PENDING', 'CLAIMED', 'WAITING_FOR_INPUT'];
 export const STAGES = ['UNDERSTAND', 'GOALS_DATES', 'TRAVEL', 'STAY_EXPERIENCES', 'COMPLETE_PLAN'] as const;
 export const HARDNESS = ['HARD', 'SOFT'] as const;
@@ -383,4 +390,59 @@ export function containsPrivateText(ctx: Ctx, roomId: bigint, text: string): boo
     if (reason && reason.length >= MIN_PRIVATE_TEXT_CHECK_LENGTH && haystack.includes(reason)) return true;
   }
   return false;
+}
+
+// ---------- Room settings ----------
+
+// Shared planning rules, validated the same way whether the organizer sets them
+// directly or they come from a confirmed trip brief.
+export function validateRoomSettings(settings: unknown): Record<string, unknown> {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    fail('INVALID_ARGUMENT', 'settingsJson must be an object');
+  }
+  const s = settings as Record<string, unknown>;
+  const overlap = s.arrival_overlap_seconds;
+  if (overlap !== undefined && (typeof overlap !== 'number' || !Number.isInteger(overlap) || overlap < 0)) {
+    fail('INVALID_ARGUMENT', 'arrival_overlap_seconds must be a non-negative integer');
+  }
+  const components = s.components;
+  if (
+    components !== undefined &&
+    (!Array.isArray(components) ||
+      !components.includes('FLIGHT') ||
+      new Set(components).size !== components.length ||
+      components.some(c => !COMPONENTS.includes(c as string)))
+  ) {
+    fail('INVALID_ARGUMENT', 'components must list FLIGHT and optionally STAY and TRANSFER, once each');
+  }
+  const perRoom = s.people_per_bedroom;
+  if (perRoom !== undefined && (typeof perRoom !== 'number' || !Number.isInteger(perRoom) || perRoom < 1 || perRoom > 8)) {
+    fail('INVALID_ARGUMENT', 'people_per_bedroom must be an integer from 1 to 8');
+  }
+  for (const key of ['start_date', 'end_date']) {
+    if (s[key] !== undefined && (typeof s[key] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s[key] as string))) {
+      fail('INVALID_ARGUMENT', `${key} must be YYYY-MM-DD`);
+    }
+  }
+  if (s.destination_airport !== undefined && (typeof s.destination_airport !== 'string' || !/^[A-Z]{3}$/.test(s.destination_airport))) {
+    fail('INVALID_ARGUMENT', 'destination_airport must be a 3-letter IATA code');
+  }
+  return s;
+}
+
+// "HH:MM" → minutes after midnight, or undefined if malformed.
+export function minutesOf(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !/^\d{2}:\d{2}$/.test(value)) return undefined;
+  const [h, m] = value.split(':').map(Number);
+  return h < 24 && m < 60 ? h * 60 + m : undefined;
+}
+
+// Is a local arrival time inside {earliest, latest}? A window may wrap midnight.
+export function insideWindow(local: unknown, window: unknown): boolean {
+  const w = (window ?? {}) as { earliest?: unknown; latest?: unknown };
+  const at = minutesOf(local);
+  const from = w.earliest === undefined ? 0 : minutesOf(w.earliest);
+  const to = w.latest === undefined ? 24 * 60 - 1 : minutesOf(w.latest);
+  if (at === undefined || from === undefined || to === undefined) return false;
+  return from <= to ? at >= from && at <= to : at >= from || at <= to;
 }

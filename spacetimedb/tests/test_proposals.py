@@ -255,3 +255,22 @@ def test_room_components_must_be_valid(ready_room, client, worker):
     for bad in (["STAY"], ["FLIGHT", "FLIGHT"], ["FLIGHT", "SPA"], "FLIGHT"):
         expect_error("INVALID_ARGUMENT", client.call, room.people["alice"], "set_room_settings", room_id=room.room_id,
                      settings_json=json.dumps({"components": bad}))
+
+
+def test_arrival_window_and_max_stops_are_enforced_at_publish(ready_room, client, worker):
+    room, _ = ready_room
+    client.call(room.people["bob"], "set_constraint", room_id=room.room_id, key="arrival_window",
+                value_json=json.dumps({"earliest": "06:00", "latest": "23:00"}), unit="", hardness="HARD",
+                authorized_range_json=None, private_rationale=None)
+    client.call(room.people["carol"], "set_constraint", room_id=room.room_id, key="max_stops", value_json="0", unit="",
+                hardness="HARD", authorized_range_json=None, private_rationale=None)
+    job_id = room.plan_job(worker)
+    room.claim(worker, job_id)
+    fine = {"bob": {"arrival_local": "21:40"}, "carol": {"stops": 0}}
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 record_flights(room, worker, job_id, {**fine, "bob": {"arrival_local": "01:10"}}))
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 record_flights(room, worker, job_id, {**fine, "carol": {"stops": 1}}))
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 record_flights(room, worker, job_id, {"carol": {"stops": 0}}))  # bob's arrival time unknown
+    assert publish_selected(room, worker, job_id, record_flights(room, worker, job_id, fine))["version"] == 1
