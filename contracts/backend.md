@@ -144,6 +144,10 @@ Job statuses: `PENDING` → `CLAIMED` → `WAITING_FOR_INPUT` / `SUCCEEDED` / `F
 | `answer_question` | `questionId`, `version`, `answerJson` | See §6. Wrong owner → `NOT_FOUND`; not open or wrong version → `QUESTION_SUPERSEDED`. |
 | `respond_to_proposal` | `proposalId`, `version`, `termsDigest`, `response`, `note?` | `ACCEPT`, `NOT_COMFORTABLE`, `ASK_MY_AGENT`, `SUGGEST_ALTERNATIVE`, `DECIDE_LATER`. Rejected with `STALE_SNAPSHOT` if the version, digest or room revisions changed. Agreement is recomputed in the same transaction: **every affected member must have ACCEPTED these exact terms**. Non-accept responses message your agent. |
 | `withdraw_consent` | `proposalId`, `note?` | Reopens an AGREED proposal and its milestone. |
+| `set_trip_description` | `roomId`, `description` | Organizer only. Their own words about the trip; their agent proposes a structured brief (`room_trip_brief`, state PROPOSED). |
+| `confirm_trip_brief` | `roomId`, `revision` | Organizer only. Writes destination, airport, dates and components into the room settings, then starts everyone's onboarding (and anyone who joins later). Re-confirming a changed brief reopens only the affected topics. |
+| `confirm_origin` | `roomId`, `patchId` | The one-tap "Flying from SFO, right?". Confirms only an `origin_airport` patch, so searches can start early. |
+| `confirm_intake` | `roomId`, `acceptedPatchIds[]`, `speakUpForMe?`, `askMeFirst?`, `giveMeTime?`, `remindersOptedIn?` | Confirms the onboarding summary in one go. Accepted PENDING patches become constraints, the rest are rejected, settings are confirmed, and the room replans once. Needs `origin_airport` and a budget or `no_budget_limit` (`INTAKE_INCOMPLETE`) and confirmed settings (`PREFERENCES_UNCONFIRMED`). |
 
 **Presence** is automatic: an SDK connection marks you online, and closing your last tab marks you offline. HTTP calls don't count.
 
@@ -196,6 +200,20 @@ Checks, in one transaction (nothing is written if any fail):
 
 ---
 
+## 6a. Onboarding (conversational intake)
+
+Instead of a form, each traveller's agent asks a few questions in their private chat (`my_private_messages`):
+1. **The organizer** describes the trip (`set_trip_description`). Their agent proposes a brief; they confirm it (`confirm_trip_brief`).
+2. **Everyone's agent** opens with one trip-aware question ("Hi Dave! Honolulu, Feb 12–16 with Alice, Bob and Carol. Where would you fly from, and is there anything that's a must-have or a deal-breaker?"). It then asks about at most two open essentials per message: origin and dates, money, and how the agent should act. Usually 2–4 questions, never more than 5 (enforced).
+3. **What the agent heard** becomes `constraint_patches`. Each one quotes the person's exact words (`patch_json.source_quote`, checked against their message), so nothing unsaid is recorded. The origin is confirmed right away with `confirm_origin`; everything else is confirmed once, through the summary and `confirm_intake`.
+4. **Everything else** (rooming, a checked bag, landing times, connections) is captured only if they mention it. Otherwise it's asked **just in time**, when a real plan depends on it: a `MISSING_FACT` question whose `action_json.nudge` holds the constraint a yes or a no records. Answer with `{"answer": true, "constraint": nudge.yes}`. The waiting job resumes and re-plans with it.
+5. **If someone's own requirement blocks the plan** (own room, minimum rating, arrival times, stops), only they are asked whether to set it aside for this trip. Same nudge shape: a yes records the relaxed value, a no records `kept_<key>` so they're never asked again.
+6. **Planning in an onboarded room** searches from each person's confirmed airport and the brief. It waits (`WAITING_FOR_INTAKE`) until everyone is onboarded, and `publish_proposal` refuses with `INTAKE_INCOMPLETE` until then. The airport transfer is searched after flights are chosen, for the group's latest landing.
+
+New constraint keys: `origin_airport` (IATA), `arrival_window` (`{"earliest": "HH:MM", "latest": "HH:MM"}`, local at the destination), `max_stops`, `no_budget_limit`, `trip_note` (private, not used in planning yet), `kept_<key>`.
+
+---
+
 ## 7. Views (what each caller can read)
 
 All 22 views are per-caller and update live.
@@ -213,6 +231,9 @@ All 22 views are per-caller and update live.
 | `room_presence` | `membership_id`, `online`, `last_seen` |
 | `room_agent_activity` | `agent_id`, `activity`, `thread_id` |
 | `worker_pending_jobs` | `PENDING` jobs; empty unless the caller is an allowlisted worker |
+| `room_trip_brief` | The organizer's description, the proposed/confirmed brief (`brief_json`: destination, airport, dates, components, vibe), `unclear_json`, state, revision |
+| `my_intake` | Your onboarding: state ASKING / SUMMARY / CONFIRMED, coverage of origin, dates, money, settings, and questions asked (max 5) |
+| `room_intake_progress` | `ready` / `total`. **Counts only, never who or what they said.** |
 
 ---
 

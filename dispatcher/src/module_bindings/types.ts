@@ -237,6 +237,27 @@ export const ImpactRow = __t.object("ImpactRow", {
 });
 export type ImpactRow = __Infer<typeof ImpactRow>;
 
+export const Intake = __t.object("Intake", {
+  id: __t.u64(),
+  roomId: __t.u64(),
+  owner: __t.identity(),
+  memberId: __t.u64(),
+  state: __t.string(),
+  coverageJson: __t.string(),
+  questionCount: __t.u32(),
+  briefRevision: __t.u64(),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+});
+export type Intake = __Infer<typeof Intake>;
+
+export const IntakeProgressRow = __t.object("IntakeProgressRow", {
+  roomId: __t.u64(),
+  ready: __t.u32(),
+  total: __t.u32(),
+});
+export type IntakeProgressRow = __Infer<typeof IntakeProgressRow>;
+
 export const Job = __t.object("Job", {
   id: __t.u64(),
   roomId: __t.u64(),
@@ -264,6 +285,13 @@ export const JobBudget = __t.object("JobBudget", {
   researchCalls: __t.u32(),
 });
 export type JobBudget = __Infer<typeof JobBudget>;
+
+export const JobSubject = __t.object("JobSubject", {
+  jobId: __t.u64(),
+  memberId: __t.u64(),
+  purpose: __t.string(),
+});
+export type JobSubject = __Infer<typeof JobSubject>;
 
 export const LeaseTimer = __t.object("LeaseTimer", {
   scheduledId: __t.u64(),
@@ -316,6 +344,9 @@ export type MyConstraintPatches = __Infer<typeof MyConstraintPatches>;
 
 export const MyConstraints = __t.object("MyConstraints", {});
 export type MyConstraints = __Infer<typeof MyConstraints>;
+
+export const MyIntake = __t.object("MyIntake", {});
+export type MyIntake = __Infer<typeof MyIntake>;
 
 export const MyParticipationPreferences = __t.object("MyParticipationPreferences", {});
 export type MyParticipationPreferences = __Infer<typeof MyParticipationPreferences>;
@@ -525,6 +556,9 @@ export type RoomConsentCounts = __Infer<typeof RoomConsentCounts>;
 export const RoomEvents = __t.object("RoomEvents", {});
 export type RoomEvents = __Infer<typeof RoomEvents>;
 
+export const RoomIntakeProgress = __t.object("RoomIntakeProgress", {});
+export type RoomIntakeProgress = __Infer<typeof RoomIntakeProgress>;
+
 export const RoomMembers = __t.object("RoomMembers", {});
 export type RoomMembers = __Infer<typeof RoomMembers>;
 
@@ -543,6 +577,9 @@ export type RoomProposals = __Infer<typeof RoomProposals>;
 export const RoomThreads = __t.object("RoomThreads", {});
 export type RoomThreads = __Infer<typeof RoomThreads>;
 
+export const RoomTripBrief = __t.object("RoomTripBrief", {});
+export type RoomTripBrief = __Infer<typeof RoomTripBrief>;
+
 export const ThreadOpen = __t.object("ThreadOpen", {
   topicRef: __t.string(),
   participantAgentIds: __t.array(__t.u64()),
@@ -550,6 +587,17 @@ export const ThreadOpen = __t.object("ThreadOpen", {
   successorOf: __t.option(__t.u64()),
 });
 export type ThreadOpen = __Infer<typeof ThreadOpen>;
+
+export const TripBrief = __t.object("TripBrief", {
+  roomId: __t.u64(),
+  description: __t.string(),
+  briefJson: __t.string(),
+  unclearJson: __t.string(),
+  state: __t.string(),
+  revision: __t.u64(),
+  updatedAt: __t.timestamp(),
+});
+export type TripBrief = __Infer<typeof TripBrief>;
 
 export const Worker = __t.object("Worker", {
   identity: __t.identity(),

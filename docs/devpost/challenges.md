@@ -94,6 +94,26 @@ The fix came from reading the fine print. Google states its fares already includ
 
 **Live data takes different paths.** Two runs with the same config went different ways. In one, Airbnb's top results had no three-bedroom place, so Alice was asked privately whether she'd share. In the other, a three-bedroom place appeared and nobody was asked. Our tests cover each branch with fixtures, so the live behaviour isn't luck.
 
+## Onboarding without a form
+
+**Forms feel like paperwork; chat invites guessing.** We wanted onboarding to feel like talking to someone who's paying attention: one trip-aware opener ("Honolulu, Feb 12–16 with Alice, Bob and Carol. Where would you fly from, and is there anything that's a must-have or a deal-breaker?"), then only what's still missing. But a chatty agent will happily turn "I'm flexible" into a rule. So everything the agent records must quote the person's exact words, and the database checks the quote against their message. A number has to appear in what they said. A budget without "for everything" or "for the flight" becomes a question, not a guess. Nothing becomes a limit until they confirm it.
+
+**Ask now, or ask later?** Asking about rooming, bags and landing times up front made onboarding long. Never asking meant silently assuming. We split it: onboarding covers only what planning can't start without (where you fly from, money, how your agent should act). The rest is asked *just in time*, when a real plan depends on it ("The best-value place has 3 bedrooms for 6 of you. OK to share a room?"). The answer is recorded as the person's own limit.
+
+**Our first live simulation caught four real bugs.** We had Claude play six people with private backstories (a nurse off night shifts, a friend who just got laid off and says "whatever works", someone with a CPAP who won't say why they need their own room) against the real worker:
+- **Drifting questions.** The agent's own questions wandered into small talk about beach vibes and used every question allowed. Questions now use our wording for exactly the open essentials, which also halved the number of model calls.
+- **A dropped budget.** "Around $900, could stretch to $1,000" was thrown away because the quoted span didn't contain the $1,000. The person repeated it four times in a loop.
+- **A preference recorded as a rule.** "A few bedrooms would be nice, but I'm flexible" became "needs own room".
+- **Internal notes sent to people.** The agent once sent its own note ("Maya did not say whether the dates work; ask her") to Maya herself.
+
+Each is now a regression test. The rerun took 155 seconds instead of about 9 minutes: 2–4 questions per person, nothing assumed, nothing leaked.
+
+**A permission that expired too soon.** When someone agreed to share a room so a friend's budget would work, we stored it as a grant tied to the current planning revision. The next person's answer bumped the revision, the grant silently expired, and she was asked again. Setting a requirement aside is really a change to your own requirements, so it's now recorded as your constraint ("kept" if you say no), and you're asked once per trip.
+
+**One answer cancelled everyone else's questions.** Just-in-time answers restarted planning, which cancelled the other open questions, so five people were asked in five rounds. Answers to the waiting job's own questions are now recorded without a restart. The job resumes once everyone has answered and re-plans with all of it.
+
+**Real names broke agent replies.** With test names like `p1`, a thread's participant list happened to be in sorted order. With "dana" and "jordan", which sort before "mediator", it wasn't, so every reply was rejected. Participant lists are now compared as sets.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.
