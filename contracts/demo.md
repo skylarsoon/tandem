@@ -7,136 +7,107 @@ Goal: make the SpacetimeDB track judges *see* that the database is the live coor
 
 # Talk track: explaining what we built
 
-Use the **60-second version** with judges, and the **full walkthrough** to bring a teammate up to speed (about 10 minutes). Lines in *italics* are meant to be said out loud; the bullets under them are the details to have ready.
+A 60-second version for judges, then a technical walkthrough for teammates and for judges who want depth.
 
 ## The 60-second version (judges)
 
-*"Tandem is a group trip planner where every person has their own AI agent. The hard part isn't the AI, it's coordination: four people and four agents changing things at the same time, with private budgets, and nobody allowed to say yes for anyone else.*
+*"Tandem is a group trip planner where every person has their own AI agent. The hard part is coordination: four people and four agents writing to shared state at the same time, with private budgets, and only humans allowed to approve.*
 
-*So SpacetimeDB isn't just where we store data, it's the referee. Every rule lives inside the database: only humans can approve, private limits never leave their owner, outdated plans can't collect approvals, and a crashed worker can't overwrite newer work. Every screen subscribes to live views, so when anything changes, all four people see it instantly.*
+*We use SpacetimeDB as the coordination layer, not just storage. All 29 tables are private, and every client reads through per-caller views, so private data is never sent to anyone else's browser. Every write is a reducer, a transaction that enforces the rules: approvals bind to the exact terms of a plan, outdated work is rejected by revision checks, and a crashed AI worker is fenced off by leases. Browsers subscribe to those views, so every screen updates the moment a transaction commits.*
 
-*Our Python AI worker plugs in through an adapter. We proved it works by running the worker's full planning flow against the real database: agents talk, search, ask people questions, publish a plan, and four humans approve. It's all covered by 140 automated tests."*
+*Our Python AI worker connects through an adapter. We ran its full planning flow against the real database (agents negotiating, re-searching, asking people questions, publishing a plan, four humans approving), and it's covered by 140 automated tests."*
 
-## The full walkthrough (teammates)
+## Technical walkthrough
 
-### 1. The big idea: a shared notebook with a referee
+### Architecture
 
-*"Think of SpacetimeDB as one notebook that everyone writes in at the same time: four browsers, the AI worker and a small dispatcher. Nobody writes in it directly. Every change goes through a 'button' with rules attached, and each person only sees the pages they're allowed to see."*
+```
+Browsers (Next.js) ── subscribe to per-caller views ──▶ ┌──────────────────────────────┐
+         └────────── call reducers (human actions) ───▶ │  SpacetimeDB module (TS)      │
+                                                        │  29 private tables            │
+Dispatcher (Node) ── subscribes to worker_pending_jobs ─│  31 reducers · 5 procedures   │
+         │ POST /wake                                   │  22 views · 2 scheduled tasks │
+         ▼                                              └──────────────────────────────┘
+Python worker (LangGraph) ── HTTP: procedures + reducers via SpacetimeBackend adapter ──▲
+```
 
-- **Tables** are the notebook pages. We have 29, and **all of them are private**.
-- **Reducers** are the buttons: 31 of them. Each one is a transaction, so it either fully happens or doesn't happen at all.
-- **Procedures** are the 5 buttons that also return an answer (claim a job, load the job's details, publish a plan, check a lease, start an operation).
-- **Views** are each person's personal window: 22 of them, each computed for *whoever is asking*.
-- **Subscriptions:** browsers subscribe to views, so updates arrive the moment a change commits. No refreshing, no polling.
+- **The module owns all state and all rules.** There is no separate API server.
+- **The worker does the slow work** (LLM calls, flight search, CP-SAT solving) outside transactions, then writes results back through reducers that validate them.
+- **The dispatcher only wakes the worker.** It subscribes to a view that's empty unless the caller is an allowlisted worker identity, and it never writes.
 
-### 2. Privacy is enforced by the database, not the screen
+### Access control
 
-*"Alice's budget and her reason ('saving for rent') are stored in a private table. Bob's browser never receives them. It isn't hidden on screen, it's never sent."*
+- **Every table is private.** Clients can't query tables directly; they read through views, and each view is computed for `ctx.sender`, e.g. `my_constraints` returns only the caller's rows.
+- **Shared views expose only shared fields.** The group chat view has no payload JSON, and approval progress is counts only (`3/4 approved`), never who is pending.
+- **Two kinds of identity.** Humans are separate SpacetimeDB identities (one per browser profile in the demo). Workers and the dispatcher are service identities on an allowlist. Human-only reducers reject workers, and worker reducers reject humans.
 
-- Every view filters by the caller, e.g. `my_constraints` returns only *your* constraints, and `room_messages` only the group chat of rooms you're in.
-- Shared progress shows **counts only** ("3 of 4 approved"), never who's still pending, so nobody gets singled out.
-- If an agent's group message accidentally contains someone's private reason word for word, the database blocks it (`PRIVATE_CONTENT_DETECTED`).
-- **Why no event tables for live agent activity?** They're public and can't be filtered per person, so every room could watch every other room. We used a small status table behind a per-room view instead.
+### One planning cycle, end to end
 
-### 3. Only humans can say yes
+1. **A person changes their budget.** `set_constraint` runs as one transaction: write the constraint, bump the room's `input_revision`, mark open jobs `SUPERSEDED`, mark open proposals `SUPERSEDED` with their consents `STALE`, and insert a new `PLAN` job. Everyone sees "a participant updated their requirements", never which one or why.
+2. **The worker gets woken.** The new job appears in `worker_pending_jobs`; the dispatcher's subscription fires and it POSTs to the worker.
+3. **The worker claims the job.** The `claim_job` procedure returns an attempt number and a 60-second lease (renewed every 15 s). Every later worker write checks four things: the caller, the attempt, an unexpired lease, and that the room's revisions still match the job's snapshot. Failures return `LEASE_LOST` or `STALE_SNAPSHOT`.
+4. **It reads a consistent snapshot.** `load_execution_context` returns one transaction's view: members, confirmed settings, constraints, grants, threads, candidates. The worker is the trusted processor and scopes private data per agent.
+5. **External calls go through a ledger.** `begin_operation` records each LLM call or search before it runs, and `complete_operation` stores the result. A replay returns the stored result, and per-generation budgets (100 model calls, 4 searches) persist across crashes.
+6. **Agents negotiate in threads.** `submit_agent_message` takes a schema-v2 message, a typed act plus an utterance, and in one transaction checks:
+   - sender and recipient are in the room and in the thread
+   - a reply targets a message the sender actually received
+   - cited facts exist in the room
+   - 6 turns per thread and 24 per round
+   - every participant has confirmed their settings
+   - no owner's private reason appears in the text
+   - the required permission grant exists
+   - a SHA-256 of the content matches the worker's validation digest
 
-*"The AI suggests; people decide. The worker's account is simply not allowed to press Approve, and approval only counts for the exact plan you saw."*
+   Duplicate submissions are no-ops.
+7. **Owners are asked privately.** `ask_owner` creates a versioned question, and `park_job` releases the lease. If the answer already arrived, parking puts the job straight back in the queue. A granted permission bumps `permission_revision` and starts a new generation; a refusal resumes the same one.
+8. **The plan is published.** `publish_proposal` re-validates the selected flights server-side: one per member, under hard caps, baggage where required, unexpired prices, arrivals within the room's window. It then stores immutable terms with a SHA-256 digest and creates `PENDING` consent rows, all in one transaction.
+9. **People decide.** `respond_to_proposal` must send the exact version and digest, and the room's revisions must be unchanged. Agreement is recomputed in the same transaction and requires every affected member's `ACCEPTED`.
 
-- Each published plan gets a **fingerprint** (a SHA-256 hash of its exact terms). Approving requires sending that fingerprint back.
-- If anything changed since (someone's budget, room membership, settings), the approval is rejected: `STALE_SNAPSHOT`.
-- Agreement is recalculated inside the same transaction as every response: **all affected people** must have accepted those exact terms. Three of four is not agreement.
-- Anyone can withdraw later, and the plan reopens.
+### Guarantees and how they're enforced
 
-### 4. How the AI worker gets its jobs
+| Guarantee | Mechanism |
+|---|---|
+| Only humans approve | Human-only reducers; consent rows bound to version + terms digest |
+| Nobody approves an outdated plan | Revisions on input, membership and permissions; stale consents marked `STALE` |
+| A crashed worker can't corrupt state | Leases + attempt fencing; a scheduled reducer requeues expired jobs |
+| Retries don't duplicate effects | Request-key receipts (attempt excluded from the digest); operation ledger |
+| Private data stays private | Private tables, per-caller views, private-text check on room messages |
+| Agents act within their owner's wishes | Confirmed settings gate room speech; grants bound to owner, kind and draft |
+| A buggy worker can't publish a bad plan | Server-side flight validation inside `publish_proposal` |
+| Agents can't argue forever | Thread and round turn budgets, charged once per message |
 
-*"When something changes, the database writes a to-do note: a job. A tiny program called the dispatcher watches for jobs and rings the worker's doorbell. The worker then claims the job and does the thinking."*
+### Live features
 
-- **The dispatcher** is a TypeScript program subscribed to `worker_pending_jobs`, a view that's empty for everyone except allowlisted worker accounts. It only wakes the worker; it never claims or writes.
-- **Claiming** gives the worker a **lease** (60 seconds, renewed every 15) and an **attempt number**.
-- **Every worker write is checked:** right worker, right attempt, lease still valid, and nothing changed in the room since the job started. Otherwise `LEASE_LOST` or `STALE_SNAPSHOT`.
-- **If the worker crashes,** a scheduled function inside the database notices the lease ran out and puts the job back in the queue. Another worker picks it up. If the old one wakes up, its writes are rejected.
+- **Presence:** `clientConnected` / `clientDisconnected` hooks count open connections per identity, exposed through `room_presence`.
+- **Agent activity:** set by the worker under its lease (`set_agent_activity`). The view reports `IDLE` once the job stops running, so a crash never leaves an agent "thinking". We avoided event tables here because they can't be filtered per caller.
+- **Review reminders:** a scheduled reducer sends one private nudge, only to people who opted in and didn't ask for time.
 
-### 5. Nothing happens twice
+### The worker adapter
 
-*"Networks fail. If the worker retries something, the database recognizes it and returns the original result instead of doing it again."*
+`SpacetimeBackend` implements the worker's `BackendPort` over HTTP:
+- It maps the worker's names ("p1", "mediator") to the module's numeric ids, its question kinds to ours, and its thread and message ids to ours.
+- It handles SpacetimeDB's encoding: camelCase top-level arguments, snake_case nested fields, and `{"some": …}` options.
 
-- Every worker action carries a **request key**. Same key and same request returns the stored result; same key with a different request is rejected (`KEY_BODY_MISMATCH`).
-- A replacement worker replaying the crashed worker's action gets the original result too.
-- **The spending ledger:** every Claude call and flight search is recorded *before* it runs. After a crash, finished calls are reused instead of paid for twice, and per-run budgets (100 model calls, 4 searches) survive crashes.
+Integrating surfaced real mismatches between the worker's test double and the real backend. We aligned on:
+- grant semantics: a yes starts a new generation
+- opt-in reminders
+- server-side publish validation
+- a shared snapshot fingerprint
+- a Python-compatible JSON encoder in the module, so both sides compute the same digest
 
-### 6. Agents really talk to each other
-
-*"Agents hold threaded conversations. Every message has two parts: a typed action the system acts on, and a sentence people read. The sentence never has authority; only the typed part does."*
-
-- **Message types:** `PROPOSE`, `EVALUATE`, `OBJECT`, `COUNTERPROPOSE`, `CLARIFY`, and a few control types. There's no free chat.
-- **Threads:** agents can reply to each other directly, but always through the database, which checks every message:
-  - sender and recipient are in the thread
-  - no broadcasting
-  - a reply answers a message the sender actually received
-  - every cited fact really exists in the room
-- **Turn limits:** 6 turns per thread and 24 per round, so agents can't argue forever. Repeated sends are counted once.
-- **The wording fingerprint:** the worker fingerprints each message, and the database recomputes it to confirm the text wasn't altered in between. We had to write a JSON encoder in TypeScript that matches Python's output byte for byte, accents and emoji included.
-
-### 7. Your settings change what your agent may do
-
-*"During onboarding you choose how your agent represents you: speak up for me, ask me first, give me time. The database enforces these, not just the AI's instructions."*
-
-- Until you confirm your settings, nothing involving you can appear in the group chat (`PREFERENCES_UNCONFIRMED`).
-- With *speak up* off, your agent can't object in front of the group until you approve that specific objection.
-- With *ask me first* on, it can't concede on your behalf without asking. Searching beyond your allowed range always needs a yes.
-- **Permissions are tied to one exact draft plan.** A yes for one plan doesn't carry over to another (`CONSULTATION_REQUIRED`).
-- A yes changes what the agent may do, so planning restarts cleanly. A no keeps the blocker in place without revealing why.
-- **Reminders are opt-in** and never go to someone who asked for time. "Decide later" is always available.
-
-### 8. The database double-checks the plan
-
-*"Even if the AI worker had a bug, it couldn't publish a plan that breaks someone's limits. The database re-checks every flight before accepting the plan."*
-
-When a plan is published, the database checks, inside the same transaction:
-- **coverage:** exactly one flight per traveller
-- **hard limits:** nobody's flight is over their hard budget
-- **baggage:** included wherever someone requires it
-- **freshness:** prices aren't expired
-- **timing:** everyone arrives within the room's window (2 hours by default; the organizer can change it)
-
-Any failure means the plan is rejected (`INVALID_PROPOSAL` / `INVALID_COVERAGE`).
-
-### 9. Live multiplayer touches
-
-*"The room feels alive: you see who's online and what each agent is doing, right now."*
-
-- **Presence** uses SpacetimeDB's connect/disconnect hooks and counts open tabs, so closing one of two tabs doesn't flicker you offline.
-- **Agent activity** ("searching…", "writing…") is set by the worker and shown live. It automatically drops to idle if the worker stops.
-
-### 10. The adapter: plugging in Skylar's worker
-
-*"Skylar built the AI worker against a practice backend. We built the real one. The adapter is the translator between them, and we proved the two work together."*
-
-- **What it translates:** names (the worker says "p1" and "mediator", the database uses numbers), question types, thread and message IDs, and SpacetimeDB's encoding quirks.
-- **Building it surfaced real mismatches**, which we fixed:
-  - whether a yes restarts planning
-  - whether reminders are opt-in
-  - whether the backend re-checks the plan
-  - two different fingerprints for the same snapshot
-- **Proof:** we run Skylar's own contract tests *and* his full planning scenarios against the real database: budget retries, an agent's objection triggering a new search, pausing for a question and resuming in a fresh process, a declined permission, and a granted one.
-
-### 11. How we know it works
-
-*"Everything above is tested automatically against a real SpacetimeDB server, started fresh for every run."*
+### Verification
 
 | Suite | Tests | Command |
 |---|---|---|
-| Backend rules (privacy, consent, leases, threads, permissions, publish checks, presence, reminders, dispatcher, simulator) | 63 | `spacetimedb/scripts/test.sh` |
-| Skylar's worker on its own | 60 | `cd worker && .venv/bin/python -m pytest` |
-| Worker + real database together | 17 | `scripts/backend-integration.sh` |
+| Module rules against a fresh in-memory SpacetimeDB | 63 | `spacetimedb/scripts/test.sh` |
+| Worker on its own (fakes) | 60 | `cd worker && .venv/bin/python -m pytest` |
+| Worker + real module: the worker's contract tests and full planning runs | 17 | `scripts/backend-integration.sh` |
 
-### 12. What's honest to say is not done yet
+### Current limits
 
-*"The plumbing and the rules are proven. The intelligence is next."*
-
-- **AI and search:** the integration tests use a scripted stand-in for Claude and made-up flights labelled FIXTURE. The real Claude and Apify connectors exist but haven't been run live.
-- **Wording:** the database can't judge whether a sentence is true or a reworded leak; that check lives in the worker.
-- **Not built yet:** leaving a room, and a real login provider (the demo uses one browser profile per person).
+- **AI and search are still stand-ins.** Integration runs use a scripted model and fixture flights. The Claude and Apify connectors exist but haven't been run live.
+- **The module can't judge semantics.** It checks wording mechanically (cited facts, exact private-text matches); judging meaning stays in the worker.
+- **Not built yet:** leaving a room, and a real auth provider.
 
 ## Likely questions and answers
 
