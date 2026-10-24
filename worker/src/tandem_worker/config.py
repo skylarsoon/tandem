@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, ValidationError, model_validator
 
 from .adapters.memo23 import ACTOR_BUILD, MemoSearch
+from .adapters.trip_actors import ACTORS, TripSearches
 from .contracts import Brief, ContractError, Record
 
 
@@ -31,6 +32,8 @@ class LiveConfig(Record):
     briefs: tuple[Brief, ...] = Field(min_length=1, max_length=20)
     searches: tuple[MemoSearch, ...]
     limits: LiveLimits = Field(default_factory=LiveLimits)
+    # Shared parts of the trip, searched once for the group (see trip_actors).
+    trip: TripSearches | None = None
 
     @model_validator(mode="after")
     def validate_owners(self):
@@ -41,10 +44,35 @@ class LiveConfig(Record):
             raise ValueError("PARTICIPATION_CONFIRMATION_REQUIRED")
         return self
 
+    @model_validator(mode="after")
+    def validate_trip(self):
+        if self.trip is None:
+            return self
+        # The stay and the vehicle are for the whole group.
+        if (self.trip.stay and self.trip.stay.adults != len(self.briefs)) or (self.trip.transfer and self.trip.transfer.passengers != len(self.briefs)):
+            raise ValueError("TRIP_PARTY_SIZE_MISMATCH")
+        if any(self.limits.max_charge_usd < ACTORS[c].min_charge_usd for c in self.trip.by_category()):
+            raise ValueError("ACTOR_MIN_CHARGE_NOT_MET")
+        # One initial research step starts a run per flight search plus one per
+        # shared search; a smaller allowance would strand some of them.
+        if self.limits.actor_runs < len(self.searches) + len(self.trip.by_category()):
+            raise ValueError("ACTOR_RUN_BUDGET_TOO_SMALL")
+        return self
+
+    def destination_zone(self):
+        """Where the trip happens: the flights' shared arrival zone, else the
+        zone whose calendar day starts first (so "future" holds everywhere)."""
+        zones = {s.destination_timezone for s in self.searches}
+        return ZoneInfo(zones.pop() if len(zones) == 1 else "Etc/GMT-14")
+
     def validate_dates(self, now):
         for search in self.searches:
             if search.departure_date <= datetime.fromtimestamp(now, ZoneInfo(search.origin_timezone)).date():
                 raise ContractError("FUTURE_DEPARTURE_DATE_REQUIRED")
+        if self.trip is not None:
+            today = datetime.fromtimestamp(now, self.destination_zone()).date()
+            if any(day <= today for day in self.trip.dates()):
+                raise ContractError("FUTURE_TRIP_DATE_REQUIRED")
 
 
 class Settings(Record):

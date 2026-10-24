@@ -8,9 +8,10 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .adapters.apify import ApifyFlightResearch, ApifyHTTP, RunLedger
+from .adapters.apify import ApifyFlightResearch, ApifyHTTP, ApifyResearch, RunLedger, TripResearch
 from .adapters.claude import ClaudeModel
 from .adapters.memo23 import ACTOR_ID, BUILD_ID, NORMALIZER_VERSION, build_input, normalize_offers
+from .adapters.trip_actors import ACTORS
 from .budget import ProviderBudget
 from .contracts import Act, ContractError, Decision, Limits, Payload, ResearchRequest, Snapshot, VoiceDraft, digest
 from .policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
@@ -40,16 +41,47 @@ class Providers:
     budget: ProviderBudget
     ledger: RunLedger
     build: str
+    # Shared trip categories with a configured search, e.g. ("STAY", "TRANSFER", "DINNER").
+    trip_categories: tuple[str, ...] = ()
+
+    @property
+    def components(self):
+        """Parts a plan must choose: FLIGHT plus each configured STAY/TRANSFER."""
+        return ("FLIGHT",) + tuple(c for c in ("STAY", "TRANSFER") if c in self.trip_categories)
 
     def preflight(self):
         claude = self.model.check_access()
         apify = self.client.check_actor(ACTOR_ID, self.build, BUILD_ID)
+        result = {"claude": claude, "apify": apify}
+        if self.trip_categories:
+            result["trip"] = {c: self.client.check_actor(ACTORS[c].actor_id, ACTORS[c].build, ACTORS[c].build_id)
+                              for c in self.trip_categories}
         self.research.verified = True
-        return {"claude": claude, "apify": apify}
+        return result
 
     def report(self, backend="NONE"):
         return {"providers": {"model": "CLAUDE", "research": "APIFY"}, "backend": backend,
+                "components": list(self.components), "trip_categories": list(self.trip_categories),
                 "usage": self.budget.report(), "research_runs": self.ledger.report()}
+
+
+def trip_gateways(config, client, ledger, snapshot, clock, budget):
+    """One shared gateway per configured trip category, on the same client,
+    ledger and paid-run budget as the flights."""
+    gateways = {}
+    for category, search in (config.trip.by_category().items() if config.trip else ()):
+        spec = ACTORS[category]
+        # A stay search may ask for more rows than the configured default.
+        max_items = max(config.limits.max_items, getattr(search, "max_items", 0) * 2)
+        gateways[category] = ApifyResearch(client, ledger, category=category, actor_id=spec.actor_id, build=spec.build,
+            room_id=snapshot.room_id, input_revision=snapshot.input_revision, permission_revision=snapshot.permission_revision,
+            approved_searches=[search], clock=clock, budget=budget,
+            build_input=lambda search, purpose, spec=spec: spec.build_input(search, {"purpose": purpose}, config.limits.max_items),
+            request_input_builder=lambda search, request, spec=spec: spec.build_input(search, request, config.limits.max_items),
+            normalize_item=lambda item, search, run, spec=spec: spec.normalize(item, search, run, config.limits.freshness_seconds),
+            max_items=max_items, max_charge_usd=config.limits.max_charge_usd,
+            poll_deadline_seconds=config.limits.poll_deadline_seconds, normalizer_version=spec.normalizer_version)
+    return gateways
 
 
 def make_providers(config, settings, directory, *, clock=None, claude_client=None, apify_client=None, snapshot=None):
@@ -78,7 +110,11 @@ def make_providers(config, settings, directory, *, clock=None, claude_client=Non
         normalize_item=lambda item, search, run: normalize_offers(item, search, run, freshness_seconds=config.limits.freshness_seconds),
         max_items=config.limits.max_items, max_charge_usd=config.limits.max_charge_usd,
         poll_deadline_seconds=config.limits.poll_deadline_seconds, normalizer_version=NORMALIZER_VERSION)
-    return Providers(model, CheckedResearch(gateway), client, budget, ledger, settings.apify_actor_build)
+    shared = trip_gateways(config, client, ledger, snapshot, clock, budget)
+    if config.trip is not None:
+        gateway = TripResearch(gateway, shared)
+    return Providers(model, CheckedResearch(gateway), client, budget, ledger, settings.apify_actor_build,
+                     trip_categories=tuple(shared))
 
 
 def check_providers(config, settings, *, online=False, clock=None, claude_client=None, apify_client=None):
@@ -87,6 +123,9 @@ def check_providers(config, settings, *, online=False, clock=None, claude_client
     result = {"status": "OK", "configuration": "VALID", "missing": settings.missing(),
         "model": settings.claude_model, "actor_id": ACTOR_ID, "actor_build": settings.apify_actor_build,
         "message_requests": 0, "actor_runs": 0}
+    trip = config.trip.by_category() if config.trip else {}
+    if trip:
+        result["trip_actors"] = {c: {"actor_id": ACTORS[c].actor_id, "actor_build": ACTORS[c].build} for c in trip}
     if result["missing"]:
         result["status"] = "CONFIG_REQUIRED"
         return result
@@ -96,6 +135,8 @@ def check_providers(config, settings, *, online=False, clock=None, claude_client
                             client=claude_client, timeout=config.limits.http_timeout)
         client = apify_client or ApifyHTTP(settings.apify_token.get_secret_value(), timeout=config.limits.http_timeout)
         result["access"] = {"claude": model.check_access(), "apify": client.check_actor(ACTOR_ID, settings.apify_actor_build, BUILD_ID)}
+        if trip:
+            result["access"]["trip"] = {c: client.check_actor(ACTORS[c].actor_id, ACTORS[c].build, ACTORS[c].build_id) for c in trip}
     return result
 
 
@@ -223,7 +264,10 @@ def seed_live_room(config, settings, directory):
     path = directory / ROOM_STATE
     if path.exists():
         raise ContractError("ROOM_ALREADY_SEEDED")
-    seeded = seed_room(StdbHttp(settings.stdb_url, settings.stdb_database), list(config.briefs), goal=config.room_id)
+    trip = config.trip
+    components = ["FLIGHT", *(["STAY"] if trip and trip.stay else []), *(["TRANSFER"] if trip and trip.transfer else [])]
+    seeded = seed_room(StdbHttp(settings.stdb_url, settings.stdb_database), list(config.briefs), goal=config.room_id,
+                       settings={"components": components} if len(components) > 1 else None)
     with path.open("x") as handle:
         json.dump(seeded, handle)
     path.chmod(0o600)
@@ -252,7 +296,9 @@ def run_live(config, settings, directory, *, room_id=None, clock=None, claude_cl
     settings.require_backend()
     bind_session(directory, config, settings, "run", clock.now())
     directory = Path(directory)
-    limits = Limits(model_calls=config.limits.model_calls, research_calls=config.limits.actor_runs)
+    # Research steps per job stay at the default; paid Actor runs are capped by
+    # config.limits.actor_runs in the provider budget (one per flight + one per shared search).
+    limits = Limits(model_calls=config.limits.model_calls)
     backend, room_id = _spacetime(settings, directory, clock, limits, room_id)
     jobs = backend.pending_jobs()
     if not jobs:

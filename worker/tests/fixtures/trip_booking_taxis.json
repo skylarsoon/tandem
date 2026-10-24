@@ -1,0 +1,122 @@
+[
+ {
+  "pickupLocation": {
+   "name": "Honolulu International Airport (HNL), 300 Rodgers Blvd, Honolulu, HI 96819, USA",
+   "locationType": "AIRPORT",
+   "airportCode": "HNL",
+   "city": "Honolulu"
+  },
+  "dropoffLocation": {
+   "name": "Waikīkī Beach, Waikīkī Beach, Honolulu, HI 96815, USA",
+   "locationType": "HOTEL",
+   "airportCode": null,
+   "city": "Honolulu"
+  },
+  "taxiInfo": {
+   "bags": 4,
+   "cancellationLeadTimeMinutes": 1440,
+   "carDetails": {
+    "description": "People Carrier",
+    "model": "Peugeot 5008",
+    "modelDescription": "Peugeot 5008 or similar"
+   },
+   "currency": "USD",
+   "duration": 33,
+   "maxPassenger": "4",
+   "meetAndGreet": true,
+   "nonRefundable": false,
+   "price": 46.86,
+   "priceDiscountPercentage": 0,
+   "publicTransport": false,
+   "resultReference": "5",
+   "supplierCategory": "SILVER",
+   "supplierID": 668,
+   "supplierLocationID": 4929,
+   "supplierName": "E-Life Limo",
+   "twentyFourHourCancellation": true,
+   "twoHourCancellation": false,
+   "type": "people-carrier",
+   "link": "https://taxis.booking.com/search/?currency=USD&date=2027-01-15&time=14%3A00&pickup=ChIJX_VoMZRvAHwR3zHzy7ER0X4&pickupEstablishment=Honolulu+International+Airport+%28HNL%29&dropoff=ChIJrajmNnRyAHwRBspycTPO_Go&dropoffEstablishment=Waik%C4%ABk%C4%AB+Beach&passengers=4&lang=en-gb&preSelectedResultReference=5"
+  }
+ },
+ {
+  "pickupLocation": {
+   "name": "Honolulu International Airport (HNL), 300 Rodgers Blvd, Honolulu, HI 96819, USA",
+   "locationType": "AIRPORT",
+   "airportCode": "HNL",
+   "city": "Honolulu"
+  },
+  "dropoffLocation": {
+   "name": "Waikīkī Beach, Waikīkī Beach, Honolulu, HI 96815, USA",
+   "locationType": "HOTEL",
+   "airportCode": null,
+   "city": "Honolulu"
+  },
+  "taxiInfo": {
+   "bags": 5,
+   "cancellationLeadTimeMinutes": 1440,
+   "carDetails": {
+    "description": "Standard",
+    "model": "Skoda Octavia",
+    "modelDescription": "Skoda Octavia or similar"
+   },
+   "currency": "USD",
+   "duration": 33,
+   "maxPassenger": "5",
+   "meetAndGreet": true,
+   "nonRefundable": false,
+   "price": 80.17,
+   "priceDiscountPercentage": 0,
+   "publicTransport": false,
+   "resultReference": "1",
+   "supplierCategory": "SILVER",
+   "supplierID": 750,
+   "supplierLocationID": 4722,
+   "supplierName": "Book Taxi Group NTR: 260266",
+   "twentyFourHourCancellation": true,
+   "twoHourCancellation": false,
+   "type": "standard",
+   "link": "https://taxis.booking.com/search/?currency=USD&date=2027-01-15&time=14%3A00&pickup=ChIJX_VoMZRvAHwR3zHzy7ER0X4&pickupEstablishment=Honolulu+International+Airport+%28HNL%29&dropoff=ChIJrajmNnRyAHwRBspycTPO_Go&dropoffEstablishment=Waik%C4%ABk%C4%AB+Beach&passengers=4&lang=en-gb&preSelectedResultReference=1"
+  }
+ },
+ {
+  "pickupLocation": {
+   "name": "Honolulu International Airport (HNL), 300 Rodgers Blvd, Honolulu, HI 96819, USA",
+   "locationType": "AIRPORT",
+   "airportCode": "HNL",
+   "city": "Honolulu"
+  },
+  "dropoffLocation": {
+   "name": "Waikīkī Beach, Waikīkī Beach, Honolulu, HI 96815, USA",
+   "locationType": "HOTEL",
+   "airportCode": null,
+   "city": "Honolulu"
+  },
+  "taxiInfo": {
+   "bags": 12,
+   "cancellationLeadTimeMinutes": 1440,
+   "carDetails": {
+    "description": "Minibus",
+    "model": "Renault Master",
+    "modelDescription": "Renault Master or similar"
+   },
+   "currency": "USD",
+   "duration": 33,
+   "maxPassenger": "12",
+   "meetAndGreet": false,
+   "nonRefundable": false,
+   "price": 162.36,
+   "priceDiscountPercentage": 0,
+   "publicTransport": false,
+   "resultReference": "7",
+   "supplierCategory": "SILVER",
+   "supplierID": 2542,
+   "supplierLocationID": 106757,
+   "supplierName": "Welcome PickUps",
+   "twentyFourHourCancellation": true,
+   "twoHourCancellation": false,
+   "type": "minibus",
+   "link": "https://taxis.booking.com/search/?currency=USD&date=2027-01-15&time=14%3A00&pickup=ChIJX_VoMZRvAHwR3zHzy7ER0X4&pickupEstablishment=Honolulu+International+Airport+%28HNL%29&dropoff=ChIJrajmNnRyAHwRBspycTPO_Go&dropoffEstablishment=Waik%C4%ABk%C4%AB+Beach&passengers=4&lang=en-gb&preSelectedResultReference=7"
+  }
+ }
+]

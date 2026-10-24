@@ -314,7 +314,10 @@ def dedupe(candidates):
     """Repeat searches return the same offer under new observation ids; keep the latest."""
     latest = {}
     for c in candidates:
-        key = (c.owner, c.flight_identity, c.total_cents, c.baggage_included) if c.flight_identity else c.id
+        if c.category != "FLIGHT":
+            key = (c.category, c.source_url, c.total_cents)  # the listing, place or vehicle offer
+        else:
+            key = (c.owner, c.flight_identity, c.total_cents, c.baggage_included) if c.flight_identity else c.id
         if key not in latest or c.observed_at > latest[key].observed_at:
             latest[key] = c
     return sorted(latest.values(), key=lambda c: c.id)

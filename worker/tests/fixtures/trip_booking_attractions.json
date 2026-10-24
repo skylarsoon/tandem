@@ -1,0 +1,59 @@
+[
+ {
+  "id": "PR5UzmbQu28b",
+  "name": "Oahu's Circle Island Tour Operated By Fil-Am Travel & Tours",
+  "url": "https://www.booking.com/attractions/us/pr5uzmbqu28b-full-day-circle-island-group-tour.html",
+  "country": "us",
+  "price_amount": 37.5,
+  "price_public_amount": 75,
+  "price_currency": "USD",
+  "review_score": 4.7,
+  "review_count": 426,
+  "has_free_cancellation": true,
+  "available_dates": [
+   "2027-01-16"
+  ],
+  "available_from": "2027-01-16",
+  "city": "Kahuku",
+  "destination_query": "Honolulu, us",
+  "scraped_at": "2026-10-24T14:05:14Z"
+ },
+ {
+  "id": "PRmcm4ugPfSd",
+  "name": "Waikiki Turtle Canyon Snorkel Turtles Guaranteed",
+  "url": "https://www.booking.com/attractions/us/prmcm4ugpfsd-turtle-canyons-snorkel-from-waikiki-semi-private-boat-tour.html",
+  "country": "us",
+  "price_amount": 64.78,
+  "price_public_amount": 79,
+  "price_currency": "USD",
+  "review_score": 4.9,
+  "review_count": 747,
+  "has_free_cancellation": true,
+  "available_dates": [
+   "2027-01-16"
+  ],
+  "available_from": "2027-01-16",
+  "city": "Kahuku",
+  "destination_query": "Honolulu, us",
+  "scraped_at": "2026-10-24T14:05:15Z"
+ },
+ {
+  "id": "PRCsxFLHn7EX",
+  "name": "Pearl Harbor USS Arizona Memorial Tour",
+  "url": "https://www.booking.com/attractions/us/prcsxflhn7ex-pearl-harbor-uss-arizona-memorial-tour.html",
+  "country": "us",
+  "price_amount": 51.45,
+  "price_public_amount": 51.45,
+  "price_currency": "USD",
+  "review_score": 4.4,
+  "review_count": 496,
+  "has_free_cancellation": true,
+  "available_dates": [
+   "2027-01-16"
+  ],
+  "available_from": "2027-01-16",
+  "city": "Honolulu",
+  "destination_query": "Honolulu, us",
+  "scraped_at": "2026-10-24T14:05:16Z"
+ }
+]

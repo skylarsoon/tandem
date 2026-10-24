@@ -1,0 +1,44 @@
+[
+ {
+  "title": "Izakaya Mitchs",
+  "categoryName": "Izakaya restaurant",
+  "address": "3006 Ualena St, Honolulu, HI 96819",
+  "city": "Honolulu",
+  "placeId": "ChIJR-2OcQBvAHwRzXLEbRSu7i0",
+  "url": "https://www.google.com/maps/search/?api=1&query=Izakaya%20Mitchs&query_place_id=ChIJR-2OcQBvAHwRzXLEbRSu7i0",
+  "totalScore": 4.9,
+  "reviewsCount": 22,
+  "permanentlyClosed": false,
+  "temporarilyClosed": false,
+  "searchString": "restaurant for large groups",
+  "price": "$30–90"
+ },
+ {
+  "title": "Pagaikiki's Kitchen",
+  "categoryName": "American restaurant",
+  "address": "4725 Bougainville Dr #1, Honolulu, HI 96818",
+  "city": "Honolulu",
+  "placeId": "ChIJH_JuQNWLAHwRlSyRqHpZdjs",
+  "url": "https://www.google.com/maps/search/?api=1&query=Pagaikiki's%20Kitchen&query_place_id=ChIJH_JuQNWLAHwRlSyRqHpZdjs",
+  "totalScore": 4.5,
+  "reviewsCount": 32,
+  "permanentlyClosed": false,
+  "temporarilyClosed": false,
+  "searchString": "restaurant for large groups",
+  "price": "$10–20"
+ },
+ {
+  "title": "Thirty Eight (38)",
+  "categoryName": "Seafood restaurant",
+  "address": "1135 N Nimitz Hwy, Honolulu, HI 96817",
+  "city": "Honolulu",
+  "placeId": "ChIJq3wXkW1vAHwR9eFj4xKXQPA",
+  "url": "https://www.google.com/maps/search/?api=1&query=Thirty%20Eight%20(38)&query_place_id=ChIJq3wXkW1vAHwR9eFj4xKXQPA",
+  "totalScore": 4.7,
+  "reviewsCount": 132,
+  "permanentlyClosed": false,
+  "temporarilyClosed": false,
+  "searchString": "restaurant for large groups",
+  "price": "$20–30"
+ }
+]

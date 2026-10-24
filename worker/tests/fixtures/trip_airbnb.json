@@ -1,0 +1,155 @@
+[
+ {
+  "id": "1239612966764072800",
+  "url": "https://www.airbnb.com/rooms/1239612966764072800?locale=en-US&currency=USD&adults=4&check_in=2027-01-15&check_out=2027-01-19",
+  "title": "2BR Downtown Free Parking WiFi",
+  "propertyType": "Entire condo",
+  "roomType": "Entire home/apt",
+  "personCapacity": 5,
+  "isAvailable": true,
+  "checkIn": "2027-01-15",
+  "checkOut": "2027-01-19",
+  "subDescription": {
+   "title": "Entire condo in Honolulu, Hawaii, United States",
+   "items": [
+    "5 guests",
+    "2 bedrooms",
+    "4 beds",
+    "1 bath"
+   ]
+  },
+  "price": {
+   "label": "$1,478 total",
+   "qualifier": "total",
+   "price": "$1,478",
+   "originalPrice": null,
+   "discountedPrice": null,
+   "breakDown": {
+    "basePrice": {
+     "description": "4 nights x $311.25",
+     "price": "$1,245.00"
+    },
+    "basePriceBreakdown": [],
+    "serviceFee": null,
+    "taxes": {
+     "price": "$232.94",
+     "description": "Taxes"
+    },
+    "total": {
+     "price": "$1,477.94",
+     "description": "Total"
+    },
+    "totalBeforeTaxes": null,
+    "cleaningFee": null,
+    "specialOffer": null,
+    "earlyBirdDiscount": null
+   }
+  },
+  "rating": {
+   "guestSatisfaction": 4.89,
+   "reviewsCount": 66
+  }
+ },
+ {
+  "id": "706187080022345259",
+  "url": "https://www.airbnb.com/rooms/706187080022345259?locale=en-US&currency=USD&adults=4&check_in=2027-01-15&check_out=2027-01-19",
+  "title": "30th FLR Cozy Family Studio/ Balcony & Ocean Views",
+  "propertyType": "Entire condo",
+  "roomType": "Entire home/apt",
+  "personCapacity": 5,
+  "isAvailable": true,
+  "checkIn": "2027-01-15",
+  "checkOut": "2027-01-19",
+  "subDescription": {
+   "title": "Entire condo in Honolulu, Hawaii",
+   "items": [
+    "5 guests",
+    "1 bedroom",
+    "3 beds",
+    "1 bath"
+   ]
+  },
+  "price": {
+   "label": "$1,258 total",
+   "qualifier": "total",
+   "price": "$1,258",
+   "originalPrice": null,
+   "discountedPrice": null,
+   "breakDown": {
+    "basePrice": {
+     "description": "4 nights x $266.00",
+     "price": "$1,064.00"
+    },
+    "basePriceBreakdown": [],
+    "serviceFee": null,
+    "taxes": {
+     "price": "$193.55",
+     "description": "Taxes"
+    },
+    "total": {
+     "price": "$1,257.55",
+     "description": "Total"
+    },
+    "totalBeforeTaxes": null,
+    "cleaningFee": null,
+    "specialOffer": null,
+    "earlyBirdDiscount": null
+   }
+  },
+  "rating": {
+   "guestSatisfaction": 4.91,
+   "reviewsCount": 140
+  }
+ },
+ {
+  "id": "1559308572855079118",
+  "url": "https://www.airbnb.com/rooms/1559308572855079118?locale=en-US&currency=USD&adults=4&check_in=2027-01-15&check_out=2027-01-19",
+  "title": "29th Fl W Banyan | Diamond Head Views | Parking",
+  "propertyType": "Entire rental unit",
+  "roomType": "Entire home/apt",
+  "personCapacity": 4,
+  "isAvailable": true,
+  "checkIn": "2027-01-15",
+  "checkOut": "2027-01-19",
+  "subDescription": {
+   "title": "Entire rental unit in Honolulu, Hawaii",
+   "items": [
+    "4 guests",
+    "1 bedroom",
+    "2 beds",
+    "1 bath"
+   ]
+  },
+  "price": {
+   "label": "$1,201 total",
+   "qualifier": "total",
+   "price": "$1,201",
+   "originalPrice": null,
+   "discountedPrice": null,
+   "breakDown": {
+    "basePrice": {
+     "description": "4 nights x $252.75",
+     "price": "$1,011.00"
+    },
+    "basePriceBreakdown": [],
+    "serviceFee": null,
+    "taxes": {
+     "price": "$189.18",
+     "description": "Taxes"
+    },
+    "total": {
+     "price": "$1,200.18",
+     "description": "Total"
+    },
+    "totalBeforeTaxes": null,
+    "cleaningFee": null,
+    "specialOffer": null,
+    "earlyBirdDiscount": null
+   }
+  },
+  "rating": {
+   "guestSatisfaction": 4.67,
+   "reviewsCount": 9
+  }
+ }
+]
