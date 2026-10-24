@@ -1,0 +1,41 @@
+{
+  "job_id": 4,
+  "attempt": 1,
+  "message_key": "room:1:gen:4:round-1:propose:agent-2",
+  "schema_version": 2,
+  "round_id": "round-1",
+  "thread_id": null,
+  "open_thread": {
+    "some": {
+      "topic_ref": "topic:arrival_overlap",
+      "participant_agent_ids": [
+        1,
+        2,
+        5
+      ],
+      "turn_budget": null,
+      "successor_of": null
+    }
+  },
+  "sender_agent_id": 1,
+  "recipient_agent_id": 2,
+  "type": "PROPOSE",
+  "reply_to": null,
+  "draft_ref": {
+    "some": "draft-r1-1"
+  },
+  "proposal_id": null,
+  "proposal_version": null,
+  "payload_json": "{\"category\": \"flight\", \"operation\": \"evaluate_draft\", \"candidate_refs\": [\"cand_sfo_1005\"]}",
+  "utterance": "Here's a draft where everyone lands within two hours of each other. Does it work on your side?",
+  "claim_refs": [
+    "cand_sfo_1005"
+  ],
+  "evidence_refs": [
+    "draft:draft-r1-1"
+  ],
+  "audience": "ROOM",
+  "audience_member_id": null,
+  "sanitization_status": "VALIDATED",
+  "grant_ref": null
+}

@@ -1,0 +1,11 @@
+{
+  "job_id": 4,
+  "attempt": 1,
+  "request_key": "q:room:1:gen:4:alice:disclose",
+  "member_id": 1,
+  "kind": "OBJECTION_DISCLOSURE",
+  "action_json": "{\"action\": \"surface_objection\", \"draft_ref\": \"draft-r1-1\", \"thread_id\": 1}",
+  "prompt": "Your agent wants to tell the group this option doesn't meet your requirements, without saying why. Is that OK?",
+  "answer_schema_json": "{\"type\": \"object\", \"properties\": {\"granted\": {\"type\": \"boolean\"}}, \"required\": [\"granted\"]}",
+  "thread_id": null
+}

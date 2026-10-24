@@ -1,0 +1,31 @@
+{
+  "job_id": 4,
+  "attempt": 1,
+  "request_key": "publish:room:1:gen:4:TRAVEL",
+  "stage": "TRAVEL",
+  "terms_json": "{\"flights\":{\"alice\":\"cand_sfo_1005\",\"bob\":\"cand_lax_2001\",\"carol\":\"cand_sea_3001\",\"dave\":\"cand_jfk_4001\"}}",
+  "shared_summary_json": "{\"headline\": \"Everyone lands between 12:10 and 13:55 local time\"}",
+  "validation_json": "{\"validator_version\": \"v1\", \"hard_constraints\": \"PASS\"}",
+  "evidence_refs": [
+    "cand_sfo_1005"
+  ],
+  "affected_member_ids": [],
+  "impacts": [
+    {
+      "member_id": 1,
+      "impact_json": "{\"cost_cents\": 45000}"
+    },
+    {
+      "member_id": 2,
+      "impact_json": "{\"cost_cents\": 45000}"
+    },
+    {
+      "member_id": 3,
+      "impact_json": "{\"cost_cents\": 45000}"
+    },
+    {
+      "member_id": 4,
+      "impact_json": "{\"cost_cents\": 45000}"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "job_id": 4,
+  "generation": 4,
+  "room_id": 1,
+  "kind": "PLAN",
+  "attempt": 1,
+  "input_revision": 5,
+  "membership_revision": 4,
+  "permission_revision": 5,
+  "lease_expires_at_micros": "1792836055489430",
+  "graph_thread_ref": null
+}

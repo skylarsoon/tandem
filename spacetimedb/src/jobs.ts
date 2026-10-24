@@ -136,7 +136,8 @@ function parsed(text: string | undefined): unknown {
 // agent (architecture §5, §11) before any model call.
 function buildContext(ctx: Ctx, j: JobRow) {
   const r = requireRoom(ctx, j.roomId);
-  const members = [...ctx.db.membership.byRoomMember.filter(r.id)];
+  const byId = <T extends { id: bigint }>(rows: T[]) => rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const members = byId([...ctx.db.membership.byRoomMember.filter(r.id)]);
   const agents = [...ctx.db.agent.byRoom.filter(r.id)];
   const memberIdOf = new Map(members.map(m => [m.member.toHexString(), num(m.id)]));
 
@@ -175,7 +176,7 @@ function buildContext(ctx: Ctx, j: JobRow) {
     };
   });
 
-  const constraints = [...ctx.db.participantConstraint.byRoomOwnerKey.filter(r.id)].map(c => ({
+  const constraints = byId([...ctx.db.participantConstraint.byRoomOwnerKey.filter(r.id)]).map(c => ({
     constraint_id: num(c.id),
     member_id: memberIdOf.get(c.owner.toHexString()) ?? null,
     key: c.key,
@@ -186,8 +187,6 @@ function buildContext(ctx: Ctx, j: JobRow) {
     private_rationale: c.privateRationale ?? null,
     revision: num(c.revision),
   }));
-
-  const byId = <T extends { id: bigint }>(rows: T[]) => rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   const questions = byId([...ctx.db.question.byJob.filter(j.id)]).map(q => ({
     question_id: num(q.id),
