@@ -15,11 +15,13 @@ import {
   MESSAGE_TYPES,
   SANITIZATION_STATUSES,
   containsPrivateText,
+  digest,
   emitEvent as insertEvent,
   fail,
   nonEmpty,
   oneOf,
   parseJson,
+  pythonJson,
   refResolves,
   requireLease,
   requireMembershipById,
@@ -76,7 +78,7 @@ function resolveThread(
     nonEmpty(openThread.topicRef, 'openThread.topicRef');
     const ids = openThread.participantAgentIds;
     if (!ids.includes(sender.id) || !ids.includes(recipient.id)) {
-      fail('INVALID_ARGUMENT', 'thread participants must include sender and recipient');
+      fail('NOT_AUTHORIZED', 'thread participants must include sender and recipient');
     }
     for (const id of ids) requireAgentInRoom(ctx, r, id, 'participant');
     if (openThread.successorOf !== undefined) {
@@ -139,46 +141,84 @@ function requireRound(ctx: Ctx, j: JobRow, roundId: string) {
   });
 }
 
+const MAX_UTTERANCE_LENGTH = 4096;
+
+type MessagePayload = {
+  draft_ref?: unknown;
+  candidate_refs?: unknown;
+  concession?: unknown;
+  exceeds_exploration?: unknown;
+};
+
+// Permissions an owner must have granted before their agent may do this in
+// front of the room, from the typed act, payload flags and their settings.
+function requiredGrants(
+  type: string,
+  payload: MessagePayload,
+  prefs: { speakUpForMe: boolean; askMeFirst: boolean }
+): string[] {
+  const kinds: string[] = [];
+  if (type === 'OBJECT' && !prefs.speakUpForMe) kinds.push('OBJECTION_DISCLOSURE');
+  if (payload.concession === true && prefs.askMeFirst) kinds.push('CONCESSION_CONSULTATION');
+  if (payload.exceeds_exploration === true) kinds.push('BROADER_EXPLORATION');
+  return kinds;
+}
+
+// A grant counts while the room's inputs and membership are unchanged and it
+// concerns this exact action (the draft the message is about).
+function findGrant(ctx: Ctx, r: RoomRow, owner: Identity, kind: string, actionRef: string): bigint | undefined {
+  for (const g of ctx.db.actionGrant.byOwnerKindRef.filter([owner, kind, actionRef])) {
+    if (g.roomId === r.id && g.granted && g.inputRevision === r.inputRevision && g.membershipRevision === r.membershipRevision) {
+      return g.id;
+    }
+  }
+  return undefined;
+}
+
 // Room-visible representation rules enforced server-side. Semantic checks on
 // the wording itself (unsupported prices, concessions, commitments) happen in
 // the worker before it reports VALIDATED or TEMPLATE_FALLBACK.
+// Returns the disclosure/consultation grant the message relied on, if any.
 function checkRoomUtterance(
   ctx: Ctx,
   r: RoomRow,
   sender: AgentRow,
+  participantIds: bigint[],
   type: string,
   utterance: string,
-  refs: string[],
-  sanitizationStatus: string,
-  grantRef: bigint | undefined
-): void {
+  claimRefs: string[],
+  payload: MessagePayload,
+  sanitizationStatus: string
+): bigint | undefined {
   nonEmpty(utterance, 'utterance');
   oneOf(sanitizationStatus, SANITIZATION_STATUSES, 'sanitizationStatus');
+  for (const id of participantIds) {
+    const owner = ownerOf(ctx, ctx.db.agent.id.find(id)!);
+    if (owner && !ctx.db.participationPreferences.owner.find(owner)?.confirmed) {
+      fail('PREFERENCES_UNCONFIRMED', 'every participant must confirm participation preferences first');
+    }
+  }
+  let grantUsed: bigint | undefined;
   const owner = ownerOf(ctx, sender);
   if (owner) {
-    const prefs = ctx.db.participationPreferences.owner.find(owner);
-    if (!prefs || !prefs.confirmed) {
-      fail('PREFERENCES_UNCONFIRMED', 'owner has not confirmed participation preferences');
-    }
-    if (type === 'OBJECT' && !prefs.speakUpForMe) {
-      const grant = grantRef === undefined ? undefined : ctx.db.actionGrant.id.find(grantRef);
-      const valid =
-        grant != null &&
-        grant.owner.isEqual(owner) &&
-        grant.roomId === r.id &&
-        grant.kind === 'OBJECTION_DISCLOSURE' &&
-        grant.granted &&
-        grant.inputRevision === r.inputRevision &&
-        grant.permissionRevision === r.permissionRevision;
-      if (!valid) fail('NOT_AUTHORIZED', 'room objection needs speak_up_for_me or a current disclosure grant');
+    const prefs = ctx.db.participationPreferences.owner.find(owner)!;
+    const actionRef = typeof payload.draft_ref === 'string' ? payload.draft_ref : '';
+    for (const kind of requiredGrants(type, payload, prefs)) {
+      const grant = findGrant(ctx, r, owner, kind, actionRef);
+      if (grant === undefined) fail('CONSULTATION_REQUIRED', `${kind} permission is needed for ${actionRef || 'this action'}`);
+      grantUsed ??= grant;
     }
   }
   if (containsPrivateText(ctx, r.id, utterance)) {
-    fail('PRIVATE_CONTENT_DETECTED', 'utterance contains a participant’s private reason');
+    fail('PRIVATE_CONTENT_DETECTED', 'utterance contains a participant\u2019s private reason');
   }
-  for (const ref of refs) {
-    if (!refResolves(ctx, r.id, ref)) fail('UTTERANCE_PAYLOAD_MISMATCH', `reference ${ref} is not a known fact in this room`);
+  // Claims cite room facts, or the canonical sentence for this act ("act:<TYPE>").
+  for (const ref of claimRefs) {
+    if (ref !== `act:${type}` && !refResolves(ctx, r.id, ref)) {
+      fail('UTTERANCE_PAYLOAD_MISMATCH', `reference ${ref} is not a known fact in this room`);
+    }
   }
+  return grantUsed;
 }
 
 export const submitAgentMessage = spacetimedb.reducer(
@@ -204,7 +244,9 @@ export const submitAgentMessage = spacetimedb.reducer(
     audience: t.string(),
     audienceMemberId: t.option(t.u64()),
     sanitizationStatus: t.string(),
-    grantRef: t.option(t.u64()),
+    // Optional worker validation digest: sha256 of Python-canonical
+    // {type, utterance, payload, claim_refs, evidence_refs}.
+    validationDigest: t.option(t.string()),
   },
   (ctx, args) => {
     requireWorker(ctx);
@@ -216,35 +258,60 @@ export const submitAgentMessage = spacetimedb.reducer(
       const r = requireRoom(ctx, j.roomId);
       oneOf(args.type, MESSAGE_TYPES, 'type');
       oneOf(args.audience, AUDIENCES, 'audience');
-      parseJson(args.payloadJson, 'payloadJson');
+      if (args.utterance.length > MAX_UTTERANCE_LENGTH) fail('PAYLOAD_TOO_LARGE', 'utterance is too long');
+      const payload = parseJson(args.payloadJson, 'payloadJson') as MessagePayload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        fail('INVALID_ARGUMENT', 'payloadJson must be an object');
+      }
+      if (args.validationDigest !== undefined) {
+        const content = {
+          type: args.type,
+          utterance: args.utterance,
+          payload,
+          claim_refs: args.claimRefs,
+          evidence_refs: args.evidenceRefs,
+        };
+        if (digest(pythonJson(content)) !== args.validationDigest) {
+          fail('INVALID_VALIDATION_METADATA', 'validation digest does not match the submitted content');
+        }
+      }
 
       const sender = requireAgentInRoom(ctx, r, args.senderAgentId, 'sender');
       const recipient = requireAgentInRoom(ctx, r, args.recipientAgentId, 'recipient');
-      if (sender.id === recipient.id) fail('INVALID_ARGUMENT', 'sender and recipient must differ');
-      if (args.replyTo !== undefined) {
-        const parent = ctx.db.agentMessage.id.find(args.replyTo);
-        if (!parent || parent.roomId !== r.id) fail('NOT_FOUND', `reply_to message ${args.replyTo}`);
-      }
+      if (sender.id === recipient.id) fail('NOT_AUTHORIZED', 'sender and recipient must differ');
       if (args.proposalId !== undefined) {
         const p = ctx.db.proposal.id.find(args.proposalId);
         if (!p || p.roomId !== r.id) fail('NOT_FOUND', `proposal ${args.proposalId}`);
       }
+      const candidateRefs = Array.isArray(payload.candidate_refs) ? payload.candidate_refs.map(String) : [];
+      for (const ref of [...args.evidenceRefs, ...candidateRefs]) {
+        if (!refResolves(ctx, r.id, ref)) fail('INVALID_EVIDENCE_REF', `evidence ${ref} is not recorded in this room`);
+      }
 
       const round = requireRound(ctx, j, args.roundId);
       const thread = resolveThread(ctx, j, r, args.roundId, args.threadId, args.openThread, sender, recipient);
+      // A reply answers a message the sender received in this same thread.
+      if (args.replyTo !== undefined) {
+        const parent = ctx.db.agentMessage.id.find(args.replyTo);
+        if (!parent || parent.threadId !== thread.id || parent.recipientAgentId !== sender.id) {
+          fail('INVALID_REPLY', `message ${args.replyTo} is not a message to the sender in this thread`);
+        }
+      }
 
       // The effective audience is derived here, never taken from the model.
       let audienceOwner: Identity | undefined;
+      let grantUsed: bigint | undefined;
       if (args.audience === 'ROOM') {
-        checkRoomUtterance(
+        grantUsed = checkRoomUtterance(
           ctx,
           r,
           sender,
+          thread.participantAgentIds,
           args.type,
           args.utterance,
-          [...args.claimRefs, ...args.evidenceRefs],
-          args.sanitizationStatus,
-          args.grantRef
+          args.claimRefs,
+          payload,
+          args.sanitizationStatus
         );
       } else if (args.audience === 'OWNER_PRIVATE') {
         nonEmpty(args.utterance, 'utterance');
@@ -307,7 +374,7 @@ export const submitAgentMessage = spacetimedb.reducer(
         effectiveAudience: args.audience,
         audienceOwner,
         sanitizationStatus: args.sanitizationStatus,
-        grantRef: args.grantRef,
+        grantRef: grantUsed,
         processingState: 'DELIVERED',
         processedReplyIds: [],
         createdAt: ctx.timestamp,
@@ -458,7 +525,13 @@ export const recordCandidates = spacetimedb.reducer(
         oneOf(c.category, CANDIDATE_CATEGORIES, 'category');
         oneOf(c.mode, CANDIDATE_MODES, 'mode');
         parseJson(c.factsJson, 'factsJson');
-        const fields = { ...c, roomId: j.roomId, recordedAt: ctx.timestamp };
+        const fields = {
+          ...c,
+          roomId: j.roomId,
+          inputRevision: j.inputRevision,
+          membershipRevision: j.membershipRevision,
+          recordedAt: ctx.timestamp,
+        };
         let existing;
         for (const row of ctx.db.candidate.byRoomRef.filter([j.roomId, c.candidateRef])) existing = row;
         if (existing) ctx.db.candidate.id.update({ ...existing, ...fields });

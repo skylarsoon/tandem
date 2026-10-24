@@ -45,7 +45,7 @@ def seed(client: Client, people: int) -> None:
         client.call(sim, "join_room", invite_code=room["invite_code"], display_name=f"{SIM_NAMES[i]} (sim)")
     for i, sim in enumerate(sims):
         client.call(sim, "confirm_participation_preferences",
-                    speak_up_for_me=i != 0, ask_me_first=i == 0, give_me_time=True)
+                    speak_up_for_me=i != 0, ask_me_first=i == 0, give_me_time=True, reminders_opted_in=False)
         client.call(sim, "set_constraint", room_id=room["id"], key="flight_budget_total",
                     value_json=json.dumps(BUDGETS[i]), unit="USD_cents", hardness="HARD" if i == 0 else "SOFT",
                     authorized_range_json=None, private_rationale=None)
@@ -97,10 +97,10 @@ class Run:
                   sender_agent_id=sender, recipient_agent_id=recipient, type=type_,
                   reply_to=some(reply_to) if reply_to else None, draft_ref=some("draft-sim-1"),
                   proposal_id=None, proposal_version=None,
-                  payload_json=json.dumps({"category": "flight", "candidate_refs": refs}),
+                  payload_json=json.dumps({"category": "flight", "draft_ref": "draft-sim-1", "candidate_refs": refs}),
                   utterance=utterance, claim_refs=refs, evidence_refs=[], audience=audience,
                   audience_member_id=some(audience_member_id) if audience_member_id else None,
-                  sanitization_status="TEMPLATE_FALLBACK", grant_ref=None)
+                  sanitization_status="TEMPLATE_FALLBACK", validation_digest=None)
 
 
 def negotiate(client: Client, worker: Identity, room_id: int, pace: float, crash_after: int | None) -> None:
@@ -115,14 +115,21 @@ def negotiate(client: Client, worker: Identity, room_id: int, pace: float, crash
     run.activity(mediator, "SEARCHING")
     run.call("emit_event", request_key=key("event"), type="INITIAL_SEARCH_STARTED", member_id=None,
              payload_json=json.dumps({"mode": "FIXTURE"}))
+    unconfirmed = [m["display_name"] for m in members if not m["participation_preferences"]["confirmed"]]
+    if unconfirmed:
+        raise SystemExit(f"waiting for {', '.join(unconfirmed)} to confirm participation settings in the app")
+    now = time.time()
     candidates = []
     for i, m in enumerate(members):
         price = int(min(budgets.get(m["member_id"], 60000) - 2000, 60000))
+        # flight_cost_v1 facts: the backend re-checks these when the plan is published.
+        facts = {"owner_member_id": m["member_id"], "total_cents": price, "currency": "USD",
+                 "arrival_epoch": int(now) + 86400 + i * 600, "observed_at": now - 5, "valid_until": now + 3600,
+                 "baggage_included": True, "cost_basis": "COMPLETE_FLIGHT_TOTAL"}
         candidates.append({"candidate_ref": f"sim_flight_{m['member_id']}", "candidate_set_version": 1,
                            "category": "FLIGHT", "mode": "FIXTURE", "source_url": "fixture://simulator",
-                           "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                           "facts_json": json.dumps({"price_cents": price, "arrive_local": f"13:{10 + 10 * i:02d}"}),
-                           "missing_fields": ["baggage"]})
+                           "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                           "facts_json": json.dumps(facts), "missing_fields": []})
     run.call("record_candidates", request_key=key("cands"), candidates=candidates)
     run.activity(mediator, "THINKING")
 
@@ -141,11 +148,9 @@ def negotiate(client: Client, worker: Identity, room_id: int, pace: float, crash
             return
         run.activity(agent, "THINKING", thread)
         run.renew()
-        speaks = m["participation_preferences"]["confirmed"]
         run.activity(agent, "WRITING", thread)
-        run.message(sender=agent, recipient=mediator, type_="EVALUATE", audience="ROOM" if speaks else "INTERNAL",
-                    thread_id=thread, participants=None, refs=[ref],
-                    utterance="This works for my person." if speaks else "Eligible under my owner's limits.")
+        run.message(sender=agent, recipient=mediator, type_="EVALUATE", audience="ROOM",
+                    thread_id=thread, participants=None, refs=[ref], utterance="This works for my person.")
         run.activity(agent, "IDLE")
 
     run.activity(mediator, "CHECKING")
@@ -153,11 +158,12 @@ def negotiate(client: Client, worker: Identity, room_id: int, pace: float, crash
     published = client.procedure(
         worker, "publish_proposal", job_id=run.job_id, attempt=run.attempt, request_key=key("publish"),
         stage="TRAVEL", terms_json=json.dumps(terms, sort_keys=True, separators=(",", ":")),
-        shared_summary_json=json.dumps({"headline": "Everyone lands between 13:10 and 13:50 (simulated flights)"}),
+        shared_summary_json=json.dumps({"headline": "Everyone lands within an hour of each other (simulated flights)"}),
         validation_json=json.dumps({"validator": "simulator", "hard_constraints": "PASS"}),
         evidence_refs=[c["candidate_ref"] for c in candidates], affected_member_ids=[],
+        selected_candidate_refs=[c["candidate_ref"] for c in candidates],
         impacts=[{"member_id": m["member_id"],
-                  "impact_json": json.dumps({"cost_cents": json.loads(candidates[i]["facts_json"])["price_cents"]})}
+                  "impact_json": json.dumps({"cost_cents": json.loads(candidates[i]["facts_json"])["total_cents"]})}
                  for i, m in enumerate(members)])
     print(f"published proposal {published['proposal_id']} v{published['version']}; approve it from the app")
 

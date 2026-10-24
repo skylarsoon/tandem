@@ -263,8 +263,8 @@ export const myProposalImpacts = spacetimedb.view({ name: 'my_proposal_impacts',
   }))
 );
 
+// Deciding later is always allowed; pending never turns into consent.
 export const myConsents = spacetimedb.view({ name: 'my_consents', public: true }, t.array(ConsentRow), ctx => {
-  const giveMeTime = ctx.db.participationPreferences.owner.find(ctx.sender)?.giveMeTime ?? true;
   return [...ctx.db.consent.byMember.filter(ctx.sender)].map(c => ({
     id: c.id,
     proposalId: c.proposalId,
@@ -272,7 +272,7 @@ export const myConsents = spacetimedb.view({ name: 'my_consents', public: true }
     response: c.response,
     termsDigest: c.termsDigest,
     note: c.note,
-    decideLaterAvailable: giveMeTime,
+    decideLaterAvailable: true,
     updatedAt: c.updatedAt,
   }));
 });

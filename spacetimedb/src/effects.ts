@@ -24,7 +24,8 @@ export function applyParticipationPreferences(
   ctx: Ctx,
   speakUpForMe: boolean,
   askMeFirst: boolean,
-  giveMeTime: boolean
+  giveMeTime: boolean,
+  remindersOptedIn: boolean
 ): void {
   const prefs = ctx.db.participationPreferences.owner.find(ctx.sender);
   if (!prefs) fail('NOT_FOUND', 'create or join a room first');
@@ -33,6 +34,7 @@ export function applyParticipationPreferences(
     speakUpForMe,
     askMeFirst,
     giveMeTime,
+    remindersOptedIn,
     confirmed: true,
     confirmedAt: ctx.timestamp,
     proposedBy: 'OWNER',
@@ -149,13 +151,13 @@ export function recomputeAgreement(ctx: Ctx, proposalId: bigint): void {
   });
 }
 
-// Reviewers who confirmed "give me time" never get reminders; everyone else
-// gets one private nudge after the configured delay if still pending.
+// Reminders are opt-in: only reviewers who confirmed preferences, explicitly
+// opted in, and did not ask for time get one private nudge if still pending.
 export function scheduleReviewReminders(ctx: Ctx, proposalId: bigint, reviewers: Identity[]): void {
   const delay = BigInt(ctx.db.config.id.find(0)?.reminderDelaySeconds ?? 600) * 1_000_000n;
   for (const member of reviewers) {
     const prefs = ctx.db.participationPreferences.owner.find(member);
-    if (!prefs || !prefs.confirmed || prefs.giveMeTime) continue;
+    if (!prefs || !prefs.confirmed || !prefs.remindersOptedIn || prefs.giveMeTime) continue;
     ctx.db.reviewReminder.insert({
       scheduledId: 0n,
       scheduledAt: ScheduleAt.time(ctx.timestamp.microsSinceUnixEpoch + delay),

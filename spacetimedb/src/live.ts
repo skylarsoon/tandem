@@ -54,7 +54,7 @@ export const setReminderDelay = spacetimedb.reducer({ seconds: t.u32() }, (ctx, 
 });
 
 // Fires once per reviewer. Sends a private nudge only if the proposal is still
-// open, their response is still pending, and they haven't asked for time.
+// open, their response is still pending, they opted in and didn't ask for time.
 export const sendReviewReminder = spacetimedb.reducer(
   { onSchedule: reviewReminder },
   { arg: reviewReminder.rowType },
@@ -62,7 +62,7 @@ export const sendReviewReminder = spacetimedb.reducer(
     const p = ctx.db.proposal.id.find(arg.proposalId);
     if (!p || p.state !== 'AWAITING_REVIEW') return;
     const prefs = ctx.db.participationPreferences.owner.find(arg.member);
-    if (!prefs || !prefs.confirmed || prefs.giveMeTime) return;
+    if (!prefs || !prefs.confirmed || !prefs.remindersOptedIn || prefs.giveMeTime) return;
     for (const c of ctx.db.consent.byProposalMember.filter([p.id, arg.member])) {
       if (c.response !== 'PENDING') return;
     }

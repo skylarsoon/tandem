@@ -104,6 +104,27 @@ export function digest(text: string): string {
   return bytesToHex(sha256(new TextEncoder().encode(text)));
 }
 
+// Byte-for-byte equal to Python's json.dumps(value, sort_keys=True,
+// separators=(",", ":")) with its default ensure_ascii=True, so the backend can
+// verify digests the worker computes. Values must be JSON-native (no floats
+// that differ between languages, e.g. 1.0).
+export function pythonJson(value: unknown): string {
+  return stringifySorted(value).replace(
+    /[\u007f-\uffff]/g,
+    ch => (ch === '\u007f' ? ch : `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`)
+  );
+}
+
+function stringifySorted(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stringifySorted).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj)
+    .sort()
+    .map(k => `${JSON.stringify(k)}:${stringifySorted(obj[k])}`)
+    .join(',')}}`;
+}
+
 export function num(value: bigint): number {
   return Number(value);
 }
@@ -302,11 +323,7 @@ export function invalidateRoom(ctx: Ctx, roomId: bigint, change: RevisionChange,
     for (const q of [...ctx.db.question.byJob.filter(j.id)]) {
       if (q.state === 'OPEN') ctx.db.question.id.update({ ...q, state: 'SUPERSEDED' });
     }
-    for (const th of [...ctx.db.conversationThread.byJob.filter(j.id)]) {
-      if (th.state === 'OPEN') {
-        ctx.db.conversationThread.id.update({ ...th, state: 'CLOSED', closureReason: 'SUPERSEDED' });
-      }
-    }
+    closeJobThreads(ctx, j.id, 'SUPERSEDED');
   }
 
   for (const p of [...ctx.db.proposal.byRoomStage.filter(roomId)]) {
@@ -320,6 +337,12 @@ export function invalidateRoom(ctx: Ctx, roomId: bigint, change: RevisionChange,
 
   if (roomHasConstraints(ctx, roomId)) createJob(ctx, r, 'PLAN', reason);
   return r;
+}
+
+export function closeJobThreads(ctx: Ctx, jobId: bigint, reason: string): void {
+  for (const th of [...ctx.db.conversationThread.byJob.filter(jobId)]) {
+    if (th.state === 'OPEN') ctx.db.conversationThread.id.update({ ...th, state: 'CLOSED', closureReason: reason });
+  }
 }
 
 export function setMilestone(ctx: Ctx, roomId: bigint, stage: string, state: string, proposalId: bigint | undefined): void {

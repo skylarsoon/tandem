@@ -53,7 +53,7 @@ def test_c01_worker_cannot_act_as_a_human(room: Room, client, worker):
     expect_error("NOT_AUTHORIZED", client.call, worker, "respond_to_proposal", proposal_id=1, version=1,
                  terms_digest="x", response="ACCEPT", note=None)
     expect_error("NOT_AUTHORIZED", client.call, worker, "confirm_participation_preferences",
-                 speak_up_for_me=True, ask_me_first=False, give_me_time=False)
+                 speak_up_for_me=True, ask_me_first=False, give_me_time=False, reminders_opted_in=False)
 
 
 def test_humans_cannot_use_worker_operations(room: Room, client):

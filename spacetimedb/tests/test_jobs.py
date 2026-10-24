@@ -20,7 +20,7 @@ def test_constraint_change_creates_a_new_generation(room: Room, client, worker):
 def test_w01_competing_claims(ready_room, client, workers):
     room, job_id = ready_room
     _, other = workers
-    expect_error("INVALID_STATE", client.procedure, other, "claim_job",
+    expect_error("JOB_NOT_ELIGIBLE", client.procedure, other, "claim_job",
                  job_id=some(job_id), lease_seconds=30, request_key=key())
 
 
@@ -84,8 +84,9 @@ def test_execution_context_snapshot(ready_room, client, worker):
         "may_speak_in_room": True,
         "may_object_in_room_without_grant": True,
         "consult_before_visible_concession": False,
-        "reminders_allowed": True,
+        "reminders_allowed": False,  # reminders are opt-in
     }
+    assert ctx["room"]["settings"] == {"arrival_overlap_seconds": 7200}
     caps = {c["member_id"]: c["value"] for c in ctx["constraints"]}
     assert caps[room.member_ids["alice"]] == 50000
 
@@ -115,3 +116,51 @@ def test_lease_bounds(room: Room, client, worker):
     job_id = room.plan_job(worker)
     expect_error("INVALID_ARGUMENT", client.procedure, worker, "claim_job",
                  job_id=some(job_id), lease_seconds=1, request_key=key())
+
+
+def begin(room: Room, worker, job_id: int, op_key: str, digest: str = "d1", kind: str = "model", limit: int = 2) -> dict:
+    return room.client.procedure(worker, "begin_operation", job_id=job_id, attempt=room.leases[job_id], op_key=op_key,
+                                 request_digest=digest, kind=kind, limit=limit)
+
+
+def test_operation_ledger_reuses_results_and_enforces_budgets(ready_room, client, workers):
+    room, job_id = ready_room
+    first, second = workers
+    assert begin(room, first, job_id, "decide:1")["status"] == "RESERVED"
+    client.call(first, "complete_operation", job_id=job_id, attempt=room.leases[job_id], op_key="decide:1",
+                result_json=json.dumps({"act": "EVALUATE"}))
+    replay = begin(room, first, job_id, "decide:1")
+    assert replay["status"] == "DONE" and json.loads(replay["result_json"]) == {"act": "EVALUATE"}
+    expect_error("KEY_BODY_MISMATCH", begin, room, first, job_id, "decide:1", digest="other")
+
+    # An unfinished reservation is ambiguous: retrying reserves (and spends) again.
+    assert begin(room, first, job_id, "decide:2")["status"] == "RESERVED"
+    expect_error("CALL_BUDGET_EXHAUSTED", begin, room, first, job_id, "decide:2")
+    # Local work (e.g. the solver) never counts against model/research budgets.
+    assert begin(room, first, job_id, "solve:0", kind="local")["status"] == "RESERVED"
+
+    # Budgets survive a crash: a re-claimed attempt keeps the same counters.
+    client.call(first, "renew_lease", job_id=job_id, attempt=room.leases[job_id], lease_seconds=2)
+    time.sleep(3)
+    room.claim(second, job_id)
+    assert begin(room, second, job_id, "decide:1")["status"] == "DONE"
+    expect_error("CALL_BUDGET_EXHAUSTED", begin, room, second, job_id, "decide:3")
+
+
+def test_check_lease_and_close_threads(ready_room, client, worker):
+    room, job_id = ready_room
+    assert client.procedure(worker, "check_lease", job_id=job_id, attempt=room.leases[job_id])["job_id"] == job_id
+    room.send(worker, job_id)
+    client.call(worker, "close_threads", job_id=job_id, attempt=room.leases[job_id], reason="NO_PROGRESS")
+    thread = room.context(worker, job_id)["threads"][0]
+    assert (thread["state"], thread["closure_reason"]) == ("CLOSED", "NO_PROGRESS")
+    expect_error("THREAD_CLOSED", room.send, worker, job_id, open_thread=None, thread_id=some(thread["thread_id"]))
+    expect_error("LEASE_LOST", client.procedure, worker, "check_lease", job_id=job_id, attempt=99)
+
+
+def test_publish_and_park_close_open_threads(ready_room, client, worker):
+    room, job_id = ready_room
+    room.send(worker, job_id)
+    room.publish(worker, job_id)
+    threads = [t for t in client.view(room.people["alice"], "room_threads") if t["job_id"] == job_id]
+    assert [(t["state"], t["closure_reason"]) for t in threads] == [("CLOSED", "RESOLVED")]

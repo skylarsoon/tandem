@@ -99,9 +99,11 @@ def short_reminders():
 
 
 def test_review_reminders_respect_give_me_time(room: Room, client, worker, short_reminders):
-    room.confirm_all(speak_up=True, ask_first=False, give_time=False)
+    room.confirm_all(speak_up=True, ask_first=False, give_time=False, reminders=True)
     client.call(room.people["bob"], "confirm_participation_preferences",
-                speak_up_for_me=True, ask_me_first=False, give_me_time=True)
+                speak_up_for_me=True, ask_me_first=False, give_me_time=True, reminders_opted_in=True)
+    client.call(room.people["dave"], "confirm_participation_preferences",
+                speak_up_for_me=True, ask_me_first=False, give_me_time=False, reminders_opted_in=False)
     for name, cap in zip(PEOPLE, [50000, 65000, 65000, 65000]):
         room.set_constraint(name, "flight_budget_total", cap)
     job_id = room.plan_job(worker)
@@ -114,13 +116,12 @@ def test_review_reminders_respect_give_me_time(room: Room, client, worker, short
         return [json.loads(e["safe_payload_json"]) for e in client.view(room.people[name], "room_events")
                 if e["type"] == "REVIEW_REMINDER" and e["room_id"] == room.room_id]
 
-    assert wait_for(lambda: reminders("alice") and reminders("dave"), timeout=10)
+    assert wait_for(lambda: reminders("alice"), timeout=10)
     assert reminders("alice") == [{"proposal_id": published["proposal_id"], "stage": "TRAVEL",
                                    "version": published["version"]}]
     assert reminders("bob") == [], "bob asked for time"
     assert reminders("carol") == [], "carol already responded"
-    # Reminders are private: nobody sees anyone else's nudge.
-    assert len(reminders("dave")) == 1
+    assert reminders("dave") == [], "dave never opted in to reminders"
 
 
 def test_reminder_delay_is_owner_only(room: Room, client):

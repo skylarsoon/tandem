@@ -11,6 +11,8 @@ import {
   num,
   requireLease,
   requireRoom,
+  closeJobThreads,
+  oneOf,
   requireWorker,
   runProcedure,
   withReceipt,
@@ -84,12 +86,12 @@ export const claimJob = spacetimedb.procedure(
           if (args.jobId !== undefined) {
             j = tx.db.job.id.find(args.jobId) ?? undefined;
             if (!j) fail('NOT_FOUND', `job ${args.jobId}`);
-            if (!isClaimable(tx, j)) fail('INVALID_STATE', `job ${args.jobId} is ${j.status}`);
+            if (!isClaimable(tx, j)) fail('JOB_NOT_ELIGIBLE', `job ${args.jobId} is ${j.status}`);
           } else {
             for (const candidate of tx.db.job.byStatus.filter('PENDING')) {
               if (!j || candidate.id < j.id) j = candidate;
             }
-            if (!j) fail('NOT_FOUND', 'no pending jobs');
+            if (!j) fail('JOB_NOT_ELIGIBLE', 'no pending jobs');
           }
           return leaseFields(grantLease(tx, j, args.leaseSeconds, j.attempt + 1));
         }) as object;
@@ -164,6 +166,7 @@ function buildContext(ctx: Ctx, j: JobRow) {
         speak_up_for_me: prefs?.speakUpForMe ?? false,
         ask_me_first: prefs?.askMeFirst ?? true,
         give_me_time: prefs?.giveMeTime ?? true,
+        reminders_opted_in: prefs?.remindersOptedIn ?? false,
         confirmed,
         revision: prefs ? num(prefs.revision) : 0,
       },
@@ -171,7 +174,7 @@ function buildContext(ctx: Ctx, j: JobRow) {
         may_speak_in_room: confirmed,
         may_object_in_room_without_grant: speakUp,
         consult_before_visible_concession: !confirmed || (prefs?.askMeFirst ?? true),
-        reminders_allowed: confirmed && !(prefs?.giveMeTime ?? true),
+        reminders_allowed: confirmed && (prefs?.remindersOptedIn ?? false) && !(prefs?.giveMeTime ?? true),
       },
     };
   });
@@ -200,13 +203,15 @@ function buildContext(ctx: Ctx, j: JobRow) {
     thread_id: q.threadId !== undefined ? num(q.threadId) : null,
   }));
 
+  // Grants stay valid until inputs or membership change.
   const grants = [...ctx.db.actionGrant.byRoom.filter(r.id)]
-    .filter(g => g.inputRevision === r.inputRevision && g.permissionRevision === r.permissionRevision)
+    .filter(g => g.inputRevision === r.inputRevision && g.membershipRevision === r.membershipRevision)
     .map(g => ({
       grant_id: num(g.id),
       question_id: num(g.questionId),
       member_id: memberIdOf.get(g.owner.toHexString()) ?? null,
       kind: g.kind,
+      action_ref: g.actionRef,
       action_digest: g.actionDigest,
       granted: g.granted,
     }));
@@ -248,6 +253,8 @@ function buildContext(ctx: Ctx, j: JobRow) {
     observed_at: c.observedAt,
     facts: parsed(c.factsJson),
     missing_fields: c.missingFields,
+    input_revision: num(c.inputRevision),
+    membership_revision: num(c.membershipRevision),
   }));
 
   const proposals = [...ctx.db.proposal.byRoomStage.filter(r.id)]
@@ -263,7 +270,7 @@ function buildContext(ctx: Ctx, j: JobRow) {
 
   return {
     job: leaseFields(j),
-    room: { room_id: num(r.id), goal: r.goal, status: r.status },
+    room: { room_id: num(r.id), goal: r.goal, status: r.status, settings: parsed(r.settingsJson) },
     mediator_agent_id: num(agents.find(a => a.kind === 'MEDIATOR')!.id),
     members: people,
     constraints,
@@ -300,6 +307,7 @@ export const parkJob = spacetimedb.reducer(
         if (!q || q.jobId !== j.id) fail('NOT_FOUND', `question ${qid} for job ${j.id}`);
         if (q.state === 'SUPERSEDED') fail('QUESTION_SUPERSEDED', `question ${qid}`);
       }
+      closeJobThreads(ctx, j.id, 'NEEDS_OWNER_INPUT');
       ctx.db.job.id.update({
         ...j,
         status: 'WAITING_FOR_INPUT',
@@ -322,6 +330,7 @@ export const finishJob = spacetimedb.reducer(
     withReceipt(ctx, 'finish_job', args.requestKey, args, () => {
       const j = requireLease(ctx, args.jobId, args.attempt);
       nonEmpty(args.outcome, 'outcome');
+      closeJobThreads(ctx, j.id, args.outcome);
       ctx.db.job.id.update({
         ...j,
         status: 'FINISHED',
@@ -348,6 +357,7 @@ export const failJob = spacetimedb.reducer(
   (ctx, args) => {
     withReceipt(ctx, 'fail_job', args.requestKey, args, () => {
       const j = requireLease(ctx, args.jobId, args.attempt);
+      closeJobThreads(ctx, j.id, args.code);
       ctx.db.job.id.update({
         ...j,
         status: args.retryable ? 'PENDING' : 'FAILED',
@@ -359,5 +369,69 @@ export const failJob = spacetimedb.reducer(
       });
       return {};
     });
+  }
+);
+
+// Side-effect-free fence check: the worker calls this before external work and
+// right before delivery (lease, attempt and snapshot revisions).
+export const checkLease = spacetimedb.procedure({ jobId: t.u64(), attempt: t.u32() }, t.string(), (ctx, args) =>
+  runProcedure(() => ctx.withTx(tx => leaseFields(requireLease(tx, args.jobId, args.attempt))))
+);
+
+export const closeThreads = spacetimedb.reducer(
+  { jobId: t.u64(), attempt: t.u32(), reason: t.string() },
+  (ctx, { jobId, attempt, reason }) => {
+    const j = requireLease(ctx, jobId, attempt);
+    closeJobThreads(ctx, j.id, nonEmpty(reason, 'reason'));
+  }
+);
+
+const OPERATION_KINDS = ['model', 'research', 'local'] as const;
+
+// Reserve an external operation before running it. Returns the stored result if
+// it already completed (a replay after a crash), otherwise reserves budget and
+// returns RESERVED. An unfinished earlier reservation is ambiguous (the call may
+// have run), so it reserves again and counts against the budget again.
+export const beginOperation = spacetimedb.procedure(
+  { jobId: t.u64(), attempt: t.u32(), opKey: t.string(), requestDigest: t.string(), kind: t.string(), limit: t.u32() },
+  t.string(),
+  (ctx, args) =>
+    runProcedure(() =>
+      ctx.withTx(tx => {
+        const j = requireLease(tx, args.jobId, args.attempt);
+        oneOf(args.kind, OPERATION_KINDS, 'kind');
+        const key = `${j.id}:${nonEmpty(args.opKey, 'opKey')}`;
+        const existing = tx.db.operationRecord.key.find(key);
+        if (existing && existing.requestDigest !== args.requestDigest) {
+          fail('KEY_BODY_MISMATCH', `operation ${args.opKey} was started with a different request`);
+        }
+        if (existing?.status === 'DONE') return { status: 'DONE', result_json: existing.resultJson ?? null };
+        if (args.kind !== 'local') {
+          const budget = tx.db.jobBudget.jobId.find(j.id) ?? tx.db.jobBudget.insert({ jobId: j.id, modelCalls: 0, researchCalls: 0 });
+          const used = args.kind === 'model' ? budget.modelCalls : budget.researchCalls;
+          if (used >= args.limit) fail('CALL_BUDGET_EXHAUSTED', `${args.kind} budget of ${args.limit} is used up`);
+          tx.db.jobBudget.jobId.update(
+            args.kind === 'model' ? { ...budget, modelCalls: used + 1 } : { ...budget, researchCalls: used + 1 }
+          );
+        }
+        const record = { kind: args.kind, requestDigest: args.requestDigest, status: 'RUNNING', resultJson: undefined, updatedAt: tx.timestamp };
+        if (existing) tx.db.operationRecord.key.update({ ...existing, ...record });
+        else tx.db.operationRecord.insert({ key, jobId: j.id, ...record });
+        return { status: 'RESERVED' };
+      })
+    )
+);
+
+export const completeOperation = spacetimedb.reducer(
+  { jobId: t.u64(), attempt: t.u32(), opKey: t.string(), resultJson: t.string() },
+  (ctx, args) => {
+    const j = requireLease(ctx, args.jobId, args.attempt);
+    const op = ctx.db.operationRecord.key.find(`${j.id}:${args.opKey}`);
+    if (!op) fail('NOT_FOUND', `operation ${args.opKey}`);
+    if (op.status === 'DONE') {
+      if (op.resultJson !== args.resultJson) fail('KEY_BODY_MISMATCH', `operation ${args.opKey} already has a different result`);
+      return;
+    }
+    ctx.db.operationRecord.key.update({ ...op, status: 'DONE', resultJson: args.resultJson, updatedAt: ctx.timestamp });
   }
 );

@@ -43,6 +43,8 @@ const room = table(
     membershipRevision: t.u64(),
     permissionRevision: t.u64(),
     inviteCode: t.string(),
+    // Shared, non-private room rules, e.g. {"arrival_overlap_seconds": 7200}.
+    settingsJson: t.string(),
     createdAt: t.timestamp(),
   }
 );
@@ -99,6 +101,7 @@ const participationPreferences = table(
     speakUpForMe: t.bool(),
     askMeFirst: t.bool(),
     giveMeTime: t.bool(),
+    remindersOptedIn: t.bool(),
     confirmed: t.bool(),
     confirmedAt: t.option(t.timestamp()),
     proposedBy: t.string(),
@@ -237,7 +240,10 @@ const question = table(
 const actionGrant = table(
   {
     name: 'action_grant',
-    indexes: [{ accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] }],
+    indexes: [
+      { accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] },
+      { accessor: 'byOwnerKindRef', algorithm: 'btree', columns: ['owner', 'kind', 'actionRef'] },
+    ],
   },
   {
     id: t.u64().primaryKey().autoInc(),
@@ -245,9 +251,10 @@ const actionGrant = table(
     roomId: t.u64(),
     owner: t.identity(),
     kind: t.string(),
+    actionRef: t.string(),
     actionDigest: t.string(),
     inputRevision: t.u64(),
-    permissionRevision: t.u64(),
+    membershipRevision: t.u64(),
     granted: t.bool(),
     createdAt: t.timestamp(),
   }
@@ -302,6 +309,31 @@ const commandReceipt = table(
     requestDigest: t.string(),
     outcomeJson: t.string(),
     createdAt: t.timestamp(),
+  }
+);
+
+// Receipt-backed external operations (model calls, research, solver runs) so a
+// re-claimed attempt reuses results instead of paying twice, plus per-generation
+// call budgets that survive crashes.
+const operationRecord = table(
+  { name: 'operation_record' },
+  {
+    key: t.string().primaryKey(),
+    jobId: t.u64().index('btree'),
+    kind: t.string(),
+    requestDigest: t.string(),
+    status: t.string(),
+    resultJson: t.option(t.string()),
+    updatedAt: t.timestamp(),
+  }
+);
+
+const jobBudget = table(
+  { name: 'job_budget' },
+  {
+    jobId: t.u64().primaryKey(),
+    modelCalls: t.u32(),
+    researchCalls: t.u32(),
   }
 );
 
@@ -421,6 +453,8 @@ const candidate = table(
     observedAt: t.string(),
     factsJson: t.string(),
     missingFields: t.array(t.string()),
+    inputRevision: t.u64(),
+    membershipRevision: t.u64(),
     recordedAt: t.timestamp(),
   }
 );
@@ -520,6 +554,8 @@ const spacetimedb = schema({
   job,
   leaseTimer,
   commandReceipt,
+  operationRecord,
+  jobBudget,
   negotiationRound,
   conversationThread,
   agentMessage,

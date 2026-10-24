@@ -74,14 +74,28 @@ def test_wrong_owner_and_version(ready_room, client, worker):
 
 def test_p07_disclosure_answer_is_a_scoped_grant_not_consent(ready_room, client, worker):
     room, job_id = ready_room
-    action = {"action": "surface_objection", "draft_ref": "draft-1"}
-    q = ask(room, worker, job_id, "alice", kind="OBJECTION_DISCLOSURE", action=action)
+    q = ask(room, worker, job_id, "alice", kind="OBJECTION_DISCLOSURE", action={"action_ref": "draft-1"})
     park(room, worker, job_id, [q["id"]])
     answer(room, "alice", q, {"granted": True})
-    room.claim(worker, job_id)
-    grants = room.context(worker, job_id)["grants"]
-    assert [(g["question_id"], g["kind"], g["granted"]) for g in grants] == [(q["id"], "OBJECTION_DISCLOSURE", True)]
+    # Granting changes what the agent may do, so planning restarts under a new
+    # permission revision; the grant carries over for the same draft.
+    assert job_id not in {j["id"] for j in room.jobs(worker)}
+    new_job = room.plan_job(worker)
+    room.claim(worker, new_job)
+    grants = room.context(worker, new_job)["grants"]
+    assert [(g["question_id"], g["kind"], g["action_ref"], g["granted"]) for g in grants] == [
+        (q["id"], "OBJECTION_DISCLOSURE", "draft-1", True)]
     assert client.view(room.people["alice"], "my_consents") == []
+
+
+def test_declined_permission_resumes_the_same_generation(ready_room, client, worker):
+    room, job_id = ready_room
+    q = ask(room, worker, job_id, "alice", kind="CONCESSION_CONSULTATION", action={"action_ref": "draft-1"})
+    park(room, worker, job_id, [q["id"]])
+    answer(room, "alice", q, {"granted": False})
+    assert job_id in {j["id"] for j in room.jobs(worker)}
+    room.claim(worker, job_id)
+    assert room.context(worker, job_id)["grants"][0]["granted"] is False
 
 
 def test_g06_answer_with_constraint_starts_new_generation(ready_room, client, worker):

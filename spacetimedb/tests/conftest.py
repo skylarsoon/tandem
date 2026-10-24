@@ -70,10 +70,11 @@ class Room:
 
     # ---------- human helpers ----------
 
-    def confirm_all(self, speak_up: bool = True, ask_first: bool = False, give_time: bool = False) -> None:
+    def confirm_all(self, speak_up: bool = True, ask_first: bool = False, give_time: bool = False,
+                    reminders: bool = False) -> None:
         for who in self.people.values():
-            self.client.call(who, "confirm_participation_preferences",
-                             speak_up_for_me=speak_up, ask_me_first=ask_first, give_me_time=give_time)
+            self.client.call(who, "confirm_participation_preferences", speak_up_for_me=speak_up,
+                             ask_me_first=ask_first, give_me_time=give_time, reminders_opted_in=reminders)
 
     def set_constraint(self, name: str, key_: str, value, hardness: str = "HARD", rationale: str | None = None) -> None:
         self.client.call(self.people[name], "set_constraint", room_id=self.room_id, key=key_,
@@ -121,14 +122,14 @@ class Room:
             draft_ref=some("draft-1"),
             proposal_id=None,
             proposal_version=None,
-            payload_json=json.dumps({"category": "flight"}),
+            payload_json=json.dumps({"category": "flight", "draft_ref": "draft-1"}),
             utterance="Here is a draft with everyone landing within two hours.",
             claim_refs=[],
             evidence_refs=[],
             audience="ROOM",
             audience_member_id=None,
             sanitization_status="VALIDATED",
-            grant_ref=None,
+            validation_digest=None,
         )
         args.update(overrides)
         return args
@@ -146,7 +147,7 @@ class Room:
             stage="TRAVEL", terms_json=json.dumps(terms, sort_keys=True),
             shared_summary_json=json.dumps({"summary": "Everyone lands within two hours"}),
             validation_json=json.dumps({"hard_constraints": "PASS"}),
-            evidence_refs=[], affected_member_ids=[],
+            evidence_refs=[], affected_member_ids=[], selected_candidate_refs=[],
             impacts=[{"member_id": self.member_ids[n], "impact_json": json.dumps({"cost_cents": 45000})} for n in PEOPLE],
         )
 

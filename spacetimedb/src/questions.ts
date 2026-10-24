@@ -6,6 +6,7 @@ import {
   canonical,
   digest,
   fail,
+  invalidateRoom,
   nonEmpty,
   oneOf,
   parseJson,
@@ -76,8 +77,11 @@ export const askOwner = spacetimedb.reducer(
 // - MISSING_FACT with {"constraint": {...}} → confirms a constraint (new generation)
 // - MISSING_FACT otherwise → resumes the waiting job
 // - OBJECTION_DISCLOSURE / CONCESSION_CONSULTATION / BROADER_EXPLORATION with
-//   {"granted": bool} → records a grant scoped to this exact action and
-//   snapshot, then resumes. A grant is never consent to a proposal.
+//   {"granted": bool} → records a grant for this owner, kind and action_ref
+//   (the draft it concerns). A granted permission changes what the agent may do,
+//   so it bumps the permission revision and starts a new generation; the grant
+//   stays usable while inputs and membership are unchanged. A refusal is stored
+//   and resumes the waiting job. Neither is ever consent to a proposal.
 export const answerQuestion = spacetimedb.reducer(
   { questionId: t.u64(), version: t.u32(), answerJson: t.string() },
   (ctx, { questionId, version, answerJson }) => {
@@ -97,7 +101,8 @@ export const answerQuestion = spacetimedb.reducer(
       if (flags.some(f => typeof f !== 'boolean')) {
         fail('INVALID_ARGUMENT', 'answer needs boolean speak_up_for_me, ask_me_first, give_me_time');
       }
-      applyParticipationPreferences(ctx, flags[0] as boolean, flags[1] as boolean, flags[2] as boolean);
+      const optIn = answer.reminders_opted_in === true;
+      applyParticipationPreferences(ctx, flags[0] as boolean, flags[1] as boolean, flags[2] as boolean, optIn);
       return;
     }
 
@@ -109,18 +114,24 @@ export const answerQuestion = spacetimedb.reducer(
     if (GRANT_KINDS.includes(q.kind)) {
       if (typeof answer.granted !== 'boolean') fail('INVALID_ARGUMENT', 'answer needs boolean granted');
       const r = requireRoom(ctx, q.roomId);
+      const action = JSON.parse(q.actionJson) as Record<string, unknown>;
       ctx.db.actionGrant.insert({
         id: 0n,
         questionId: q.id,
         roomId: q.roomId,
         owner: q.owner,
         kind: q.kind,
-        actionDigest: digest(canonical(JSON.parse(q.actionJson))),
+        actionRef: typeof action.action_ref === 'string' ? action.action_ref : '',
+        actionDigest: digest(canonical(action)),
         inputRevision: r.inputRevision,
-        permissionRevision: r.permissionRevision,
+        membershipRevision: r.membershipRevision,
         granted: answer.granted,
         createdAt: ctx.timestamp,
       });
+      if (answer.granted) {
+        invalidateRoom(ctx, q.roomId, { permission: true }, 'owner granted a permission');
+        return;
+      }
     }
 
     resumeJobIfReady(ctx, q.jobId);

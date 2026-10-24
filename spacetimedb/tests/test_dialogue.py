@@ -46,33 +46,54 @@ def test_p01_unconfirmed_preferences_block_room_speech(room: Room, client, worke
         room.set_constraint(name, "flight_budget_total", cap)
     job_id = room.plan_job(worker)
     room.claim(worker, job_id)
+    # Nothing room-visible involving alice until she confirms her settings,
+    # whether her agent speaks or the mediator addresses her in the room.
     expect_error("PREFERENCES_UNCONFIRMED", room.send, worker, job_id, sender_agent_id=room.agent_ids["alice"],
                  recipient_agent_id=room.mediator_id, type="EVALUATE")
-    # The mediator and private/internal traffic are unaffected.
-    room.send(worker, job_id)
-    room.send(worker, job_id, open_thread=thread_open(room, "bob"), sender_agent_id=room.agent_ids["bob"],
-              recipient_agent_id=room.mediator_id, audience="INTERNAL", sanitization_status="VALIDATED")
+    expect_error("PREFERENCES_UNCONFIRMED", room.send, worker, job_id)
+    # Internal coordination can still happen.
+    room.send(worker, job_id, audience="INTERNAL")
 
 
-def test_p03_room_objection_needs_speak_up_or_grant(room: Room, client, worker):
+def test_p03_room_objection_needs_speak_up_or_a_grant_for_this_draft(room: Room, client, worker):
     room.confirm_all(speak_up=False, ask_first=True, give_time=True)
     room.set_constraint("alice", "flight_budget_total", 50000)
     job_id = room.plan_job(worker)
     room.claim(worker, job_id)
     objection = dict(sender_agent_id=room.agent_ids["alice"], recipient_agent_id=room.mediator_id, type="OBJECT",
                      utterance="One participant's requirements aren't met by this option.")
-    expect_error("NOT_AUTHORIZED", room.send, worker, job_id, **objection)
+    expect_error("CONSULTATION_REQUIRED", room.send, worker, job_id, **objection)
 
     request_key = key("q")
     client.call(worker, "ask_owner", job_id=job_id, attempt=room.leases[job_id], request_key=request_key,
                 member_id=room.member_ids["alice"], kind="OBJECTION_DISCLOSURE",
-                action_json=json.dumps({"action": "surface_objection"}), prompt="May I raise this objection?",
+                action_json=json.dumps({"action_ref": "draft-1"}), prompt="May I raise this objection?",
                 answer_schema_json="{}", thread_id=None)
     q = next(q for q in client.view(room.people["alice"], "my_questions") if q["request_key"] == request_key)
     client.call(room.people["alice"], "answer_question", question_id=q["id"], version=q["version"],
                 answer_json=json.dumps({"granted": True}))
-    grant = next(g for g in room.context(worker, job_id)["grants"] if g["question_id"] == q["id"])
-    room.send(worker, job_id, grant_ref=some(grant["grant_id"]), **objection)
+    # A granted permission changes what the agent may do: new generation.
+    expect_error("STALE_SNAPSHOT", room.send, worker, job_id, **objection)
+    new_job = room.plan_job(worker)
+    room.claim(worker, new_job)
+    room.send(worker, new_job, **objection)
+    # The grant covers only that draft.
+    expect_error("CONSULTATION_REQUIRED", room.send, worker, new_job,
+                 payload_json=json.dumps({"draft_ref": "draft-2"}), draft_ref=some("draft-2"), **objection)
+
+
+def test_concession_and_wider_search_need_grants(room: Room, client, worker):
+    room.confirm_all(speak_up=True, ask_first=True, give_time=True)
+    room.set_constraint("alice", "flight_budget_total", 50000)
+    job_id = room.plan_job(worker)
+    room.claim(worker, job_id)
+    from_alice = dict(sender_agent_id=room.agent_ids["alice"], recipient_agent_id=room.mediator_id,
+                      type="COUNTERPROPOSE")
+    expect_error("CONSULTATION_REQUIRED", room.send, worker, job_id,
+                 payload_json=json.dumps({"draft_ref": "draft-1", "concession": True}), **from_alice)
+    expect_error("CONSULTATION_REQUIRED", room.send, worker, job_id,
+                 payload_json=json.dumps({"draft_ref": "draft-1", "exceeds_exploration": True}), **from_alice)
+    room.send(worker, job_id, **from_alice)
 
 
 def test_private_reason_text_is_blocked_from_the_room(room: Room, client, worker):
@@ -106,7 +127,7 @@ def test_t02_routing_rules(ready_room, client, worker):
     thread_id = threads(room, job_id)[0]["id"]
     expect_error("NOT_AUTHORIZED", room.send, worker, job_id, open_thread=None, thread_id=some(thread_id),
                  recipient_agent_id=room.agent_ids["carol"])
-    expect_error("INVALID_ARGUMENT", room.send, worker, job_id, recipient_agent_id=room.mediator_id)
+    expect_error("NOT_AUTHORIZED", room.send, worker, job_id, recipient_agent_id=room.mediator_id)
 
 
 def test_t03_thread_and_round_budgets(ready_room, client, worker):
@@ -154,7 +175,7 @@ def test_c05_preference_edit_mid_run_rejects_messages(ready_room, client, worker
     room, job_id = ready_room
     room.send(worker, job_id)
     client.call(room.people["carol"], "confirm_participation_preferences",
-                speak_up_for_me=False, ask_me_first=True, give_me_time=True)
+                speak_up_for_me=False, ask_me_first=True, give_me_time=True, reminders_opted_in=False)
     expect_error("STALE_SNAPSHOT", room.send, worker, job_id)
     assert room.plan_job(worker) > job_id
 
@@ -178,3 +199,42 @@ def test_message_processing_receipts(ready_room, client, worker):
                  **{**record, "recipient_agent_id": room.mediator_id})
     processed = room.context(worker, job_id)["messages"][0]
     assert processed["processing_state"] == "PROCESSED" and processed["processed_reply_ids"] == [reply["message_id"]]
+
+
+def python_digest(content: dict) -> str:
+    import hashlib
+    return hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def test_validation_digest_matches_python_byte_for_byte(ready_room, client, worker):
+    room, job_id = ready_room
+    payload = {"draft_ref": "draft-1", "evaluation": "REQUESTED", "candidate_refs": [], "research": False}
+    utterance = "Café option — lands 13:05 ✈️ \"quoted\" \\ back\\slash"
+    content = {"type": "PROPOSE", "utterance": utterance, "payload": payload, "claim_refs": ["act:PROPOSE"],
+               "evidence_refs": []}
+    args = dict(payload_json=json.dumps(payload), utterance=utterance, claim_refs=["act:PROPOSE"])
+    room.send(worker, job_id, validation_digest=some(python_digest(content)), **args)
+    tampered = {**content, "utterance": utterance + "!"}
+    expect_error("INVALID_VALIDATION_METADATA", room.send, worker, job_id,
+                 validation_digest=some(python_digest(tampered)), **args)
+
+
+def test_reply_must_answer_a_message_to_the_sender_in_the_same_thread(ready_room, client, worker):
+    room, job_id = ready_room
+    room.send(worker, job_id)
+    ctx = room.context(worker, job_id)
+    propose = ctx["messages"][0]
+    # The mediator can't "reply" to its own message.
+    expect_error("INVALID_REPLY", room.send, worker, job_id, open_thread=None, thread_id=some(propose["thread_id"]),
+                 reply_to=some(propose["message_id"]))
+    room.send(worker, job_id, open_thread=None, thread_id=some(propose["thread_id"]),
+              sender_agent_id=room.agent_ids["alice"], recipient_agent_id=room.mediator_id, type="EVALUATE",
+              reply_to=some(propose["message_id"]))
+
+
+def test_evidence_and_size_limits(ready_room, client, worker):
+    room, job_id = ready_room
+    expect_error("INVALID_EVIDENCE_REF", room.send, worker, job_id, evidence_refs=["cand_missing"])
+    expect_error("INVALID_EVIDENCE_REF", room.send, worker, job_id,
+                 payload_json=json.dumps({"draft_ref": "draft-1", "candidate_refs": ["cand_missing"]}))
+    expect_error("PAYLOAD_TOO_LARGE", room.send, worker, job_id, utterance="x" * 4097)

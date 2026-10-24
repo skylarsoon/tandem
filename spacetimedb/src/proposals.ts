@@ -2,8 +2,11 @@ import { t } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
 import spacetimedb from './schema';
 import {
+  type Ctx,
+  type RoomRow,
   RESPONSES,
   STAGES,
+  closeJobThreads,
   containsPrivateText,
   digest,
   emitEvent,
@@ -25,6 +28,69 @@ import { messageOwnAgent, recomputeAgreement, scheduleReviewReminders } from './
 
 const ImpactInput = t.object('ImpactInput', { memberId: t.u64(), impactJson: t.string() });
 
+type FlightFacts = {
+  owner_member_id?: unknown;
+  total_cents?: unknown;
+  arrival_epoch?: unknown;
+  observed_at?: unknown;
+  valid_until?: unknown;
+  baggage_included?: unknown;
+};
+
+function constraintValue(ctx: Ctx, roomId: bigint, owner: Identity, key: string, hardOnly: boolean): unknown {
+  for (const c of ctx.db.participantConstraint.byRoomOwnerKey.filter([roomId, owner, key])) {
+    if (hardOnly && c.hardness !== 'HARD') return undefined;
+    return JSON.parse(c.valueJson);
+  }
+  return undefined;
+}
+
+// Independent server-side check of a flight selection (policy flight_cost_v1),
+// so a buggy or compromised worker can't publish a plan that breaks someone's
+// confirmed hard limits. Each selected candidate's facts_json must carry
+// owner_member_id, total_cents, arrival_epoch, observed_at, valid_until (epoch
+// seconds) and baggage_included.
+function validateFlightSelection(ctx: Ctx, r: RoomRow, refs: string[]): void {
+  const active = [...ctx.db.membership.byRoomMember.filter(r.id)].filter(m => m.active);
+  const nowSeconds = Number(ctx.timestamp.microsSinceUnixEpoch / 1000n) / 1000;
+  const covered = new Set<bigint>();
+  const arrivals: number[] = [];
+  for (const ref of refs) {
+    let row;
+    for (const c of ctx.db.candidate.byRoomRef.filter([r.id, ref])) row = c;
+    if (!row) fail('INVALID_EVIDENCE_REF', `candidate ${ref} is not recorded in this room`);
+    const facts = JSON.parse(row.factsJson) as FlightFacts;
+    const member = active.find(m => Number(m.id) === facts.owner_member_id);
+    if (!member || covered.has(member.id)) fail('INVALID_COVERAGE', `candidate ${ref} has no unique active owner`);
+    covered.add(member.id);
+    if (!ctx.db.participationPreferences.owner.find(member.member)?.confirmed) {
+      fail('INVALID_PROPOSAL', 'every traveller must confirm participation preferences');
+    }
+    if (typeof facts.total_cents !== 'number') fail('INVALID_PROPOSAL', `candidate ${ref} has no known total price`);
+    const cap = constraintValue(ctx, r.id, member.member, 'flight_budget_total', true);
+    if (typeof cap === 'number' && facts.total_cents > cap) fail('INVALID_PROPOSAL', `candidate ${ref} exceeds a hard limit`);
+    if (constraintValue(ctx, r.id, member.member, 'baggage_required', false) === true && facts.baggage_included !== true) {
+      fail('INVALID_PROPOSAL', `candidate ${ref} does not confirm required baggage`);
+    }
+    if (
+      typeof facts.observed_at !== 'number' ||
+      typeof facts.valid_until !== 'number' ||
+      facts.observed_at > nowSeconds ||
+      facts.valid_until <= nowSeconds
+    ) {
+      fail('INVALID_PROPOSAL', `candidate ${ref} evidence is not current`);
+    }
+    if (typeof facts.arrival_epoch !== 'number') fail('INVALID_PROPOSAL', `candidate ${ref} has no arrival time`);
+    arrivals.push(facts.arrival_epoch);
+  }
+  if (covered.size !== active.length) fail('INVALID_COVERAGE', 'every active member needs exactly one selected option');
+  const settings = JSON.parse(r.settingsJson) as { arrival_overlap_seconds?: number };
+  const overlap = settings.arrival_overlap_seconds ?? 7200;
+  if (arrivals.length > 0 && Math.max(...arrivals) - Math.min(...arrivals) > overlap) {
+    fail('INVALID_PROPOSAL', 'arrivals are further apart than the room allows');
+  }
+}
+
 // Atomic publication: immutable proposal + private impacts + PENDING consent
 // rows + milestone + job SUCCEEDED, all in one transaction. The terms digest is
 // computed here from the exact termsJson bytes; send canonical JSON.
@@ -40,6 +106,8 @@ export const publishProposal = spacetimedb.procedure(
     evidenceRefs: t.array(t.string()),
     affectedMemberIds: t.array(t.u64()),
     impacts: t.array(ImpactInput),
+    // Flight candidate refs to validate server-side (empty for non-flight stages).
+    selectedCandidateRefs: t.array(t.string()),
   },
   t.string(),
   (ctx, args) =>
@@ -55,8 +123,9 @@ export const publishProposal = spacetimedb.procedure(
           parseJson(args.sharedSummaryJson, 'sharedSummaryJson');
           parseJson(args.validationJson, 'validationJson');
           for (const ref of args.evidenceRefs) {
-            if (!refResolves(tx, r.id, ref)) fail('EVIDENCE_EXPIRED', `evidence ${ref} is not recorded in this room`);
+            if (!refResolves(tx, r.id, ref)) fail('INVALID_EVIDENCE_REF', `evidence ${ref} is not recorded in this room`);
           }
+          if (args.selectedCandidateRefs.length > 0) validateFlightSelection(tx, r, args.selectedCandidateRefs);
           if (containsPrivateText(tx, r.id, args.termsJson) || containsPrivateText(tx, r.id, args.sharedSummaryJson)) {
             fail('PRIVATE_CONTENT_DETECTED', 'shared proposal text contains a participant’s private reason');
           }
@@ -124,6 +193,7 @@ export const publishProposal = spacetimedb.procedure(
           }
           scheduleReviewReminders(tx, p.id, affected);
           setMilestone(tx, r.id, args.stage, 'IN_REVIEW', p.id);
+          closeJobThreads(tx, j.id, 'RESOLVED');
           tx.db.job.id.update({
             ...j,
             status: 'SUCCEEDED',

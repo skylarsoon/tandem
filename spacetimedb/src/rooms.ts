@@ -8,11 +8,14 @@ import {
   findMembership,
   invalidateRoom,
   nonEmpty,
+  parseJson,
   requireHuman,
+  requireRoom,
 } from './guards';
 import { applyParticipationPreferences } from './effects';
 
 const DEFAULT_REMINDER_DELAY_SECONDS = 600;
+const DEFAULT_ROOM_SETTINGS = JSON.stringify({ arrival_overlap_seconds: 7200 });
 const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const INVITE_LENGTH = 8;
 
@@ -47,6 +50,7 @@ function ensureProfile(ctx: Ctx, displayName: string): void {
       speakUpForMe: false,
       askMeFirst: true,
       giveMeTime: true,
+      remindersOptedIn: false,
       confirmed: false,
       confirmedAt: undefined,
       proposedBy: 'DEFAULT',
@@ -99,6 +103,7 @@ export const createRoom = spacetimedb.reducer(
       membershipRevision: 1n,
       permissionRevision: 1n,
       inviteCode: newInviteCode(ctx),
+      settingsJson: DEFAULT_ROOM_SETTINGS,
       createdAt: ctx.timestamp,
     });
     ctx.db.agent.insert({ id: 0n, roomId: r.id, kind: 'MEDIATOR', membershipId: undefined });
@@ -163,9 +168,31 @@ export const upsertProfile = spacetimedb.reducer(
 );
 
 export const confirmParticipationPreferences = spacetimedb.reducer(
-  { speakUpForMe: t.bool(), askMeFirst: t.bool(), giveMeTime: t.bool() },
-  (ctx, { speakUpForMe, askMeFirst, giveMeTime }) => {
+  { speakUpForMe: t.bool(), askMeFirst: t.bool(), giveMeTime: t.bool(), remindersOptedIn: t.bool() },
+  (ctx, { speakUpForMe, askMeFirst, giveMeTime, remindersOptedIn }) => {
     requireHuman(ctx);
-    applyParticipationPreferences(ctx, speakUpForMe, askMeFirst, giveMeTime);
+    applyParticipationPreferences(ctx, speakUpForMe, askMeFirst, giveMeTime, remindersOptedIn);
+  }
+);
+
+// Organizer-only shared rules, e.g. {"arrival_overlap_seconds": 7200}. These
+// are planning inputs, so a change starts a new generation.
+export const setRoomSettings = spacetimedb.reducer(
+  { roomId: t.u64(), settingsJson: t.string() },
+  (ctx, { roomId, settingsJson }) => {
+    requireHuman(ctx);
+    const r = requireRoom(ctx, roomId);
+    if (!r.organizer.isEqual(ctx.sender)) fail('NOT_AUTHORIZED', 'only the organizer can change room settings');
+    const settings = parseJson(settingsJson, 'settingsJson');
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+      fail('INVALID_ARGUMENT', 'settingsJson must be an object');
+    }
+    const overlap = (settings as Record<string, unknown>).arrival_overlap_seconds;
+    if (overlap !== undefined && (typeof overlap !== 'number' || !Number.isInteger(overlap) || overlap < 0)) {
+      fail('INVALID_ARGUMENT', 'arrival_overlap_seconds must be a non-negative integer');
+    }
+    ctx.db.room.id.update({ ...r, settingsJson });
+    invalidateRoom(ctx, roomId, { input: true }, 'room settings changed');
+    emitEvent(ctx, roomId, 'ROOM_SETTINGS_UPDATED', settings);
   }
 );

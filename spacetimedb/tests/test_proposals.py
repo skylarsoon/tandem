@@ -100,7 +100,7 @@ def test_declines_and_decide_later(ready_room, client, worker):
     c = counts(room, "carol", published["proposal_id"])
     assert (c["accepted"], c["declined"], c["pending"]) == (2, 1, 1)
     mine = next(c for c in client.view(room.people["alice"], "my_consents") if c["proposal_id"] == published["proposal_id"])
-    assert mine["response"] == "PENDING" and mine["decide_later_available"] is False
+    assert mine["response"] == "PENDING" and mine["decide_later_available"] is True
     bob_private = [m["body"] for m in client.view(room.people["bob"], "my_private_messages")]
     assert any("NOT_COMFORTABLE" in body and "too late" in body for body in bob_private)
     assert all("too late" not in json.dumps(e) for e in client.view(room.people["carol"], "room_events"))
@@ -128,3 +128,69 @@ def test_outsider_and_worker_cannot_respond(ready_room, client, worker):
                  version=published["version"], terms_digest=published["terms_digest"], response="ACCEPT", note=None)
     expect_error("NOT_AUTHORIZED", client.call, worker, "respond_to_proposal", proposal_id=published["proposal_id"],
                  version=published["version"], terms_digest=published["terms_digest"], response="ACCEPT", note=None)
+
+
+def record_flights(room: Room, worker, job_id: int, overrides: dict | None = None) -> list[str]:
+    """One fresh flight per member under their cap, arriving 10 minutes apart."""
+    import time as _time
+    now = _time.time()
+    caps = {"alice": 50000, "bob": 65000, "carol": 65000, "dave": 65000}
+    candidates, refs = [], []
+    for i, name in enumerate(PEOPLE):
+        facts = {"owner_member_id": room.member_ids[name], "total_cents": caps[name] - 1000, "currency": "USD",
+                 "arrival_epoch": int(now) + 86400 + i * 600, "observed_at": now - 5, "valid_until": now + 3600,
+                 "baggage_included": True, "cost_basis": "COMPLETE_FLIGHT_TOTAL"}
+        facts.update((overrides or {}).get(name, {}))
+        ref = f"flight-{name}-{key()}"
+        refs.append(ref)
+        candidates.append({"candidate_ref": ref, "candidate_set_version": 1, "category": "FLIGHT", "mode": "FIXTURE",
+                           "source_url": "fixture://test", "observed_at": "2026-10-24T09:00:00Z",
+                           "facts_json": json.dumps(facts), "missing_fields": []})
+    room.client.call(worker, "record_candidates", job_id=job_id, attempt=room.leases[job_id], request_key=key(),
+                     candidates=candidates)
+    return refs
+
+
+def publish_selected(room: Room, worker, job_id: int, refs: list[str]) -> dict:
+    return room.client.procedure(
+        worker, "publish_proposal", job_id=job_id, attempt=room.leases[job_id], request_key=key("publish"),
+        stage="TRAVEL", terms_json=json.dumps({"selected": refs}), shared_summary_json="{}",
+        validation_json="{}", evidence_refs=refs, affected_member_ids=[], impacts=[], selected_candidate_refs=refs)
+
+
+def test_publish_rechecks_flights_against_confirmed_limits(ready_room, client, worker):
+    room, job_id = ready_room
+    over_cap = record_flights(room, worker, job_id, {"alice": {"total_cents": 50001}})
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, over_cap)
+    expect_error("INVALID_COVERAGE", publish_selected, room, worker, job_id, over_cap[1:])
+    stale = record_flights(room, worker, job_id, {"bob": {"valid_until": 1}})
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, stale)
+    spread = record_flights(room, worker, job_id, {"dave": {"arrival_epoch": 1}})
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, spread)
+    expect_error("INVALID_EVIDENCE_REF", publish_selected, room, worker, job_id, ["not-recorded"])
+    good = record_flights(room, worker, job_id)
+    assert publish_selected(room, worker, job_id, good)["version"] == 1
+
+
+def test_baggage_requirement_is_enforced_at_publish(ready_room, client, worker):
+    room, job_id = ready_room
+    client.call(room.people["bob"], "set_constraint", room_id=room.room_id, key="baggage_required",
+                value_json="true", unit="", hardness="HARD", authorized_range_json=None, private_rationale=None)
+    job_id = room.plan_job(worker)
+    room.claim(worker, job_id)
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 record_flights(room, worker, job_id, {"bob": {"baggage_included": None}}))
+
+
+def test_room_settings_are_organizer_only_and_replan(ready_room, client, worker):
+    room, job_id = ready_room
+    expect_error("NOT_AUTHORIZED", client.call, room.people["bob"], "set_room_settings", room_id=room.room_id,
+                 settings_json=json.dumps({"arrival_overlap_seconds": 60}))
+    client.call(room.people["alice"], "set_room_settings", room_id=room.room_id,
+                settings_json=json.dumps({"arrival_overlap_seconds": 60}))
+    expect_error("STALE_SNAPSHOT", room.context, worker, job_id)
+    new_job = room.plan_job(worker)
+    room.claim(worker, new_job)
+    assert room.context(worker, new_job)["room"]["settings"] == {"arrival_overlap_seconds": 60}
+    # Flights 10 minutes apart now break the 60-second overlap rule.
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, new_job, record_flights(room, worker, new_job))
