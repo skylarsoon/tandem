@@ -61,8 +61,8 @@ def test_live_run_after_consultation_reuses_evidence_and_keeps_budget(live):
 def test_airline_booking_prices_reach_human_approval(live):
     from tandem_worker.ports import SystemClock
     # memo23 booking options: the airline sells it at $129.40 including taxes.
-    live.apify.rows[0] = {**live.apify.rows[0], "booking-options-count": 1, "booking-option-1-is-airline": True,
-                          "booking-option-1-price-usd": 129.40, "booking-option-1-first-bag-fee": 35}
+    live.apify.rows[0] = {**live.apify.rows[0], "booking-options-count": 1, "booking-option-0-is-airline": True,
+                          "booking-option-0-price-usd": 129.40, "booking-option-0-first-bag-fee": 35}
     seeded = seed_live_room(live.config, live.settings, live.directory)
     # Real time: the database checks evidence freshness against its own clock.
     result = run_live(live.config, live.settings, live.directory, clock=SystemClock(),

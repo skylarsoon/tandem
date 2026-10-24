@@ -131,41 +131,66 @@ def fee_cents(value):
         return None
 
 
-def airline_offer(row):
-    """Cheapest booking option sold by the airline itself, or None.
+def airline_offers(row):
+    """Airline-direct fares for this itinerary, cheapest first.
 
     Google Flights prices include VAT/GST and airport taxes; only optional
     extras (bags, payment-card fees) are excluded
     (https://support.google.com/travel/answer/2475306). Buying direct from the
-    airline avoids agency service fees, so this price is treated as the complete
-    trip total. Card fees remain a disclosed limitation, not a hidden zero.
+    airline avoids agency service fees, so these are treated as complete trip
+    totals; card fees remain a disclosed limitation, not a hidden zero.
+
+    memo23 lists the airline's fare families as booking options (e.g. United
+    "Economy", "Economy Plus") with bag fees, and reports the overall cheapest
+    seller separately; when that seller is the airline it is the basic fare.
     """
     count = row.get("booking-options-count")
     if type(count) is not int or count < 1:
-        return None
-    best = None
-    for n in range(1, count + 1):
+        return []
+    offers, airlines = [], set()
+    # Options are numbered from 0 (booking-option-0-* is usually the basic fare).
+    for n in range(count):
         if row.get(f"booking-option-{n}-is-airline") is not True:
             continue
+        airlines.add(row.get(f"booking-option-{n}-provider"))
         price = fee_cents(row.get(f"booking-option-{n}-price-usd"))
-        if price is not None and (best is None or price < best["price"]):
-            best = {"price": price, "first_bag": fee_cents(row.get(f"booking-option-{n}-first-bag-fee"))}
-    return best
+        if price is not None:
+            offers.append({"price": price, "first_bag": fee_cents(row.get(f"booking-option-{n}-first-bag-fee"))})
+    cheapest = fee_cents(row.get("cheapest-booking-price-usd"))
+    if cheapest is not None and row.get("cheapest-booking-provider") in airlines - {None}:
+        offers.append({"price": cheapest, "first_bag": None})
+    unique = {}
+    for offer in sorted(offers, key=lambda o: (o["price"], o["first_bag"] is None)):
+        unique.setdefault(offer["price"], offer)
+    return list(unique.values())
 
 
 def normalize_offers(row, search: MemoSearch, run, *, freshness_seconds=900):
-    """The flight as listed, plus a with-one-checked-bag variant when the airline
-    lists its first-bag fee and the fare doesn't already include a bag."""
-    base = normalize_item(row, search, run, freshness_seconds=freshness_seconds)
-    offer = airline_offer(row)
-    if offer is None or base.baggage_included is True or offer["first_bag"] is None:
-        return [base]
-    with_bag = base.model_copy(update={"id": base.id + "-bag1", "total_cents": base.total_cents + offer["first_bag"],
-                                       "checked_bags_included": 1, "baggage_included": True})
-    return [base, Candidate.model_validate(with_bag.model_dump())]
+    """One candidate per airline-direct fare, plus a with-one-checked-bag variant
+    wherever the airline lists its first-bag fee. Without airline-direct fares,
+    the listing as observed (incomplete cost)."""
+    offers = airline_offers(row)
+    if not offers:
+        return [normalize_item(row, search, run, freshness_seconds=freshness_seconds)]
+    candidates = []
+    for offer in offers:
+        fare = _candidate(row, search, run, offer["price"], complete=True, freshness_seconds=freshness_seconds)
+        candidates.append(fare)
+        if fare.baggage_included is not True and offer["first_bag"] is not None:
+            candidates.append(fare.model_copy(update={"id": fare.id + "-bag1", "total_cents": fare.total_cents + offer["first_bag"],
+                                                      "checked_bags_included": 1, "baggage_included": True}))
+    return [Candidate.model_validate(c.model_dump()) for c in candidates]
 
 
 def normalize_item(row, search: MemoSearch, run, *, freshness_seconds=900):
+    """The cheapest airline-direct fare when known, otherwise the listing as observed."""
+    offers = airline_offers(row)
+    if offers:
+        return _candidate(row, search, run, offers[0]["price"], complete=True, freshness_seconds=freshness_seconds)
+    return _candidate(row, search, run, money_cents(row["price"]), complete=False, freshness_seconds=freshness_seconds)
+
+
+def _candidate(row, search: MemoSearch, run, price, *, complete, freshness_seconds):
     if row.get("record-type") != "flight" or row.get("currency") != "USD":
         raise ValueError("UNSUPPORTED_ROW")
     if row.get("from-code") != search.origin or row.get("to-code") != search.destination or row.get("depart-date") != search.departure_date.isoformat():
@@ -176,8 +201,7 @@ def normalize_item(row, search: MemoSearch, run, *, freshness_seconds=900):
     passengers = row.get("passengers")
     if isinstance(passengers, bool) or passengers not in (None, 1, "1 adult"):
         raise ValueError("PASSENGER_COUNT_MISMATCH")
-    offer = airline_offer(row)
-    price = offer["price"] if offer else money_cents(row["price"])
+    money_cents(row["price"])  # a listing without a valid price is malformed
     departed = local_epoch(row["depart-date"], row["depart-time"], search.origin_timezone)
     arrived = local_epoch(row["arrive-date"], row["arrive-time"], search.destination_timezone)
     if arrived < departed:
@@ -199,7 +223,7 @@ def normalize_item(row, search: MemoSearch, run, *, freshness_seconds=900):
         actor_id=ACTOR_ID, actor_build=run["build"], dataset_ref=run["dataset_id"], flight_identity=identity,
         mode="APIFY_OBSERVED",
         # A search listing alone does not establish complete mandatory costs;
-        # the airline's own booking price does (see airline_offer).
-        cost_basis="COMPLETE_FLIGHT_TOTAL" if offer else "OBSERVED_FLIGHT_PRICE",
-        missing_critical_fields=() if offer else ("mandatory_fees",), checked_bags_included=bags,
+        # an airline-direct booking price does (see airline_offers).
+        cost_basis="COMPLETE_FLIGHT_TOTAL" if complete else "OBSERVED_FLIGHT_PRICE",
+        missing_critical_fields=() if complete else ("mandatory_fees",), checked_bags_included=bags,
         baggage_included=None if bags is None else bags >= 1)

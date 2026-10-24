@@ -60,6 +60,8 @@ The fix came from reading the fine print. Google states its fares already includ
 
 **Our tests broke the moment we logged in to the cloud.** SpacetimeDB remembers which identity owns each database *name*, even across restarts of a throwaway in-memory server. After we logged in to Maincloud with a new identity, our test scripts were refused permission to republish their old test databases. Each test run now publishes to a uniquely named database, which also makes runs fully isolated.
 
+**The scraper's documentation and its real output disagreed.** The docs describe booking options as `booking-option-{n}-…`, and we assumed numbering started at 1. One real run showed it starts at 0, and option 0 is usually the airline's cheapest basic fare. We'd been skipping exactly the fare people want (United Basic Economy $73, shown instead as $118), and reading a phantom empty option at the end. We saved those real rows as a test fixture, so the parser is now checked against what the actor actually returns.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

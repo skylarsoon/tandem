@@ -97,9 +97,9 @@ def test_pinned_schema_validation_rejects_changed_input_contract():
 
 
 def with_booking_options(row, *options):
-    """Adds memo23 booking-option fields: (is_airline, price, first_bag_fee)."""
+    """Adds memo23 booking-option fields (numbered from 0): (is_airline, price, first_bag_fee)."""
     row = {**row, "booking-options-count": len(options)}
-    for n, (is_airline, price, bag) in enumerate(options, start=1):
+    for n, (is_airline, price, bag) in enumerate(options):
         row.update({f"booking-option-{n}-is-airline": is_airline, f"booking-option-{n}-price-usd": price,
                     f"booking-option-{n}-provider": "Alaska" if is_airline else "Agency"})
         if bag is not None:
@@ -149,3 +149,22 @@ def test_solver_skips_known_bagless_fares_for_travellers_who_need_a_bag(live_cas
     assert FlightSolver().solve(snapshot, [live_case.config.briefs[0]], [base, with_bag]).selected == (base.id,)
     unknown = base.model_copy(update={"baggage_included": None})
     assert FlightSolver().solve(snapshot, [needs_bag], [unknown]).selected == (unknown.id,), "unknown stays selectable"
+
+
+def test_real_booking_option_rows_yield_every_airline_direct_fare(live_case):
+    """Rows captured from a real memo23 0.0.141 run (SFO→LAX). Options are numbered
+    from 0, and option 0 is usually the airline's basic fare."""
+    import json
+    from pathlib import Path
+    rows = json.loads((Path(__file__).parents[1] / "fixtures" / "memo23_booking_options_sfo_lax.json").read_text())
+    search, run = live_case.config.searches[0], run_record(live_case)
+
+    def fares(row):
+        return [(c.total_cents, c.baggage_included) for c in normalize_offers(row, search, run)]
+
+    frontier, alaska, united = rows
+    assert fares(frontier) == [(2900, False), (6100, False)]                     # Basic $29; no bag fee listed
+    assert fares(alaska)[:3] == [(5900, False), (10400, True), (10400, False)]    # Saver $59 (+$45 bag), Main $104
+    assert fares(united)[:3] == [(7300, False), (12300, True), (11800, False)]    # Basic Economy $73 (+$50 bag)
+    assert all(c.cost_basis == "COMPLETE_FLIGHT_TOTAL" for row in rows for c in normalize_offers(row, search, run))
+    assert normalize_item(united, search, run).total_cents == 7300
