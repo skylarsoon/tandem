@@ -13,7 +13,7 @@ const PEOPLE = ["ava", "ben", "cleo"] as const;
 
 const keyOf = (row: Row) => String(row.id ?? row.scheduled_id ?? row.key ?? row.job_id ?? row.owner ?? JSON.stringify(row));
 
-function diff(before: Snapshot | null, after: Snapshot) {
+export function diff(before: Snapshot | null, after: Snapshot) {
   const changes: { table: string; op: "new row" | "changed"; row: Row }[] = [];
   for (const [table, rows] of Object.entries(after.tables)) {
     const old = new Map((before?.tables[table] ?? []).map(r => [keyOf(r), JSON.stringify(r)]));
