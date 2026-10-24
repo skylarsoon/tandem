@@ -25,6 +25,11 @@ class ProviderBudget:
             conn.execute("INSERT OR REPLACE INTO provider_budget VALUES (?, ?, ?)", (self.scope, kind, used + 1))
             return used + 1
 
+    def release(self, kind):
+        """Return a reservation the provider definitely refused (nothing ran)."""
+        with sqlite3.connect(self.path, timeout=15) as conn:
+            conn.execute("UPDATE provider_budget SET used = used - 1 WHERE scope=? AND kind=? AND used > 0", (self.scope, kind))
+
     def record(self, **values):
         allowed = {"provider", "kind", "model", "request_id", "input_tokens", "output_tokens", "latency_ms", "outcome"}
         if set(values) - allowed:

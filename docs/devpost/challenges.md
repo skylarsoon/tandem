@@ -66,6 +66,28 @@ The fix came from reading the fine print. Google states its fares already includ
 
 **Live latency and output length.** Asking the scraper for each seller's prices roughly doubled search time, so four travellers' searches no longer fit the two-minute research deadline, and we raised it. Claude's structured decision for a four-person trip also needed more than our 512-token output cap. The worker rejected the cut-off answer rather than guessing, which is what we want, but it ended the run until we raised the limit.
 
+## Fairness and social friction
+
+**The cheapest plan dumped the whole compromise on one person.** Minimizing total cost happily picked a plan where three friends flew cheap and the fourth paid $90 extra so everyone could land together. We changed the policy to *minimax*: first make the largest extra cost anyone carries as small as possible, then minimize the total. Now a $50-each compromise for two people beats $90 for one, and each person privately sees exactly what they pay over their own cheapest option and why.
+
+**"No" had to be information, not a dead end.** When an agent needed someone to pay more to land with the group, their *Ask me first* setting meant asking them. But a "no" just ended the run. Now a declined concession removes that fare and re-solves, so the trade-off can move to the others: in our test, three friends each take a later flight for $150 more instead of one person paying $125. If nothing works without that fare, the system says how far apart the closest arrivals are.
+
+**Explaining "no plan" without outing anyone.** "No plan fits" helps nobody, but "Alice can't afford it" is worse. Every failure now produces a private note for each blocked person, with their own numbers ("the cheapest fare found for you is $290, above your $250 limit"), and a neutral room event that counts causes without names or amounts ("1 traveller: every fare found is above a private limit").
+
+**Whose requirement is it?** With shared stays, one person's request (their own bedroom, a minimum rating) can push someone else over budget. The solver now checks whether dropping one requirement would bring every over-limit trip back within limits. If so, only the people who set that requirement are asked privately whether to set it aside for this trip, and the person over budget is told the requirement is being discussed. In the test, two own-room requests made the only 3-bedroom stay put a friend $80 over their limit. Both agreed to share, and the plan fit everyone.
+
+**Shared costs aren't whole cents.** Splitting a $1,320 stay and transfer four ways is fine, but $1,321 isn't, and a CP-SAT model needs integers. We work in party-size-scaled cents (4 × own flight + shared total), which is exact and preserves every comparison, and round only for display.
+
+**Our own privacy test caught a leak.** Each traveller's private "you pay $125 more" impact was passed to their agent through the agent's task. LangGraph subgraphs inherit the parent's checkpointer, so that task, including the private numbers, was being written to the checkpoint database. A test that scans every checkpoint for private markers failed. We now pass private data to the agent through a closure, which is never checkpointed.
+
+## Planning the whole trip, not just flights
+
+**Only some prices can be approved.** We evaluated scrapers for stays, transfers, car rentals, activities and restaurants against one rule: can people approve this exact price? Airbnb returns a total including taxes. We accept it only when base plus taxes equals the total to the cent, in every row. Airport transfers are fixed per vehicle. Car rentals didn't say whether taxes were included, so we left them out. Activity "from" prices and restaurant price bands go into the plan as clearly labelled ideas, never as terms people approve.
+
+**Sequential scraping didn't scale.** Each search waited for its run to finish before starting the next, so four flights plus four trip searches would take minutes. The gateway now starts every run first, then polls them together, with the same crash-safe ledger, spend budget and deadline.
+
+**Starting everything at once hit the account's limit.** Our first full-trip live run started four flight searches and a stay search in parallel, then the transfer search was refused: Apify allows five concurrent runs per account. Worse, our crash-safety rule treated the refused start as *ambiguous* ("maybe it ran and we lost the reply"), which blocks retries so we never pay twice. A refusal is different: the API answered, so nothing ran. The gateway now starts runs only while there's a free slot (four, leaving one for teammates), starts the next as each finishes, and records a definite refusal as "not started" so it can be retried, returning its reserved budget.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

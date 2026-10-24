@@ -25,6 +25,8 @@ class LiveLimits(Record):
     # booking options makes each Actor run take roughly 40-60 s.
     poll_deadline_seconds: float = Field(default=120, gt=0, le=600)
     freshness_seconds: int = Field(default=900, ge=60, le=900)
+    # Apify accounts cap concurrent Actor runs (5 on ours); keep one slot spare.
+    max_concurrent_runs: int = Field(default=4, ge=1, le=32)
 
 
 class LiveConfig(Record):

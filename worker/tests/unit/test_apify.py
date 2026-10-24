@@ -386,3 +386,58 @@ def test_live_providers_build_trip_research_and_preflight_every_actor(live_case)
     offline = check_providers(config, live_case.settings, online=True, clock=live_case.clock,
                               claude_client=live_case.claude, apify_client=live_case.apify)
     assert set(offline["trip_actors"]) == set(offline["access"]["trip"]) == {"STAY", "DINNER"}
+
+
+def test_runs_start_only_while_the_account_has_capacity_and_refusals_can_retry(tmp_path):
+    """Apify caps concurrent runs per account. Starts beyond the cap wait for a
+    finished run; a start the API refuses leaves nothing ambiguous behind."""
+    from tandem_worker.adapters.apify import ApifyResearch, RunLedger
+    from tandem_worker.ports import FakeClock
+    from tandem_worker.contracts import ContractError
+
+    class Search:
+        def __init__(self, owner):
+            self.owner = owner
+
+        def model_dump(self, mode=None):
+            return {"owner": self.owner}
+
+    class Client:
+        def __init__(self):
+            self.events, self.running, self.refuse_next = [], set(), False
+
+        def start(self, actor_id, build, actor_input, max_charge_usd):
+            if self.refuse_next:
+                self.refuse_next = False
+                raise ContractError("APIFY_REQUEST_REFUSED")
+            assert len(self.running) < 2, "never more than the cap at once"
+            run = f"run-{actor_input['who']}"
+            self.running.add(run)
+            self.events.append(("start", run))
+            return {"id": run, "defaultDatasetId": "d-" + run}
+
+        def run(self, run_id):
+            self.running.discard(run_id)
+            self.events.append(("done", run_id))
+            return {"status": "SUCCEEDED", "defaultDatasetId": "d-" + run_id}
+
+        def items(self, dataset_id, offset, limit):
+            return []
+
+    client = Client()
+    gateway = ApifyResearch(client, RunLedger(tmp_path / "runs.sqlite"), actor_id="actor", build="1.0.0", room_id="r",
+        input_revision=1, permission_revision=1, approved_searches=[Search(o) for o in "abc"], clock=FakeClock(),
+        build_input=lambda search, purpose: {"who": search.owner}, normalize_item=lambda *a: [], pause=lambda s: None,
+        max_concurrent_runs=2)
+    request = {"room_id": "r", "input_revision": 1, "permission_revision": 1, "purpose": "INITIAL", "members": list("abc")}
+    gateway.search(request)
+    assert client.events.index(("start", "run-c")) > client.events.index(("done", "run-a"))
+
+    client.refuse_next = True
+    retry = ApifyResearch(client, RunLedger(tmp_path / "runs2.sqlite"), actor_id="actor", build="1.0.0", room_id="r",
+        input_revision=1, permission_revision=1, approved_searches=[Search("a")], clock=FakeClock(),
+        build_input=lambda search, purpose: {"who": search.owner}, normalize_item=lambda *a: [], pause=lambda s: None)
+    with pytest.raises(ContractError, match="APIFY_REQUEST_REFUSED"):
+        retry.search(request)
+    retry.search(request)  # refused, not ambiguous: the same request may start again
+    assert client.events[-2:] == [("start", "run-a"), ("done", "run-a")]

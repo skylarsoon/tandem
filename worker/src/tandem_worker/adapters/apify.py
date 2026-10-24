@@ -58,6 +58,9 @@ class ApifyHTTP:
                     code = "APIFY_RESOURCE_UNAVAILABLE"
                 elif error.code == 429:
                     code = "APIFY_RATE_LIMITED"
+                elif error.code < 500:
+                    # e.g. 402 when the account's concurrent-run limit is reached.
+                    code = "APIFY_REQUEST_REFUSED"
                 else:
                     code = "APIFY_REQUEST_FAILED"
                 transient = error.code == 429 or error.code >= 500
@@ -124,6 +127,10 @@ class RunLedger:
         with sqlite3.connect(self.path) as conn:
             conn.execute("INSERT OR REPLACE INTO apify_runs VALUES (?, ?)", (key, json.dumps(value)))
 
+    def forget(self, key):
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("DELETE FROM apify_runs WHERE key=?", (key,))
+
     def begin(self, key, value):
         with sqlite3.connect(self.path, timeout=15) as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -143,6 +150,9 @@ class RunLedger:
 
 
 CATEGORIES = ("FLIGHT", "STAY", "TRANSFER", "ACTIVITY", "DINNER")
+# The API answered a start request with a refusal: no run exists, so the same
+# request may be started again later (unlike a lost response, which is ambiguous).
+DEFINITE_REFUSALS = {"APIFY_AUTH_FAILED", "APIFY_RESOURCE_UNAVAILABLE", "APIFY_RATE_LIMITED", "APIFY_REQUEST_REFUSED"}
 
 
 class Deadline:
@@ -177,7 +187,7 @@ class ApifyResearch:
                  approved_searches: list, build_input: Callable, normalize_item: Callable, clock,
                  category="FLIGHT", max_polls=20, max_items=100, max_charge_usd=1.0, pause=time.sleep,
                  budget=None, request_input_builder=None, poll_deadline_seconds=120, monotonic=time.monotonic,
-                 normalizer_version=None):
+                 normalizer_version=None, max_concurrent_runs=None):
         if not re.fullmatch(r"[A-Za-z0-9_~-]+", actor_id) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", build):
             raise ValueError("Pin an allowlisted Actor ID and numeric build version")
         if max_polls <= 0 or max_items <= 0 or max_charge_usd <= 0:
@@ -195,13 +205,13 @@ class ApifyResearch:
         self.budget, self.request_input_builder = budget, request_input_builder
         self.poll_deadline_seconds, self.monotonic = poll_deadline_seconds, monotonic
         self.normalizer_version = normalizer_version
+        self.max_concurrent_runs = max_concurrent_runs
 
     def search(self, request):
         jobs = self.prepare(request)
         deadline = Deadline(self.monotonic, self.poll_deadline_seconds)
         self.precheck(jobs)
-        self.launch(jobs, deadline)
-        return collect_all(jobs, deadline, self.pause)
+        return collect_all(jobs, deadline, self.pause, self.max_concurrent_runs)
 
     def prepare(self, request):
         """Authorize and build every Actor input. Raises before any paid start."""
@@ -256,7 +266,14 @@ class ApifyResearch:
                             run["state"] = "BUDGET_BLOCKED"
                             self.ledger.write(job.key, run)
                             raise
-                    accepted = self.client.start(self.actor_id, self.build, job.actor_input, self.max_charge_usd)
+                    try:
+                        accepted = self.client.start(self.actor_id, self.build, job.actor_input, self.max_charge_usd)
+                    except ContractError as error:
+                        if error.code in DEFINITE_REFUSALS:
+                            self.ledger.forget(job.key)
+                            if self.budget:
+                                self.budget.release("apify")
+                        raise
                     run.update(state="RUNNING", run_id=accepted["id"], dataset_id=accepted.get("defaultDatasetId"))
                     self.ledger.write(job.key, run)
             self.refuse(run)
@@ -330,25 +347,34 @@ class ApifyFlightResearch(ApifyResearch):
         super().__init__(client, ledger, **kwargs)
 
 
-def collect_all(jobs, deadline, pause):
-    """Poll every started run in turn and collect each as soon as it succeeds.
-    Each run keeps its own durable poll count and ledger state."""
-    pending = []
-    for job in jobs:
-        if job.run["state"] == "DONE":
-            job.results = [Candidate.model_validate(c) for c in job.run["candidates"]]
-        elif job.run["state"] == "COLLECTING":
-            job.gateway.collect(job, deadline)
-        else:
-            pending.append(job)
-    cycle = 0
-    while pending:
-        cycle += 1
-        for job in list(pending):
+def collect_all(jobs, deadline, pause, max_active=None):
+    """Start runs while there is capacity (Apify caps concurrent runs per
+    account), poll every started run in turn, and collect each as soon as it
+    succeeds; a finished run frees a slot for the next. Runs the ledger already
+    knows resume without using a slot. Each run keeps its own durable poll
+    count and ledger state."""
+    queue, active, cycle = list(jobs), [], 0
+    while queue or active:
+        for job in list(queue):
+            known = job.gateway.ledger.read(job.key) is not None
+            if not known and max_active is not None and len(active) >= max_active:
+                continue
+            job.gateway.launch([job], deadline)
+            queue.remove(job)
+            if job.run["state"] == "DONE":
+                job.results = [Candidate.model_validate(c) for c in job.run["candidates"]]
+            elif job.run["state"] == "COLLECTING":
+                job.gateway.collect(job, deadline)
+            else:
+                active.append(job)
+        finished = False
+        for job in list(active):
             if job.gateway.poll(job, deadline):
                 job.gateway.collect(job, deadline)
-                pending.remove(job)
-        if pending:
+                active.remove(job)
+                finished = True
+        if active and not finished:
+            cycle += 1
             pause(min(2 ** (cycle - 1), 10, deadline.remaining()))
     return [candidate for job in jobs for candidate in job.results]
 
@@ -395,6 +421,4 @@ class TripResearch:
         deadline = Deadline(self.monotonic, self.poll_deadline_seconds)
         for job in jobs:
             job.gateway.precheck([job])
-        for gateway in gateways:
-            gateway.launch([j for j in jobs if j.gateway is gateway], deadline)
-        return collect_all(jobs, deadline, self.pause)
+        return collect_all(jobs, deadline, self.pause, self.flights.max_concurrent_runs)

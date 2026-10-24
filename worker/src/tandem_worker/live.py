@@ -80,7 +80,8 @@ def trip_gateways(config, client, ledger, snapshot, clock, budget):
             request_input_builder=lambda search, request, spec=spec: spec.build_input(search, request, config.limits.max_items),
             normalize_item=lambda item, search, run, spec=spec: spec.normalize(item, search, run, config.limits.freshness_seconds),
             max_items=max_items, max_charge_usd=config.limits.max_charge_usd,
-            poll_deadline_seconds=config.limits.poll_deadline_seconds, normalizer_version=spec.normalizer_version)
+            poll_deadline_seconds=config.limits.poll_deadline_seconds, normalizer_version=spec.normalizer_version,
+            max_concurrent_runs=config.limits.max_concurrent_runs)
     return gateways
 
 
@@ -109,7 +110,8 @@ def make_providers(config, settings, directory, *, clock=None, claude_client=Non
         request_input_builder=lambda search, request: build_input(search, request, config.limits.max_items),
         normalize_item=lambda item, search, run: normalize_offers(item, search, run, freshness_seconds=config.limits.freshness_seconds),
         max_items=config.limits.max_items, max_charge_usd=config.limits.max_charge_usd,
-        poll_deadline_seconds=config.limits.poll_deadline_seconds, normalizer_version=NORMALIZER_VERSION)
+        poll_deadline_seconds=config.limits.poll_deadline_seconds, normalizer_version=NORMALIZER_VERSION,
+        max_concurrent_runs=config.limits.max_concurrent_runs)
     shared = trip_gateways(config, client, ledger, snapshot, clock, budget)
     if config.trip is not None:
         gateway = TripResearch(gateway, shared)
