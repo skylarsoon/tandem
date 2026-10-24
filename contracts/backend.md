@@ -295,8 +295,22 @@ All 26 views are per-caller and update live.
 - `room_id` limits `eligible_jobs()` to one room and scopes claim keys.
 - `notify_owner()` is `reply_to_owner` (an AGENT row in that owner's `my_private_messages`). `room_event()` is `emit_event` with no member (a ROOM row in `room_events`).
 
+**Shortlist before the solver** (`tandem_worker/shortlist.py`). The optimizer tries every combination of one flight per traveller, so it sees at most `Limits.shortlist_size` flights each (default 5), cut from everything found so far, reused and new alike, on every solve:
+1. **Removed first:** duplicates, expired offers, malformed ones (no price or arrival) and fares that break the owner's confirmed hard limits, judged exactly as the solver judges them (`flight_violation`).
+2. **Kept, in order:**
+   - a locked flight, i.e. one from another decision the group already agreed;
+   - the cheapest;
+   - the one nearest the group's closest common landing window, so a combination that lands together survives if any exists;
+   - then the most distinct by arrival time and price.
+
+   Fewer valid flights than the limit are all kept. Nothing is invented or edited, and the result is the same for any input order.
+3. **Nothing disappears silently:**
+   - a traveller with no usable flight gets their precise reason (cap, bag, landing time, stops) and a targeted search, instead of a plan built around them;
+   - an agreed flight that can't be kept ends the job as `LOCKED_CANDIDATE_UNAVAILABLE`.
+4. **A shortlist proves nothing about what it left out.** If no combination works while untried valid flights remain, the shortlist is redone with those flights, up to `Limits.shortlist_passes` (default 3) times, before searching again. `NO_FEASIBLE_CANDIDATE` therefore means "none among the options checked", and the room event says how many.
+
 **What people see when no plan fits** (`job.outcome = NO_FEASIBLE_CANDIDATE`):
-- **Room:** one `NO_FEASIBLE_PLAN` event. `safe_payload_json` has `text`, `blocked_travellers` (counts by cause: `HARD_LIMIT`, `TRIP_LIMIT`, `BAGGAGE_UNAVAILABLE`, `NO_CANDIDATES`), `blocked_requirements`, and for an arrival clash `closest_spread_seconds` / `required_seconds`. It never names anyone or states a limit.
+- **Room:** one `NO_FEASIBLE_PLAN` event. `safe_payload_json` has `text`, `blocked_travellers` (counts by cause: `HARD_LIMIT`, `TRIP_LIMIT`, `BAGGAGE_UNAVAILABLE`, `NO_CANDIDATES`), `blocked_requirements`, for an arrival clash `closest_spread_seconds` / `required_seconds`, and `flights_checked` / `flights_found` (how many flights the solver was shown out of how many valid ones were found). It never names anyone or states a limit.
 - **Each blocked traveller:** a private note with their own numbers, e.g. "the cheapest trip found for you is $630.00 … above your $600.00 trip limit".
 - **Room requirements:** when someone's own-room request or minimum rating is what blocks the plan (or pushes another traveller over their limit), only that person's agent asks them first, as a `CONCESSION_CONSULTATION` with `action_ref` `relax-bedrooms-r<input_revision>` / `relax-rating-r<…>`. A grant re-plans with the requirement set aside; a refusal ends in the private notes above.
 

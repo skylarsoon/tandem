@@ -65,6 +65,21 @@ def stops_ok(candidate, max_stops) -> bool:
     return max_stops is None or (candidate.stops is not None and candidate.stops <= max_stops)
 
 
+def flight_violation(candidate, brief) -> str | None:
+    """Which of the owner's confirmed hard limits a priced flight is known to
+    break, if any. Unknown baggage isn't a violation: the owner's agent can
+    object and ask for evidence. The solver and the shortlist share this."""
+    if candidate.total_cents > brief.hard_cap_cents:
+        return "OVER_FLIGHT_LIMIT"
+    if brief.baggage_required and candidate.baggage_included is False:
+        return "NO_BAG"
+    if not lands_in_window(candidate, brief.arrival_window):
+        return "ARRIVAL_TIME"
+    if not stops_ok(candidate, brief.max_stops):
+        return "TOO_MANY_STOPS"
+    return None
+
+
 def bedrooms_needed(briefs, per_room=2):
     """Own-room travellers get one each; everyone else shares `per_room` to a
     room (the room's people_per_bedroom setting)."""
@@ -92,13 +107,10 @@ class TripSolver:
         n, window = len(members), snapshot.arrival_overlap_seconds
         by_owner = {b.owner: b for b in briefs}
         priced = [c for c in candidates if c.total_cents is not None]
-        # Known to break a hard requirement → not an option. Unknown baggage stays
-        # selectable so the owner's agent can object and request evidence.
-        flights = {o: [c for c in priced if c.category == "FLIGHT" and c.owner == o and c.total_cents <= by_owner[o].hard_cap_cents
-                       and not (by_owner[o].baggage_required and c.baggage_included is False)
-                       and lands_in_window(c, by_owner[o].arrival_window) and stops_ok(c, by_owner[o].max_stops)]
+        # Known to break a hard requirement → not an option.
+        flights = {o: [c for c in priced if c.category == "FLIGHT" and c.owner == o and flight_violation(c, by_owner[o]) is None]
                    for o in members}
-        conflicts = [self._owner_conflict(o, by_owner[o], candidates) for o in members if not flights[o]]
+        conflicts = [self.owner_conflict(o, by_owner[o], candidates) for o in members if not flights[o]]
 
         shared, shared_conflicts = {}, []
         if "STAY" in snapshot.components:
@@ -207,7 +219,7 @@ class TripSolver:
         return STATUS[solver.solve(model)], solver
 
     @staticmethod
-    def _owner_conflict(owner, brief, candidates):
+    def owner_conflict(owner, brief, candidates):
         priced = [c for c in candidates if c.category == "FLIGHT" and c.owner == owner and c.total_cents is not None]
         if brief.baggage_required:
             with_bag = [c for c in priced if c.baggage_included is not False]

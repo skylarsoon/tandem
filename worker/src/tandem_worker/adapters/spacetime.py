@@ -15,7 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Callable
 
-from ..contracts import (Brief, Candidate, Claim, ContractError, IntakeContext, IntakeMessage, Limits, Message, Preferences,
+from ..contracts import (Brief, Candidate, Claim, Commitment, ContractError, IntakeContext, IntakeMessage, Limits, Message, Preferences,
                          Question, Snapshot, TripBrief, ValidationReport, digest)
 from ..ports import Clock, SystemClock
 from ..briefs import brief_from_constraints
@@ -183,7 +183,9 @@ class SpacetimeBackend:
             onboarded=tuple(sorted(self.owner_name(m) for m in ctx["members"] if m["active"] and any(
                 i["member_id"] == m["member_id"] and i["state"] == "CONFIRMED" for i in ctx.get("intakes", [])))),
             destination=settings.get("destination"), destination_airport=settings.get("destination_airport"),
-            start_date=settings.get("start_date"), end_date=settings.get("end_date"))
+            start_date=settings.get("start_date"), end_date=settings.get("end_date"),
+            commitments=tuple(Commitment(decision_id=c["decision_id"], scope=c["scope"], refs=tuple(c["selected_candidate_refs"]))
+                              for c in ctx.get("commitments", [])))
 
     def _claim(self, job: dict, worker_id: str) -> Claim:
         # snapshot_ref = digest(Snapshot), exactly what FlightValidator stamps on its report.

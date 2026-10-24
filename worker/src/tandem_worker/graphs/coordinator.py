@@ -9,7 +9,8 @@ from langgraph.types import interrupt
 
 from ..contracts import Act, Candidate, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
-from ..solver import RELAXABLE, relax_nudge
+from ..shortlist import dedupe, shortlist_flights
+from ..solver import POLICY, RELAXABLE, TripSolver, relax_nudge
 from .personal import build_personal, nudges, question_for, send_message
 
 # Solver conflict → the research blocker a targeted search can act on, and what to search again.
@@ -19,6 +20,8 @@ RESEARCH_BLOCKER = {"HARD_LIMIT": "HARD_LIMIT", "BAGGAGE_UNAVAILABLE": "BAGGAGE_
                     "TRANSFER_UNAVAILABLE": "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME": "ARRIVAL_OVERLAP",
                     "TOO_MANY_STOPS": "NO_MATCHING_CANDIDATE"}
 RESEARCH_CATEGORIES = {"TRIP_LIMIT": ("FLIGHT", "STAY"), "STAY_UNAVAILABLE": ("STAY",), "TRANSFER_UNAVAILABLE": ("TRANSFER",)}
+# The decision this graph plans (the whole trip); other agreed decisions' flights are locked.
+DECISION = "trip"
 
 
 class CoordinatorState(TypedDict, total=False):
@@ -48,6 +51,9 @@ class CoordinatorState(TypedDict, total=False):
     research_unavailable: bool
     research_categories: list[str]
     pickup_time: str
+    # Neutral counts: flights the solver was shown vs valid flights found.
+    flights_checked: int
+    flights_found: int
 
 
 def build_coordinator(backend, claim, model, research, solver, validator, clock, limits, checkpointer):
@@ -148,24 +154,49 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         if snapshot.onboarding and set(snapshot.onboarded) != set(snapshot.members):
             # Searched early; nothing is proposed until everyone has confirmed their onboarding.
             return {"outcome": "WAITING_FOR_INTAKE", "solver_status": "", "selected": []}
-        excluded = set(state.get("excluded", ()))
-        candidates = [Candidate.model_validate(c) for c in state["candidates"] if c["valid_until"] > clock.now() and c["id"] not in excluded]
+        excluded, now = set(state.get("excluded", ())), clock.now()
+        candidates = [Candidate.model_validate(c) for c in state["candidates"] if c["valid_until"] > now and c["id"] not in excluded]
         briefs = briefs_for(snapshot)
+        by_owner = {b.owner: b for b in briefs}
         relaxations = digest([b.model_dump(mode="json") for b in briefs])[:12]
-        key = f"solve:{state['round']}:{len(excluded)}:{relaxations}"
-        request = {"snapshot": claim.snapshot_ref, "candidates": digest(candidates_data(candidates)), "briefs": relaxations}
+        base = f"solve:{state['round']}:{len(excluded)}:{relaxations}"
         # Onboarded rooms choose flights (and the stay) first; the transfer is then searched
         # for the group's actual latest landing and the plan solved again with it.
         plan_for = snapshot
         if snapshot.onboarding and "TRANSFER" in snapshot.components and not any(c.category == "TRANSFER" for c in candidates):
             plan_for = snapshot.model_copy(update={"components": tuple(c for c in snapshot.components if c != "TRANSFER")})
-            key += ":before-transfer"
-        raw = backend.operation(claim, key, request, "local", lambda: solver.solve(plan_for, briefs, candidates))
-        result = SolverResult.model_validate(raw)
+            base += ":before-transfer"
+        # The solver sees a shortlist: a few distinct flights per traveller, from
+        # everything found so far (reused and new). If none of its combinations
+        # works while untried flights remain, shortlist differently before
+        # concluding anything; only then search again.
+        locked = sorted({ref for c in snapshot.commitments if c.decision_id != DECISION for ref in c.refs})
+        tried: set[str] = set()
+        for attempt in range(limits.shortlist_passes):
+            pick = shortlist_flights(candidates, plan_for, briefs, limit=limits.shortlist_size, now=now,
+                                     locked=locked, tried=tried)
+            if pick.lock_conflicts:
+                # An agreed flight can't be kept (gone, expired or now breaking a limit): never drop it silently.
+                return {"outcome": "LOCKED_CANDIDATE_UNAVAILABLE", "solver_status": "", "selected": []}
+            key = f"{base}:p{attempt}"
+            request = {"snapshot": claim.snapshot_ref, "candidates": digest(candidates_data(pick.candidates)), "briefs": relaxations}
+
+            def run(pick=pick):
+                if pick.empty_groups:
+                    # Someone has no usable flight at all: say why, never solve as if they did.
+                    return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
+                        TripSolver.owner_conflict(o, by_owner[o], candidates) for o in pick.empty_groups))
+                return solver.solve(plan_for, briefs, list(pick.candidates))
+            result = SolverResult.model_validate(backend.operation(claim, key, request, "local", run))
+            if result.status != "INFEASIBLE" or pick.empty_groups or not any(g.untried_valid for g in pick.groups):
+                break
+            tried |= {ref for g in pick.groups for ref in g.kept}
         draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
         outcome = "" if result.status in {"OPTIMAL", "FEASIBLE", "INFEASIBLE"} else result.status
         update = {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome,
-                  "solve_key": key, "solve_request": request, "resolve": False, "group_window": []}
+                  "solve_key": key, "solve_request": request, "resolve": False, "group_window": [],
+                  "flights_checked": len(tried | {ref for g in pick.groups for ref in g.kept}),
+                  "flights_found": sum(g.valid for g in pick.groups)}
         if result.group:
             zone = next(c.arrival_timezone for c in candidates if c.id == result.selected[0])
             update["group_window"] = [result.group.earliest_arrival, result.group.latest_arrival, zone]
@@ -312,7 +343,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             for holder in requirement_holders(conflict, briefs):
                 backend.notify_owner(claim, holder, requirement_note(conflict, by_owner[holder]),
                                      f"no-plan:{state['round']}:{conflict.requirement}:{holder}")
-        backend.room_event(claim, "NO_FEASIBLE_PLAN", {**room_conflict_event(conflicts), "travellers": len(snapshot.members)},
+        # Only among the options checked: a heuristic shortlist proves nothing about the rest.
+        backend.room_event(claim, "NO_FEASIBLE_PLAN", {**room_conflict_event(conflicts), "travellers": len(snapshot.members),
+                                                       "flights_checked": state.get("flights_checked", 0),
+                                                       "flights_found": state.get("flights_found", 0)},
                            f"no-plan:{state['round']}")
         return {"outcome": "NO_FEASIBLE_CANDIDATE"}
 
@@ -355,16 +389,3 @@ def pickup_after(epoch: int, zone: str | None) -> str:
     local = datetime.fromtimestamp(epoch, ZoneInfo(zone or "UTC"))
     minutes = (local.hour * 60 + local.minute + 29) // 30 * 30
     return f"{min(minutes, 23 * 60 + 30) // 60:02d}:{min(minutes, 23 * 60 + 30) % 60:02d}"
-
-
-def dedupe(candidates):
-    """Repeat searches return the same offer under new observation ids; keep the latest."""
-    latest = {}
-    for c in candidates:
-        if c.category != "FLIGHT":
-            key = (c.category, c.source_url, c.total_cents)  # the listing, place or vehicle offer
-        else:
-            key = (c.owner, c.flight_identity, c.total_cents, c.baggage_included) if c.flight_identity else c.id
-        if key not in latest or c.observed_at > latest[key].observed_at:
-            latest[key] = c
-    return sorted(latest.values(), key=lambda c: c.id)

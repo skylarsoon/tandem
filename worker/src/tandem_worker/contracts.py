@@ -58,6 +58,13 @@ class Brief(Record):
     answered: tuple[str, ...] = ()
 
 
+class Commitment(Record):
+    """A decision the whole group already agreed, and the candidates it chose."""
+    decision_id: str
+    scope: str
+    refs: tuple[str, ...] = ()
+
+
 class Snapshot(Record):
     room_id: str
     input_revision: int = 1
@@ -80,6 +87,8 @@ class Snapshot(Record):
     start_date: str | None = None
     end_date: str | None = None
     destination: str | None = None
+    # Agreed decisions: what later planning builds on and must not silently drop.
+    commitments: tuple[Commitment, ...] = ()
 
     @model_validator(mode="after")
     def valid_members(self):
@@ -341,6 +350,31 @@ class SolverResult(Record):
     conflicts: tuple[Conflict, ...] = ()
 
 
+class GroupShortlist(Record):
+    """One selection group's shortlist (a traveller's flights), with what was
+    left out and why, so nothing disappears silently."""
+    group: str
+    found: int
+    valid: int
+    kept: tuple[str, ...]
+    excluded: dict[str, int] = Field(default_factory=dict)  # reason -> count
+    untried_valid: int = 0  # valid options never yet shown to the solver
+
+
+class Shortlist(Record):
+    """Candidates for the solver: at most `limit` per group, plus everything
+    outside the shortlisted category untouched. A heuristic: an infeasible
+    shortlist proves nothing about the options left out."""
+    candidates: tuple[Candidate, ...]
+    groups: tuple[GroupShortlist, ...]
+    empty_groups: tuple[str, ...] = ()
+    lock_conflicts: tuple[str, ...] = ()
+
+    @property
+    def truncated(self) -> bool:
+        return any(g.valid > len(g.kept) for g in self.groups)
+
+
 class Route(Record):
     """One traveller's flight search, built from what they confirmed in onboarding."""
     owner: str
@@ -404,6 +438,10 @@ class Limits(Record):
     model_calls: int = Field(default=100, gt=0)
     research_calls: int = Field(default=4, gt=0)
     solver_seconds: float = Field(default=5, gt=0)
+    # Most flights per traveller the solver sees (the optimizer tries every
+    # combination), and how many differently-shortlisted tries before searching again.
+    shortlist_size: int = Field(default=5, ge=1, le=50)
+    shortlist_passes: int = Field(default=3, ge=1, le=10)
 
     @model_validator(mode="after")
     def heartbeat_before_expiry(self):

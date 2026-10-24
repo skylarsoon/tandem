@@ -127,6 +127,13 @@ Burdens are stored as millionths, not floats, so a person's total stays exact ho
 
 Agreeing one part also queues planning of the next.
 
+**Too many flights to try every combination.** The fairness optimizer tries every combination of one flight per traveller: five people with twenty flights each is 3.2 million plans. So a shortlist cuts each person to five meaningfully different flights:
+- the cheapest;
+- the one that lands closest to everyone else's;
+- the most distinct alternatives by time and price.
+
+The risk was a heuristic quietly turning into a verdict. "No plan among these five" isn't "no plan exists", so an infeasible shortlist is redone with flights it hadn't tried before Tandem searches again, and the "no plan" message counts how many options it checked. Someone with no usable flight at all is told why, privately, instead of being planned around.
+
 **Adding an argument broke every caller at once.** SpacetimeDB rejects a call that is missing an argument ("missing reducer argument `burdens`"), so adding one to `publish_proposal` broke the simulator, the worker and the tests together. Every caller is now updated in the same commit, and the module and the worker have to be deployed together.
 
 ## Honest limits
