@@ -114,6 +114,10 @@ def test_claim_refs_must_resolve(ready_room, client, worker):
         "source_url": "fixture://flights/sfo", "observed_at": "2026-10-24T09:00:00Z",
         "facts_json": json.dumps({"price_cents": 48000}), "missing_fields": ["baggage"]}])
     room.send(worker, job_id, claim_refs=["cand_sfo_1005"], evidence_refs=["draft:draft-1"])
+    # Field citations resolve through their record; unknown records or odd fields don't.
+    room.send(worker, job_id, claim_refs=["cand_sfo_1005#price", "draft:draft-1#arrival_window"])
+    expect_error("UTTERANCE_PAYLOAD_MISMATCH", room.send, worker, job_id, claim_refs=["cand_nope#price"])
+    expect_error("UTTERANCE_PAYLOAD_MISMATCH", room.send, worker, job_id, claim_refs=["cand_sfo_1005#Price!"])
     candidates = client.view(room.people["dave"], "room_candidates")
     assert [c["candidate_ref"] for c in candidates] == ["cand_sfo_1005"]
 

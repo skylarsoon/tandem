@@ -355,6 +355,12 @@ export function setMilestone(ctx: Ctx, roomId: bigint, stage: string, state: str
 // Claim and evidence refs must point at facts the room already holds:
 // a recorded candidate ref, "msg:<id>", "proposal:<id>", or "draft:<ref>".
 export function refResolves(ctx: Ctx, roomId: bigint, ref: string): boolean {
+  // `<ref>#<field>` cites one field of a record (e.g. `apify-x#price`); the record must resolve.
+  const hash = ref.indexOf('#');
+  if (hash >= 0) {
+    if (!/^[a-z_]+$/.test(ref.slice(hash + 1))) return false;
+    ref = ref.slice(0, hash);
+  }
   const colon = ref.indexOf(':');
   const prefix = colon >= 0 ? ref.slice(0, colon) : '';
   const rest = colon >= 0 ? ref.slice(colon + 1) : ref;
