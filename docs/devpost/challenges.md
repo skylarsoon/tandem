@@ -62,6 +62,10 @@ The fix came from reading the fine print. Google states its fares already includ
 
 **The scraper's documentation and its real output disagreed.** The docs describe booking options as `booking-option-{n}-…`, and we assumed numbering started at 1. One real run showed it starts at 0, and option 0 is usually the airline's cheapest basic fare. We'd been skipping exactly the fare people want (United Basic Economy $73, shown instead as $118), and reading a phantom empty option at the end. We saved those real rows as a test fixture, so the parser is now checked against what the actor actually returns.
 
+**Real fares broke our made-up budgets.** Our first four-city Hawaii run ended in "no feasible plan". It was right: the cheapest real SFO→Honolulu fare was $292 against a $250 cap, and Seattle's cheapest was $432 against $350. The system searched again, still found nothing, and said so instead of quietly stretching a limit. With realistic budgets, it found the only plan where everyone lands within two hours, which required the New Yorker to take a $629 flight instead of a cheaper one landing at midnight.
+
+**Live latency and output length.** Asking the scraper for each seller's prices roughly doubled search time, so four travellers' searches no longer fit the two-minute research deadline, and we raised it. Claude's structured decision for a four-person trip also needed more than our 512-token output cap. The worker rejected the cut-off answer rather than guessing, which is what we want, but it ended the run until we raised the limit.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

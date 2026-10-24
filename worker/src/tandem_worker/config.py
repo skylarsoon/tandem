@@ -20,7 +20,9 @@ class LiveLimits(Record):
     max_items: int = Field(default=10, ge=1, le=100)
     max_charge_usd: float = Field(default=1.0, gt=0, le=10)
     http_timeout: float = Field(default=30, gt=0, le=30)
-    poll_deadline_seconds: float = Field(default=120, gt=0, le=120)
+    # One deadline covers every owner's search in a research step; resolving
+    # booking options makes each Actor run take roughly 40-60 s.
+    poll_deadline_seconds: float = Field(default=120, gt=0, le=600)
     freshness_seconds: int = Field(default=900, ge=60, le=900)
 
 
