@@ -12,6 +12,7 @@ dependencies = [
   "langgraph-checkpoint-sqlite>=3,<4",
   "pydantic>=2.10,<3",
   "ortools>=9.12,<10",
+  "airportsdata>=20260905",
 ]
 
 [project.optional-dependencies]

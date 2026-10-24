@@ -1,20 +1,23 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TypedDict
+from zoneinfo import ZoneInfo
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from ..contracts import Act, Candidate, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
-from ..solver import RELAXABLE, relax_ref, relaxed
-from .personal import build_personal, question_for, send_message
+from ..solver import RELAXABLE, relax_nudge
+from .personal import build_personal, nudges, question_for, send_message
 
 # Solver conflict → the research blocker a targeted search can act on, and what to search again.
 RESEARCH_BLOCKER = {"HARD_LIMIT": "HARD_LIMIT", "BAGGAGE_UNAVAILABLE": "BAGGAGE_UNKNOWN",
                     "NO_CANDIDATES": "NO_MATCHING_CANDIDATE", "ARRIVAL_WINDOW": "ARRIVAL_OVERLAP",
                     "TRIP_LIMIT": "HARD_LIMIT", "STAY_UNAVAILABLE": "STAY_UNAVAILABLE",
-                    "TRANSFER_UNAVAILABLE": "TRANSFER_UNAVAILABLE"}
+                    "TRANSFER_UNAVAILABLE": "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME": "ARRIVAL_OVERLAP",
+                    "TOO_MANY_STOPS": "NO_MATCHING_CANDIDATE"}
 RESEARCH_CATEGORIES = {"TRIP_LIMIT": ("FLIGHT", "STAY"), "STAY_UNAVAILABLE": ("STAY",), "TRANSFER_UNAVAILABLE": ("TRANSFER",)}
 
 
@@ -44,6 +47,7 @@ class CoordinatorState(TypedDict, total=False):
     resolve: bool
     research_unavailable: bool
     research_categories: list[str]
+    pickup_time: str
 
 
 def build_coordinator(backend, claim, model, research, solver, validator, clock, limits, checkpointer):
@@ -51,9 +55,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         return backend.load_execution_context(claim)
 
     def briefs_for(snapshot):
-        # Room requirements an owner agreed to set aside for this trip no longer bind.
-        briefs = [backend.read_brief(claim, o) for o in snapshot.members]
-        return relaxed(briefs, snapshot.input_revision, lambda owner, ref: backend.has_permission(claim, owner, "CONSULTATION", ref))
+        return [backend.read_brief(claim, o) for o in snapshot.members]
 
     def ask_to_relax(snapshot, conflicts, briefs):
         """When an owner's own room requirement blocks the plan, their agent asks
@@ -62,12 +64,14 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         for conflict in conflicts:
             if conflict.requirement not in RELAXABLE:
                 continue
+            field = RELAXABLE[conflict.requirement][0]
             for holder in requirement_holders(conflict, briefs):
-                question = question_for(claim, holder, "CONSULTATION", relax_ref(snapshot.input_revision, conflict.requirement),
-                                        relax_prompt(conflict, by_owner[holder]))
+                if f"kept_{field}" in by_owner[holder].answered:
+                    continue  # they already said they need it
+                question = question_for(claim, holder, "MISSING_FACT", f"relax:{conflict.requirement.lower()}",
+                                        relax_prompt(conflict, by_owner[holder]), relax_nudge(conflict.requirement))
                 try:
                     backend.get_question(claim, question.id)
-                    continue  # already answered: a yes is applied in briefs_for, a no stands
                 except KeyError:
                     asked.append(backend.ask_owner(claim, question))
         return sorted(set(asked))
@@ -82,7 +86,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         snapshot = current()
         questions = []
         for owner in snapshot.members:
-            if not backend.read_brief(claim, owner).preferences.confirmed:
+            # Onboarded rooms confirm settings in each person's onboarding summary instead.
+            if not snapshot.onboarding and not backend.read_brief(claim, owner).preferences.confirmed:
                 questions.append(backend.ask_owner(claim, question_for(claim, owner, "PARTICIPATION", "participation-settings")))
         return {"snapshot": snapshot.model_dump(mode="json"), "round": 0, "cycle": 0, "questions": questions,
                 "candidates": [], "outcome": "", "need_research": False}
@@ -98,8 +103,21 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         stamp = backend.operation(claim, f"research-time:{state['round']}", {}, "local", clock.now)
         trip = len(snapshot.components) > 1
         initial = [*snapshot.components, "ACTIVITY", "DINNER"] if trip else ["FLIGHT"]
+        routes, facts = [], None
+        if snapshot.onboarding:
+            # Search from what people confirmed; wait until everyone has said where they fly from.
+            briefs = {o: backend.read_brief(claim, o) for o in snapshot.members}
+            if any(b.origin_airport is None for b in briefs.values()):
+                return {"outcome": "WAITING_FOR_INTAKE"}
+            routes = [{"owner": o, "origin": b.origin_airport, "destination": snapshot.destination_airport,
+                       "date": snapshot.start_date, "max_stops": b.max_stops} for o, b in briefs.items()]
+            facts = {"destination": snapshot.destination, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
+                     "party_size": len(snapshot.members), "pickup_time": state.get("pickup_time")}
+            # The airport transfer is searched once flights are chosen, for the group's latest landing.
+            initial = [c for c in initial if c != "TRANSFER"]
         request = {"purpose": purpose, "members": list(snapshot.members), "scope": "TRIP" if trip else "FLIGHTS_ONLY",
             "categories": initial if purpose == "INITIAL" else state.get("research_categories") or ["FLIGHT"],
+            "routes": routes, "trip": facts,
             "room_id": snapshot.room_id,
             "input_revision": snapshot.input_revision, "permission_revision": snapshot.permission_revision, "observed_at": stamp,
             "blocker_message_ref": state.get("research_cause_ref", ""),
@@ -127,13 +145,22 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
 
     def solve(state):
         snapshot = current()
+        if snapshot.onboarding and set(snapshot.onboarded) != set(snapshot.members):
+            # Searched early; nothing is proposed until everyone has confirmed their onboarding.
+            return {"outcome": "WAITING_FOR_INTAKE", "solver_status": "", "selected": []}
         excluded = set(state.get("excluded", ()))
         candidates = [Candidate.model_validate(c) for c in state["candidates"] if c["valid_until"] > clock.now() and c["id"] not in excluded]
         briefs = briefs_for(snapshot)
         relaxations = digest([b.model_dump(mode="json") for b in briefs])[:12]
         key = f"solve:{state['round']}:{len(excluded)}:{relaxations}"
         request = {"snapshot": claim.snapshot_ref, "candidates": digest(candidates_data(candidates)), "briefs": relaxations}
-        raw = backend.operation(claim, key, request, "local", lambda: solver.solve(snapshot, briefs, candidates))
+        # Onboarded rooms choose flights (and the stay) first; the transfer is then searched
+        # for the group's actual latest landing and the plan solved again with it.
+        plan_for = snapshot
+        if snapshot.onboarding and "TRANSFER" in snapshot.components and not any(c.category == "TRANSFER" for c in candidates):
+            plan_for = snapshot.model_copy(update={"components": tuple(c for c in snapshot.components if c != "TRANSFER")})
+            key += ":before-transfer"
+        raw = backend.operation(claim, key, request, "local", lambda: solver.solve(plan_for, briefs, candidates))
         result = SolverResult.model_validate(raw)
         draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
         outcome = "" if result.status in {"OPTIMAL", "FEASIBLE", "INFEASIBLE"} else result.status
@@ -142,6 +169,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         if result.group:
             zone = next(c.arrival_timezone for c in candidates if c.id == result.selected[0])
             update["group_window"] = [result.group.earliest_arrival, result.group.latest_arrival, zone]
+            if plan_for is not snapshot:
+                return {**update, "need_research": True, "research_categories": ["TRANSFER"],
+                        "research_blocker_code": "TRANSFER_UNAVAILABLE", "research_target_owners": list(snapshot.members),
+                        "pickup_time": pickup_after(result.group.latest_arrival, zone)}
         if result.status == "INFEASIBLE":
             owners = sorted({c.owner for c in result.conflicts if c.owner})
             categories = sorted({k for c in result.conflicts for k in RESEARCH_CATEGORIES.get(c.code, ("FLIGHT",))})
@@ -160,6 +191,14 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         result = solution(state)
         impacts = {i.owner: i.model_dump(mode="json") for i in result.impacts}
         share = result.group.share_each_cents if result.group else 0
+        # Before the agents talk, ask everyone at once about anything this plan depends
+        # on that they never said (one question per topic, recorded as their answer).
+        nudged = [backend.ask_owner(claim, question_for(claim, owner, "MISSING_FACT", f"nudge:{topic}", prompt,
+                                                        {"yes": yes, "no": no}))
+                  for owner in snapshot.members
+                  for topic, prompt, yes, no in nudges(state["snapshot"], backend.read_brief(claim, owner), selected[owner], shared)]
+        if nudged:
+            return {"questions": nudged}
         window = state.get("group_window") or None
         # Private to each owner's agent: what this plan costs them and why. Passed by
         # closure, not task state, because subgraph state is checkpointed.
@@ -171,7 +210,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             initial = Payload(draft_ref=state["draft_ref"], evaluation="REQUESTED",
                               candidate_refs=(selected[owner]["id"], *(c["id"] for c in shared)))
             inbound_ref = send_message(backend, claim, state["snapshot"], "mediator", owner, Act.PROPOSE, initial,
-                thread_id, ("mediator", owner), state["round"], operation_ref=f"dispatch:{owner}:{state['cycle']}",
+                thread_id, tuple(sorted(("mediator", owner))), state["round"], operation_ref=f"dispatch:{owner}:{state['cycle']}",
                 candidate=[selected[owner], *shared], group_window=window, share_cents=share)
             sender, recipient, inbound_type = "mediator", owner, "PROPOSE"
             inbound_payload = initial.model_dump(mode="json")
@@ -227,7 +266,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         if any(q.answer is None for q in questions):
             raise ContractError("ANSWERS_NOT_READY")
         update = {"questions": [], "cycle": state["cycle"] + 1, "outcome": ""}
-        if any(q.action_ref.startswith("relax-") for q in questions):
+        if any(q.action_ref.startswith(("relax:", "nudge:")) for q in questions):
             # Re-solve with whatever was granted; a refusal leaves that requirement in place.
             return {**update, "resolve": True}
         declined = [q for q in questions if q.answer is False]
@@ -296,7 +335,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
     builder.add_edge(START, "load_snapshot")
     builder.add_conditional_edges("load_snapshot", lambda s: "await_owner" if s["questions"] else "discover")
     builder.add_edge("discover", "solve")
-    builder.add_conditional_edges("solve", lambda s: route(s) if s["outcome"] or s["solver_status"] == "INFEASIBLE" else "dialogue")
+    builder.add_conditional_edges("solve", lambda s: route(s) if s["outcome"] or s["solver_status"] == "INFEASIBLE"
+                                  or s.get("need_research") else "dialogue")
     builder.add_conditional_edges("dialogue", route)
     builder.add_conditional_edges("await_owner", lambda s: END if s["outcome"] else
                                   "solve" if s.get("resolve") else "dialogue" if s.get("selected") else "discover")
@@ -308,6 +348,13 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
 
 def candidates_data(candidates):
     return [c.model_dump(mode="json") for c in candidates]
+
+
+def pickup_after(epoch: int, zone: str | None) -> str:
+    """The group's latest landing, local, rounded up to the next half hour."""
+    local = datetime.fromtimestamp(epoch, ZoneInfo(zone or "UTC"))
+    minutes = (local.hour * 60 + local.minute + 29) // 30 * 30
+    return f"{min(minutes, 23 * 60 + 30) // 60:02d}:{min(minutes, 23 * 60 + 30) % 60:02d}"
 
 
 def dedupe(candidates):

@@ -96,6 +96,12 @@ def explanation(group: GroupSummary, impacts: tuple[Impact, ...], zone: str | No
 
 
 def owner_conflict_note(conflict: Conflict, brief: Brief) -> str:
+    if conflict.code == "ARRIVAL_TIME":
+        return ("No plan fits yet: no flight found for you lands within the arrival times you gave. Allowing other "
+                f"arrival times would unblock it; the cheapest such fare is {money(conflict.cheapest_cents)}.")
+    if conflict.code == "TOO_MANY_STOPS":
+        return ("No plan fits yet: no flight found for you has few enough connections. Allowing a connection would "
+                f"unblock it; the cheapest such fare is {money(conflict.cheapest_cents)}.")
     if conflict.code == "TRIP_LIMIT":
         text = (f"No plan fits yet: the cheapest trip found for you is {money(conflict.cheapest_cents)} (your flight plus an "
                 f"equal share of the stay and transfer), above your {money(brief.trip_cap_cents)} trip limit. Raising your "
@@ -115,6 +121,8 @@ def owner_conflict_note(conflict: Conflict, brief: Brief) -> str:
 
 # Which travellers' own settings a shared conflict comes from; only they are told.
 def requirement_holders(conflict: Conflict, briefs: list[Brief]) -> list[str]:
+    if conflict.requirement in ("ARRIVAL_TIME", "STOPS"):
+        return [conflict.owner]  # their own timing limit, asked of them alone
     if conflict.requirement == "BEDROOMS":
         return [b.owner for b in briefs if b.own_bedroom]
     if conflict.requirement == "RATING":
@@ -154,6 +162,8 @@ def room_conflict_event(conflicts: tuple[Conflict, ...]) -> dict:
     for code, count in payload["blocked_travellers"].items():
         who = "1 traveller" if count == 1 else f"{count} travellers"
         lines.append({"HARD_LIMIT": f"{who}: every fare found is above a private limit.",
+                      "ARRIVAL_TIME": f"{who}: no flight found lands at a time that works for them.",
+                      "TOO_MANY_STOPS": f"{who}: no flight found has few enough connections.",
                       "BAGGAGE_UNAVAILABLE": f"{who}: no fare found confirms a required checked bag.",
                       "TRIP_LIMIT": f"{who}: the cheapest trip found is above a private limit.",
                       "NO_CANDIDATES": f"{who}: no fare with a complete price was found."}[code])
@@ -174,6 +184,15 @@ def room_conflict_event(conflicts: tuple[Conflict, ...]) -> dict:
 
 def relax_prompt(conflict: Conflict, brief: Brief) -> str:
     """Owner-only: the exact requirement their agent would set aside for this trip."""
+    if conflict.requirement == "ARRIVAL_TIME":
+        w = brief.arrival_window or {}
+        return (f"No flight found for you lands between {w.get('earliest', '00:00')} and {w.get('latest', '23:59')}; the "
+                f"cheapest that doesn't is {money(conflict.cheapest_cents)}. May your agent consider other arrival times "
+                "for this trip? You'll still review the final plan.")
+    if conflict.requirement == "STOPS":
+        return (f"No flight found for you within your stops limit; the cheapest with more stops is "
+                f"{money(conflict.cheapest_cents)}. May your agent consider flights with a connection? "
+                "You'll still review the final plan.")
     if conflict.requirement == "BEDROOMS":
         why = ("the stay that fits it costs enough to put the trip over another traveller's limit"
                if conflict.code == "TRIP_LIMIT" else "no stay found has enough bedrooms for it")

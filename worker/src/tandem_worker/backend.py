@@ -14,10 +14,10 @@ from pathlib import Path
 
 from .contracts import (TOPICS, Brief, Candidate, Claim, ContractError, IntakeContext, IntakeMessage, Limits, Message,
                         Preferences, Question, Snapshot, TripBrief, ValidationReport, digest)
-from .briefs import NO_CONFIRMED_CAP, brief_from_constraints
+from .briefs import NO_CONFIRMED_CAP, apply_row
 from .intake_policy import MAX_QUESTIONS, MONEY_KEYS
 from .ports import Clock, SystemClock
-from .solver import TripValidator, relaxed
+from .solver import TripValidator
 
 
 def primitive(value):
@@ -192,7 +192,7 @@ class LocalBackend:
             if thread:
                 if thread["state"] != "OPEN":
                     raise ContractError("THREAD_CLOSED")
-                if thread["participants"] != list(participants) or thread["round"] != message.round_id:
+                if sorted(thread["participants"]) != sorted(participants) or thread["round"] != message.round_id:
                     raise ContractError("NOT_AUTHORIZED")
             else:
                 thread = dict(participants=list(participants), state="OPEN", turns=0, round=message.round_id, generation=claim.generation)
@@ -300,6 +300,10 @@ class LocalBackend:
             if question["answer"] is not None:
                 raise ContractError("ALREADY_ANSWERED")
             question["answer"] = answer
+            if question.get("nudge"):
+                # A just-in-time answer is the owner's confirmed constraint; the waiting
+                # job resumes and re-plans with it (no restart, so others' questions stand).
+                self._apply(state, owner, question["nudge"]["yes" if answer else "no"])
             # Disclosure/consultation answers are action grants. They invalidate
             # old execution authority, never create final proposal consent.
             if answer and question["kind"] in {"DISCLOSURE", "CONSULTATION", "EXPLORE", "PARTICIPATION"}:
@@ -359,8 +363,7 @@ class LocalBackend:
             if not report.valid or report.snapshot_ref != claim.snapshot_ref or report.selected != tuple(selected) or report.candidate_digest != digest([primitive(c) for c in candidates]):
                 raise ContractError("INVALID_VALIDATION_REPORT")
             # The backend re-checks every hard rule from its own records.
-            briefs = relaxed([Brief.model_validate(state["briefs"][o]) for o in snapshot.members], snapshot.input_revision,
-                             lambda owner, ref: self._has_grant(state, owner, "CONSULTATION", ref))
+            briefs = [Brief.model_validate(state["briefs"][o]) for o in snapshot.members]
             checked = TripValidator().validate(snapshot, briefs, records, tuple(selected), self.clock.now())
             if "INVALID_COVERAGE" in checked.checks:
                 raise ContractError("INVALID_COVERAGE")
@@ -530,6 +533,10 @@ class LocalBackend:
                 raise ContractError("INVALID_STATE")
             brief["state"] = "CONFIRMED"
             state["snapshot"]["components"] = list(brief["brief"]["components"])
+            state["snapshot"]["onboarding"] = True
+            facts = brief["brief"]
+            state["snapshot"].update(destination=facts["destination"], destination_airport=facts["destination_airport"],
+                                     start_date=facts["start_date"], end_date=facts["end_date"])
             for owner in state["snapshot"]["members"]:
                 if owner not in board["intakes"]:
                     board["intakes"][owner] = {"state": "ASKING", "coverage": self._coverage(state, owner), "question_count": 0}
@@ -552,10 +559,8 @@ class LocalBackend:
         row = {k: patch[k] for k in ("value", "hardness") if k in patch}
         row["authorized_range"] = patch.get("authorized_range")
         row["private_rationale"] = patch.get("private_rationale")
-        rows = self._onboarding(state)["constraints"].setdefault(owner, {})
-        rows[patch["key"]] = row
-        old = Brief.model_validate(state["briefs"][owner])
-        state["briefs"][owner] = primitive(brief_from_constraints(owner, rows, old.preferences, old.reminders_opted_in))
+        self._onboarding(state)["constraints"].setdefault(owner, {})[patch["key"]] = row
+        state["briefs"][owner] = primitive(apply_row(Brief.model_validate(state["briefs"][owner]), patch["key"], row))
 
     def confirm_origin(self, owner: str, patch_id: int) -> None:
         with self._tx() as state:
@@ -588,6 +593,7 @@ class LocalBackend:
             if not keys & MONEY_KEYS or "origin_airport" not in keys:
                 raise ContractError("INTAKE_INCOMPLETE")
             intake["state"] = "CONFIRMED"
+            state["snapshot"]["onboarded"] = sorted({*state["snapshot"].get("onboarded", []), owner})
             self._supersede(state, "input_revision")
 
     def conversation(self, owner: str) -> list[dict]:

@@ -122,3 +122,41 @@ def test_summary_shows_their_words_and_readings_and_keeps_reasons_private(trip):
     assert "laid off" not in json.dumps(backend.shared_report())
     dana = backend.brief_of("dana")
     assert dana.notes == ("Home by Sunday afternoon",)
+
+
+def test_from_onboarding_to_a_plan_with_just_in_time_questions(tmp_path):
+    """Six people onboard by conversation, then the planner works from their answers:
+    searches from their airports, asks only what the plan depends on, and publishes."""
+    from tandem_worker.fixtures import FixtureResearch
+    clock = FakeClock()
+    backend = LocalBackend(tmp_path / "backend.sqlite", clock)
+    backend.seed_trip(NAMES, organizer=PERSONAS["trip"]["organizer"])
+    research = FixtureResearch(clock, "onboarded")
+    worker = Worker(backend, PersonaModel(), research, tmp_path / "checkpoints.sqlite", clock=clock)
+    onboard(backend, worker)
+    asked = {}
+    for _ in range(12):
+        for job in backend.eligible_jobs():
+            worker.run_one(job)
+        if backend.shared_report()["proposals"]:
+            break
+        for name in NAMES:
+            for q in backend.owner_questions(name):
+                if q.answer is None:
+                    asked.setdefault(name, []).append(q.prompt)
+                    # Sam doesn't need a bag; everyone agrees to everything else.
+                    backend.answer_question(name, q.id, q.version, not q.prompt.endswith("Do you need one?"), "a-" + q.id)
+    [proposal] = backend.shared_report()["proposals"].values()
+    chosen = {c.get("owner") or c["category"]: c for c in proposal["terms"]["selected"]}
+    assert chosen["maya"]["arrival_local"] == "21:00", "her 'no red-eye' rules out the 01:10 fare"
+    assert chosen["sam"]["stops"] == 0, "nonstop only"
+    assert chosen["STAY"]["title"] == "Downtown 3-bedroom condo"
+    assert chosen["TRANSFER"]["title"] == "Airport van, pickup 22:30", "booked for the group's latest landing (22:10)"
+    # Priya alone was asked to share, because her own-room request pushed someone past a private limit.
+    assert any(p.startswith("Your own-room request") for p in asked["priya"])
+    assert not any(p.startswith("Your own-room request") for n in NAMES if n != "priya" for p in asked.get(n, []))
+    # Just in time, once: rooming for those who never said, a bag for the one fare without one.
+    assert all(sum("OK to share a room?" in p for p in asked[n]) == 1 for n in NAMES if n != "priya")
+    assert sum("Do you need one?" in p for p in asked["sam"]) == 1
+    assert research.requests[0]["routes"][0]["origin"] == "SEA" and "TRANSFER" not in research.requests[0]["categories"]
+    assert "laid off" not in json.dumps(backend.shared_report())

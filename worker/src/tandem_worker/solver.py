@@ -45,6 +45,26 @@ def closest_spread(options_by_owner):
     return best
 
 
+def minutes(hhmm):
+    hours, mins = hhmm.split(":")
+    return int(hours) * 60 + int(mins)
+
+
+def lands_in_window(candidate, window) -> bool:
+    """Is the local arrival inside {earliest, latest}? A window may wrap midnight."""
+    if not window:
+        return True
+    if candidate.arrival_local is None:
+        return False
+    at = minutes(candidate.arrival_local)
+    start, end = minutes(window.get("earliest") or "00:00"), minutes(window.get("latest") or "23:59")
+    return start <= at <= end if start <= end else at >= start or at <= end
+
+
+def stops_ok(candidate, max_stops) -> bool:
+    return max_stops is None or (candidate.stops is not None and candidate.stops <= max_stops)
+
+
 def bedrooms_needed(briefs, per_room=2):
     """Own-room travellers get one each; everyone else shares `per_room` to a
     room (the room's people_per_bedroom setting)."""
@@ -75,7 +95,9 @@ class TripSolver:
         # Known to break a hard requirement → not an option. Unknown baggage stays
         # selectable so the owner's agent can object and request evidence.
         flights = {o: [c for c in priced if c.category == "FLIGHT" and c.owner == o and c.total_cents <= by_owner[o].hard_cap_cents
-                       and not (by_owner[o].baggage_required and c.baggage_included is False)] for o in members}
+                       and not (by_owner[o].baggage_required and c.baggage_included is False)
+                       and lands_in_window(c, by_owner[o].arrival_window) and stops_ok(c, by_owner[o].max_stops)]
+                   for o in members}
         conflicts = [self._owner_conflict(o, by_owner[o], candidates) for o in members if not flights[o]]
 
         shared, shared_conflicts = {}, []
@@ -192,6 +214,16 @@ class TripSolver:
             if priced and not with_bag:
                 return Conflict(code="BAGGAGE_UNAVAILABLE", owner=owner)
             priced = with_bag
+        # The owner's own timing limits; the cheapest fare that breaks them says what relaxing would cost.
+        on_time = [c for c in priced if lands_in_window(c, brief.arrival_window)]
+        if priced and not on_time:
+            return Conflict(code="ARRIVAL_TIME", owner=owner, requirement="ARRIVAL_TIME",
+                            cheapest_cents=min(c.total_cents for c in priced))
+        direct = [c for c in on_time if stops_ok(c, brief.max_stops)]
+        if on_time and not direct:
+            return Conflict(code="TOO_MANY_STOPS", owner=owner, requirement="STOPS",
+                            cheapest_cents=min(c.total_cents for c in on_time))
+        priced = direct
         if not priced:
             return Conflict(code="NO_CANDIDATES", owner=owner)
         return Conflict(code="HARD_LIMIT", owner=owner, cheapest_cents=min(c.total_cents for c in priced))
@@ -265,6 +297,10 @@ class TripValidator:
             brief = by_owner[candidate.owner]
             if candidate.total_cents is None or candidate.total_cents > brief.hard_cap_cents:
                 checks.append("HARD_COST")
+            if not lands_in_window(candidate, brief.arrival_window):
+                checks.append("ARRIVAL_TIME")
+            if not stops_ok(candidate, brief.max_stops):
+                checks.append("TOO_MANY_STOPS")
             if brief.baggage_required and candidate.baggage_included is not True:
                 checks.append("BAGGAGE_UNKNOWN" if candidate.baggage_included is None else "BAGGAGE_REQUIRED")
         if "STAY" in shared:
@@ -288,20 +324,14 @@ class TripValidator:
 FlightSolver, FlightValidator = TripSolver, TripValidator
 
 
-RELAXABLE = {"BEDROOMS": ("own_bedroom", False), "RATING": ("stay_min_rating", None)}
+# Requirements an owner can set aside for a trip: the constraint key and the value
+# that means "set aside". Answering records it as their own confirmed constraint
+# (yes → set aside, no → `kept_<key>`), so it lasts the trip and is asked once.
+RELAXABLE = {"BEDROOMS": ("own_bedroom", False), "RATING": ("stay_min_rating", None),
+             "ARRIVAL_TIME": ("arrival_window", None), "STOPS": ("max_stops", None)}
 
 
-def relax_ref(input_revision: int, requirement: str) -> str:
-    """Action a CONSULTATION grant covers: setting one room requirement aside for this input revision."""
-    return f"relax-{requirement.lower()}-r{input_revision}"
-
-
-def relaxed(briefs, input_revision, granted):
-    """Briefs with each owner's granted relaxations applied. `granted(owner, ref)`."""
-    result = []
-    for brief in briefs:
-        for requirement, (field, value) in RELAXABLE.items():
-            if getattr(brief, field) not in (False, None) and granted(brief.owner, relax_ref(input_revision, requirement)):
-                brief = brief.model_copy(update={field: value})
-        result.append(brief)
-    return result
+def relax_nudge(requirement: str) -> dict:
+    key, value = RELAXABLE[requirement]
+    return {"yes": {"key": key, "value": value, "hardness": "HARD", "unit": ""},
+            "no": {"key": f"kept_{key}", "value": True, "hardness": "HARD", "unit": ""}}

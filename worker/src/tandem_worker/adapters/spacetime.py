@@ -178,7 +178,12 @@ class SpacetimeBackend:
         return Snapshot(room_id=str(job["room_id"]), input_revision=job["input_revision"],
             membership_revision=job["membership_revision"], permission_revision=job["permission_revision"],
             members=tuple(self._members(ctx)), arrival_overlap_seconds=settings.get("arrival_overlap_seconds", 7200),
-            components=tuple(settings.get("components", ("FLIGHT",))), people_per_bedroom=settings.get("people_per_bedroom", 2))
+            components=tuple(settings.get("components", ("FLIGHT",))), people_per_bedroom=settings.get("people_per_bedroom", 2),
+            onboarding=(ctx.get("trip_brief") or {}).get("state") == "CONFIRMED",
+            onboarded=tuple(sorted(self.owner_name(m) for m in ctx["members"] if m["active"] and any(
+                i["member_id"] == m["member_id"] and i["state"] == "CONFIRMED" for i in ctx.get("intakes", [])))),
+            destination=settings.get("destination"), destination_airport=settings.get("destination_airport"),
+            start_date=settings.get("start_date"), end_date=settings.get("end_date"))
 
     def _claim(self, job: dict, worker_id: str) -> Claim:
         # snapshot_ref = digest(Snapshot), exactly what FlightValidator stamps on its report.
@@ -294,7 +299,7 @@ class SpacetimeBackend:
         if member is None or question.snapshot_ref != claim.snapshot_ref:
             raise ContractError("NOT_AUTHORIZED")
         self.http.call(self.token, "ask_owner", request_key=question.id, member_id=member["member_id"],
-            kind=KINDS[question.kind], action_json=json.dumps({"action_ref": question.action_ref}),
+            kind=KINDS[question.kind], action_json=json.dumps({"action_ref": question.action_ref, "nudge": question.nudge}),
             prompt=question.prompt or PROMPTS[question.kind], answer_schema_json=json.dumps({"type": "boolean"}), thread_id=None,
             **self._attempt(claim))
         return question.id
@@ -320,6 +325,7 @@ class SpacetimeBackend:
         kind = WORKER_KINDS[row["kind"]]
         return Question(id=question_id, owner=owner, version=row["version"], kind=kind,
             action_ref=(row["action"] or {}).get("action_ref", ""), snapshot_ref=claim.snapshot_ref,
+            nudge=(row["action"] or {}).get("nudge"),
             answer=self._answer(kind, row["answer"]))
 
     def has_permission(self, claim, owner, kind, action_ref):
@@ -347,6 +353,9 @@ class SpacetimeBackend:
             payload = {k: prefs[k] for k in ("speak_up_for_me", "ask_me_first", "give_me_time", "reminders_opted_in")}
         elif kind == "PARTICIPATION":
             payload = {"confirmed": False}
+        elif (nudge := json.loads(row["action_json"]).get("nudge")):
+            # A just-in-time answer becomes the owner's confirmed constraint (a new generation).
+            payload = {"answer": answer, "constraint": nudge["yes" if answer else "no"]}
         else:
             payload = {"answer": answer}
         self.http.call(token, "answer_question", question_id=row["id"], version=version, answer_json=json.dumps(payload))

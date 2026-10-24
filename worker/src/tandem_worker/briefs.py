@@ -30,4 +30,23 @@ def brief_from_constraints(owner: str, rows: dict[str, dict], preferences: Prefe
         baggage_required=bool(value("baggage_required")), reminders_opted_in=reminders_opted_in,
         own_bedroom=bool(value("own_bedroom")), stay_min_rating=value("stay_min_rating"),
         origin_airport=value("origin_airport"), arrival_window=value("arrival_window"), max_stops=value("max_stops"),
-        no_budget_limit=bool(value("no_budget_limit")), notes=(note,) if isinstance(note, str) else ())
+        no_budget_limit=bool(value("no_budget_limit")), notes=(note,) if isinstance(note, str) else (),
+        answered=tuple(sorted(rows)))
+
+
+FIELDS = {"own_bedroom": bool, "baggage_required": bool, "no_budget_limit": bool, "stay_min_rating": None,
+          "origin_airport": None, "arrival_window": None, "max_stops": None}
+
+
+def apply_row(brief: Brief, key: str, row: dict) -> Brief:
+    """`brief` with one newly confirmed constraint row applied (other fields untouched)."""
+    update: dict = {"answered": tuple(sorted({*brief.answered, key}))}
+    if key == "flight_budget_total":
+        update.update(hard_cap_cents=_cap(row), private_reason=row.get("private_rationale") or brief.private_reason)
+    elif key == "trip_budget_total":
+        update.update(trip_cap_cents=_cap(row), private_reason=row.get("private_rationale") or brief.private_reason)
+    elif key == "trip_note" and isinstance(row.get("value"), str):
+        update["notes"] = (*brief.notes, row["value"])
+    elif key in FIELDS:
+        update[key] = FIELDS[key](row.get("value")) if FIELDS[key] else row.get("value")
+    return Brief.model_validate({**brief.model_dump(), **update})

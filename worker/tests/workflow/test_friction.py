@@ -181,7 +181,8 @@ def test_room_request_that_breaks_someones_limit_is_negotiated_privately(setup_w
     assert worker.run_one(job)["outcome"] == "WAITING_FOR_INPUT"
     for owner in ("p1", "p2"):
         [question] = backend.owner_questions(owner)
-        assert question.kind == "CONSULTATION" and question.action_ref == "relax-bedrooms-r1"
+        assert question.kind == "MISSING_FACT" and question.action_ref == "relax:bedrooms"
+        assert question.nudge["yes"] == {"key": "own_bedroom", "value": False, "hardness": "HARD", "unit": ""}
         assert question.prompt == ("Your own-room request: the stay that fits it costs enough to put the trip over another "
                                    "traveller's limit. May your agent drop it for this trip so you share a room? "
                                    "You'll still review the final plan.")

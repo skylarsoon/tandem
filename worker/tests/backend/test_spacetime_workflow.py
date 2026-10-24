@@ -202,7 +202,7 @@ def test_room_request_clash_is_negotiated_on_spacetimedb(stdb_room, tmp_path):
     assert worker.run_one(room.plan_job())["outcome"] == "WAITING_FOR_INPUT"
     for owner in ("p1", "p2"):
         [question] = room.view(owner, "my_questions")
-        assert question["kind"] == "CONCESSION_CONSULTATION" and question["prompt"].startswith("Your own-room request")
+        assert question["kind"] == "MISSING_FACT" and question["prompt"].startswith("Your own-room request")
     result = None
     for _ in range(4):
         for owner in ("p1", "p2"):

@@ -54,6 +54,8 @@ class Brief(Record):
     max_stops: int | None = Field(default=None, ge=0, le=3)
     no_budget_limit: bool = False
     notes: tuple[str, ...] = ()
+    # Constraint keys the owner has actually answered (confirmed rows).
+    answered: tuple[str, ...] = ()
 
 
 class Snapshot(Record):
@@ -68,6 +70,16 @@ class Snapshot(Record):
     components: tuple[Literal["FLIGHT", "STAY", "TRANSFER"], ...] = ("FLIGHT",)
     # Travellers without an own-room request share this many to a bedroom.
     people_per_bedroom: int = Field(default=2, ge=1, le=8)
+    # The room was described and onboarded: silence on a topic means "not asked
+    # yet", so agents ask just in time instead of assuming.
+    onboarding: bool = False
+    # Members who confirmed their onboarding; nothing is proposed until it's everyone.
+    onboarded: tuple[str, ...] = ()
+    # The confirmed trip brief's facts searches need (destination airport, dates).
+    destination_airport: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    destination: str | None = None
 
     @model_validator(mode="after")
     def valid_members(self):
@@ -108,6 +120,9 @@ class Candidate(Record):
     departure_epoch: int | None = None
     departure_timezone: str | None = None
     arrival_timezone: str | None = None
+    # Local wall-clock arrival "HH:MM" at the destination, and connections.
+    arrival_local: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    stops: int | None = Field(default=None, ge=0)
     checked_bags_included: int | None = None
     # valid_until is a local freshness deadline, never a held fare's expiry.
     provider_expires_at: float | None = None
@@ -242,6 +257,8 @@ class Question(Record):
     answer: bool | None = None
     # Owner-only wording of exactly what is being asked (never shown to the room).
     prompt: str = ""
+    # A just-in-time question: the constraint each answer records, {"yes": patch, "no": patch}.
+    nudge: dict | None = None
 
 
 class Impact(Record):
@@ -279,13 +296,13 @@ class GroupSummary(Record):
 class Conflict(Record):
     """Why no plan exists. Owner-specific conflicts go only to that owner."""
     code: Literal["HARD_LIMIT", "BAGGAGE_UNAVAILABLE", "NO_CANDIDATES", "ARRIVAL_WINDOW",
-                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE"]
+                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME", "TOO_MANY_STOPS"]
     owner: str | None = None
     cheapest_cents: int | None = None
     # TRIP_LIMIT: the cheapest trip for this owner and their limit; STAY_UNAVAILABLE:
     # which requirement no stay meets (never whose).
     trip_cap_cents: int | None = None
-    requirement: Literal["CAPACITY", "BEDROOMS", "RATING"] | None = None
+    requirement: Literal["CAPACITY", "BEDROOMS", "RATING", "ARRIVAL_TIME", "STOPS"] | None = None
     closest_spread_seconds: int | None = None
     required_seconds: int | None = None
 
@@ -324,6 +341,24 @@ class SolverResult(Record):
     conflicts: tuple[Conflict, ...] = ()
 
 
+class Route(Record):
+    """One traveller's flight search, built from what they confirmed in onboarding."""
+    owner: str
+    origin: str = Field(pattern=r"^[A-Z]{3}$")
+    destination: str = Field(pattern=r"^[A-Z]{3}$")
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    max_stops: int | None = Field(default=None, ge=0, le=3)
+
+
+class TripFacts(Record):
+    """What the shared searches need, from the confirmed brief."""
+    destination: str
+    check_in: str
+    check_out: str
+    party_size: int = Field(ge=1, le=20)
+    pickup_time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+
+
 class ResearchRequest(Record):
     purpose: Literal["INITIAL", "TARGETED", "REFRESH"]
     members: tuple[str, ...]
@@ -338,6 +373,9 @@ class ResearchRequest(Record):
                           "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE"] = "NONE"
     # Which categories to search; flights are per target owner, the others are shared.
     categories: tuple[Category, ...] = ("FLIGHT",)
+    # Onboarded rooms search from people's answers; other rooms use configured searches.
+    routes: tuple[Route, ...] = ()
+    trip: TripFacts | None = None
 
     @model_validator(mode="after")
     def check_targets(self):
