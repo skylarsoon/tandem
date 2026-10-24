@@ -13,9 +13,8 @@ from datetime import date
 
 from pydantic import ValidationError
 
-from ..contracts import BriefDraft, ContractError, IntakeContext, IntakeExtraction, IntakeQuestion, digest
-from ..intake_policy import (MAX_QUESTIONS, fallback_question, open_topics, opening_question, patch_json, question_ok,
-                             summary_text, verify)
+from ..contracts import BriefDraft, ContractError, IntakeContext, IntakeExtraction, digest
+from ..intake_policy import MAX_QUESTIONS, fallback_question, open_topics, opening_question, patch_json, summary_text, verify
 
 
 def _model(backend, claim, kind, context, call, schema):
@@ -65,12 +64,10 @@ def run_intake(backend, claim, model) -> str:
 
     topics = open_topics(coverage)
     if topics and ctx.question_count < MAX_QUESTIONS:
-        question = _model(backend, claim, "ask", {
-            "owner": ctx.owner, "brief": ctx.brief.model_dump(), "messages": transcript,
-            "ask_about": topics[:2], "why_unclear": {t: reasons[t] for t in topics[:2] if t in reasons}},
-            model.ask, IntakeQuestion)
-        if question is None or not question_ok(question, ctx) or not set(question.topics) <= set(topics[:2]):
-            question = fallback_question(topics, ctx, reasons)
+        # Ask exactly about the open essentials. The wording is ours; anything specific
+        # to what they said comes from extraction's `unclear` reasons. (A model-written
+        # question drifted to off-topic small talk in live runs and doubled latency.)
+        question = fallback_question(topics, ctx, reasons)
         text = f"{origin_line} {question.text}".strip()
         backend.notify_owner(claim, ctx.owner, text, f"{step}:ask")
         backend.update_intake(claim, ctx.owner, coverage, "ASKING", True, f"{step}:ask")

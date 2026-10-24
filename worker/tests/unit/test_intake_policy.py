@@ -64,3 +64,29 @@ def test_questions_never_invent_amounts_and_fallbacks_fit_one_message():
     assert not question_ok(IntakeQuestion(text="Tell me your budget.", topics=("money",)), c)
     q = fallback_question(["money", "settings"], c, {})
     assert len(q.text) <= 300 and q.text.endswith("?") and q.topics == ("money", "settings")
+
+
+def test_live_run_regressions():
+    # Maya: the stretch figure was outside the quoted span, so her whole budget was dropped.
+    said = "budget-wise I'd like to keep the whole trip around $900, flight and stay together. I could stretch to maybe $1,000"
+    kept, _, coverage, _ = verify(IntakeExtraction(items=(item("trip_budget_total", 90000, "keep the whole trip around $900",
+        hardness="SOFT", authorized_range={"max": 100000}),)), ctx(said))
+    assert coverage["money"] == "ANSWERED" and kept[0].authorized_range == {"max": 100000}
+    # Sam: "would be nice, but I'm flexible" is a preference, not an own-room requirement.
+    hedge = "A place with a few separate bedrooms would be nice, but I'm flexible on the layout."
+    assert verify(IntakeExtraction(items=(item("own_bedroom", True, "a few separate bedrooms would be nice"),)), ctx(hedge))[0] == ()
+    firm = "My main must-have is having my own bedroom, if that's possible."
+    assert len(verify(IntakeExtraction(items=(item("own_bedroom", True, "having my own bedroom"),)), ctx(firm))[0]) == 1
+    # Sam: "nonstop flights only" is 0 stops, shown as a reading.
+    [stops] = verify(IntakeExtraction(items=(item("max_stops", 0, "nonstop flights only"),)), ctx("Must-have: nonstop flights only"))[0]
+    assert stops.interpreted is True
+
+
+def test_notes_about_the_traveller_are_never_sent_to_them():
+    c = ctx("hi")
+    notes = (Unclear(topic="dates", reason="Maya did not say whether Feb 12-16 works for her; ask if those dates are OK."),
+             Unclear(topic="money", reason="No budget mentioned; ask if they have one?"))
+    _, _, coverage, reasons = verify(IntakeExtraction(unclear=notes), c)
+    assert reasons == {} and coverage["dates"] == "OPEN" and coverage["money"] == "OPEN"
+    real = Unclear(topic="money", reason="Is that $900 for the flight only, or everything?")
+    assert verify(IntakeExtraction(unclear=(real,)), c)[3] == {"money": real.reason}

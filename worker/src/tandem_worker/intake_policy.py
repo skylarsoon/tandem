@@ -18,6 +18,11 @@ FLIGHT_SCOPE = ("flight", "airfare", "fare", "ticket", "plane")
 FIRM = ("max", "under", "no more than", "can't go", "cannot go", "can't do more", "cap", "limit", "at most", "tops",
         "won't go over", "not over", "hard", "absolutely", "not a cent")
 FLEX = ("around", "about", "-ish", "ish", "roughly", "flexible", "stretch", "give or take", "approximately", "if needed")
+# A requirement needs a firm word; a hedge ("would be nice", "flexible") is a
+# preference, and recording it as a requirement would be assuming.
+NEEDS = ("must", "need", "non-negotiable", "have to", "require", "can't do without", "essential", "deal-breaker")
+HEDGES = ("would be nice", "nice to have", "flexible", "if possible", "ideally", "prefer", "don't mind", "not a big deal")
+NONSTOP = ("nonstop", "non-stop", "direct", "no connection", "no layover", "no stops")
 AMOUNT = re.compile(r"\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k\b|K\b)?")
 
 
@@ -45,14 +50,17 @@ def check_item(item: IntakeItem, said: str) -> str | None:
     if item.key in BUDGET_KEYS:
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             return "BAD_VALUE"
-        figures = amounts(quote)
-        if not any(abs(f * 100 - value) < 1 for f in figures):
+        # The amount must be in their words; a stretch figure may come later in the same message.
+        if not any(abs(f * 100 - value) < 1 for f in amounts(quote)):
             return "NUMBER_NOT_SAID"
         if item.authorized_range is not None:
             top = item.authorized_range.get("max")
-            if not isinstance(top, int) or not any(abs(f * 100 - top) < 1 for f in figures):
+            if not isinstance(top, int) or not any(abs(f * 100 - top) < 1 for f in amounts(said)):
                 return "NUMBER_NOT_SAID"
         return None
+    if item.key in {"baggage_required", "own_bedroom"} and value is True:
+        firm, hedged = mentions(said, NEEDS), mentions(quote, HEDGES)
+        return None if firm or not hedged else "ONLY_A_PREFERENCE"
     if item.key in {"no_budget_limit", "dates_ok", "baggage_required", "own_bedroom"}:
         return None if isinstance(value, bool) and (value or item.key != "no_budget_limit") else "BAD_VALUE"
     if item.key == "stay_min_rating":
@@ -67,15 +75,17 @@ def check_item(item: IntakeItem, said: str) -> str | None:
         return None if item.interpreted or all(t is None or t in quote for t in times) else "NUMBER_NOT_SAID"
     if item.key == "max_stops":
         ok = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 3
-        return None if ok and (item.interpreted or str(value) in quote) else "BAD_VALUE"
+        stated = str(value) in quote or (value == 0 and mentions(quote, NONSTOP))
+        return None if ok and (item.interpreted or stated) else "BAD_VALUE"
     if item.key == "trip_note":
         return None if isinstance(value, str) and 0 < len(value) <= 200 else "BAD_VALUE"
     return "UNKNOWN_KEY"
 
 
-def budget_gap(item: IntakeItem) -> str | None:
-    """What a budget still leaves open: what it covers, and how firm it is."""
-    quote = item.source_quote
+def budget_gap(item: IntakeItem, said: str) -> str | None:
+    """What a budget still leaves open: what it covers, and how firm it is.
+    Cues count anywhere in the message they said it in."""
+    quote = said
     scope_ok = mentions(quote, TRIP_SCOPE) if item.key == "trip_budget_total" else mentions(quote, FLIGHT_SCOPE)
     firm_ok = mentions(quote, FLEX) if item.hardness == "SOFT" else mentions(quote, FIRM)
     if not scope_ok:
@@ -91,18 +101,35 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
     said = {m.id: m.body for m in ctx.messages if m.sender == "HUMAN"}
     items, reasons = {}, {}
     for item in extraction.items:
-        if item.source_message_id not in said or check_item(item, said[item.source_message_id]) is not None:
+        if item.source_message_id not in said:
             continue
-        if item.key in BUDGET_KEYS and (gap := budget_gap(item)):
+        problem = check_item(item, said[item.source_message_id])
+        if problem == "NUMBER_NOT_SAID" and item.key in BUDGET_KEYS and item.authorized_range is not None:
+            # Keep the budget they stated; ask about the stretch instead of dropping both.
+            item = item.model_copy(update={"authorized_range": None})
+            problem = check_item(item, said[item.source_message_id])
+        if problem is not None:
+            if item.key in BUDGET_KEYS and problem == "NUMBER_NOT_SAID":
+                figures = sorted(amounts(said[item.source_message_id]))
+                if figures:  # tell them what we heard rather than silently dropping it
+                    reasons["money"] = (f"Just to be sure I have your budget right: is it ${figures[0]:,.0f} for "
+                                        "the whole trip or the flight only, and is that firm or flexible?")
+            continue
+        if item.key in BUDGET_KEYS and (gap := budget_gap(item, said[item.source_message_id])):
             reasons["money"] = gap
             continue
+        if item.key == "max_stops" and str(item.value) not in item.source_quote:
+            item = item.model_copy(update={"interpreted": True})  # "nonstop" read as 0 stops: shown as a reading
         items[item.key] = item  # a later statement replaces an earlier one
     settings = extraction.settings
     if settings is not None and (settings.source_message_id not in said or not settings.source_quote
                                  or settings.source_quote not in said.get(settings.source_message_id, "")):
         settings = None
     for unclear in extraction.unclear:
-        reasons.setdefault(unclear.topic, unclear.reason)
+        # Only a real question to them, about something they actually said, reaches them;
+        # a note about them ("Maya didn't say…") is never sent.
+        if speakable(unclear.reason, ctx):
+            reasons.setdefault(unclear.topic, unclear.reason)
 
     have = set(items) | set(ctx.confirmed_keys)
     coverage = {
@@ -116,6 +143,14 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
         if coverage.get(topic) != "ANSWERED":
             coverage[topic] = "UNCLEAR"
     return tuple(items.values()), settings, coverage, reasons
+
+
+def speakable(text: str, ctx: IntakeContext) -> bool:
+    text = text.strip()
+    names = {n.lower() for n in (ctx.owner, ctx.display_name) if n}
+    third_person = re.search(r"\b(they|she|he|them|her|his|ask|traveller|traveler|user)\b", text, re.I)
+    return (text.endswith("?") and len(text) <= 200 and not third_person
+            and not any(re.search(rf"\b{re.escape(n)}\b", text.lower()) for n in names))
 
 
 def open_topics(coverage: dict) -> list[str]:

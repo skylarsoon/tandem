@@ -101,7 +101,34 @@ def _main():
             command_parser.add_argument("question_ref")
             command_parser.add_argument("--version", type=int, default=1)
             command_parser.add_argument("--response", choices=["yes", "no"], required=True)
+    serve_parser = sub.add_parser("serve", help="Process real rooms on SpacetimeDB: onboarding and planning")
+    serve_parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    serve_parser.add_argument("--state-dir", type=Path, required=True)
+    serve_parser.add_argument("--config", type=Path, help="JSON {limits, dinner_query}; defaults otherwise")
+    serve_parser.add_argument("--room", type=int, action="append", help="Only these rooms (repeatable)")
+    serve_parser.add_argument("--once", action="store_true", help="One sweep, then exit")
+    intake = sub.add_parser("intake", help="Onboarding simulations")
+    intake_actions = intake.add_subparsers(dest="intake_action", required=True)
+    simulate_parser = intake_actions.add_parser("simulate", help="Claude plays each persona against the live worker")
+    simulate_parser.add_argument("--personas", required=True, help="Comma-separated names from personas/travellers.json")
+    simulate_parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    simulate_parser.add_argument("--state-dir", type=Path, required=True)
+    simulate_parser.add_argument("--config", type=Path)
+    simulate_parser.add_argument("--plan", action="store_true", help="Also plan the trip with live searches (costs Apify runs)")
     args = parser.parse_args()
+    if args.command in {"serve", "intake"}:
+        from .config import load_settings
+        from .serve import ServeConfig, serve
+        settings = load_settings(args.env_file)
+        config = ServeConfig.model_validate_json(args.config.read_text()) if args.config else ServeConfig()
+        if args.command == "serve":
+            result = serve(config, settings, args.state_dir, rooms=set(args.room) if args.room else None, once=args.once)
+        else:
+            from .simulate import simulate
+            result = simulate(settings, args.state_dir, [n.strip() for n in args.personas.split(",")], plan=args.plan,
+                              config=config)
+        print(json.dumps(result, indent=2))
+        return
     if args.command == "live-room":
         from .config import load_config, load_settings
         from .live import live_answer, live_questions, seed_live_room

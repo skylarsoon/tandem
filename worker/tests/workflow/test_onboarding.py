@@ -107,7 +107,7 @@ def test_whatever_works_is_asked_again_not_turned_into_a_number(trip):
     convo = backend.conversation("jordan")
     vague = next(i for i, m in enumerate(convo) if "whatever works" in m["body"])
     follow_up = convo[vague + 1]["body"]
-    assert follow_up.startswith("Is there an amount you'd rather not go above"), follow_up
+    assert follow_up.startswith("It stays between us: is there an amount you'd rather not go above"), follow_up
     assert "$" not in follow_up
 
 

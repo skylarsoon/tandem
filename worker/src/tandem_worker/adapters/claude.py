@@ -152,16 +152,19 @@ class ClaudeModel:
             "copied character-for-character from it (a short span). Money is in US cents ($700 -> 70000). Use "
             "trip_budget_total only if they said it covers everything (all in, total, whole trip); flight_budget_total only "
             "if they said flight/fare/ticket. HARD for firm words (max, under, no more than, can't go above); SOFT for "
-            "around/about/-ish/flexible, with authorized_range {\"max\": cents} only if they gave an upper number. If what "
-            "a budget covers or how firm it is wasn't said, make no money item: add an unclear entry for topic money with "
-            "one short question instead. origin_airport is the IATA code of the airport they named; for a city with "
+            "around/about/-ish/flexible; if they named a higher amount they could stretch to anywhere in that message, put "
+            "it in authorized_range {\"max\": cents}. If what a budget covers or how firm it is wasn't said, make no money "
+            "item: add an unclear entry for topic money instead. origin_airport is the IATA code of the airport they named; for a city with "
             "several airports use its main one and set interpreted=true. dates_ok only if they said the dates work (or "
-            "don't). arrival_window uses local HH:MM at the destination; for phrases like 'no red-eyes' choose a window "
-            "and set interpreted=true. max_stops 0 for nonstop or 'no layovers' (interpreted=true). own_bedroom, "
+            "don't). arrival_window values are 24-hour \"HH:MM\" strings at the destination (7am -> \"07:00\", 10pm -> "
+            "\"22:00\"); include it whenever they say when they'd like to land; for phrases like 'no red-eyes' choose a "
+            "window and set interpreted=true. max_stops 0 for nonstop or 'no layovers' (interpreted=true). own_bedroom, "
             "baggage_required and stay_min_rating only if stated. Anything important planning can't use (e.g. 'home by "
             "Sunday') becomes a trip_note. private_rationale is the reason they gave for a limit, if any. settings: "
             "speak_up_for_me true if they want the group told when a plan breaks their limits, false if only them; "
-            "ask_me_first true if they want to be checked with before paying more; include the quote. Unknown stays absent.",
+            "ask_me_first true if they want to be checked with before paying more; include the quote. Unknown stays absent. "
+            "unclear is ONLY for something they said that is ambiguous, never for topics they haven't mentioned; its reason "
+            "is the exact question to ask them, addressed to them as 'you', ending with '?'.",
             "extract")
 
     def ask(self, context):
