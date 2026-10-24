@@ -15,6 +15,7 @@ export default __t.row({
   speakUpForMe: __t.bool().name("speak_up_for_me"),
   askMeFirst: __t.bool().name("ask_me_first"),
   giveMeTime: __t.bool().name("give_me_time"),
+  remindersOptedIn: __t.bool().name("reminders_opted_in"),
   confirmed: __t.bool(),
   confirmedAt: __t.option(__t.timestamp()).name("confirmed_at"),
   proposedBy: __t.string().name("proposed_by"),

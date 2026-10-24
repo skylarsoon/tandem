@@ -73,7 +73,8 @@ export const askOwner = spacetimedb.reducer(
 );
 
 // The owner answers. Effects by kind:
-// - PARTICIPATION_CONFIRMATION → confirms preferences (new generation)
+// - PARTICIPATION_CONFIRMATION → confirms preferences (new generation), or with
+//   {"confirmed": false} records a decline and resumes the waiting job
 // - MISSING_FACT with {"constraint": {...}} → confirms a constraint (new generation)
 // - MISSING_FACT otherwise → resumes the waiting job
 // - OBJECTION_DISCLOSURE / CONCESSION_CONSULTATION / BROADER_EXPLORATION with
@@ -96,6 +97,12 @@ export const answerQuestion = spacetimedb.reducer(
 
     ctx.db.question.id.update({ ...q, state: 'ANSWERED', answerJson, answeredAt: ctx.timestamp });
 
+    if (q.kind === 'PARTICIPATION_CONFIRMATION' && answer.confirmed === false) {
+      // Declining leaves settings unconfirmed; the waiting job resumes and the
+      // worker treats it as the owner declining to take part for now.
+      resumeJobIfReady(ctx, q.jobId);
+      return;
+    }
     if (q.kind === 'PARTICIPATION_CONFIRMATION') {
       const flags = ['speak_up_for_me', 'ask_me_first', 'give_me_time'].map(k => answer[k]);
       if (flags.some(f => typeof f !== 'boolean')) {

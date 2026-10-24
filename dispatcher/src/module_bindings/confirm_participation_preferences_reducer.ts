@@ -14,4 +14,5 @@ export default {
   speakUpForMe: __t.bool(),
   askMeFirst: __t.bool(),
   giveMeTime: __t.bool(),
+  remindersOptedIn: __t.bool(),
 };

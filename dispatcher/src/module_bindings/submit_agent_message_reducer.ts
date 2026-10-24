@@ -38,5 +38,5 @@ export default {
   audience: __t.string(),
   audienceMemberId: __t.option(__t.u64()),
   sanitizationStatus: __t.string(),
-  grantRef: __t.option(__t.u64()),
+  validationDigest: __t.option(__t.string()),
 };

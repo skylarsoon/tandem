@@ -16,9 +16,10 @@ export const ActionGrant = __t.object("ActionGrant", {
   roomId: __t.u64(),
   owner: __t.identity(),
   kind: __t.string(),
+  actionRef: __t.string(),
   actionDigest: __t.string(),
   inputRevision: __t.u64(),
-  permissionRevision: __t.u64(),
+  membershipRevision: __t.u64(),
   granted: __t.bool(),
   createdAt: __t.timestamp(),
 });
@@ -95,6 +96,8 @@ export const Candidate = __t.object("Candidate", {
   observedAt: __t.string(),
   factsJson: __t.string(),
   missingFields: __t.array(__t.string()),
+  inputRevision: __t.u64(),
+  membershipRevision: __t.u64(),
   recordedAt: __t.timestamp(),
 });
 export type Candidate = __Infer<typeof Candidate>;
@@ -255,6 +258,13 @@ export const Job = __t.object("Job", {
 });
 export type Job = __Infer<typeof Job>;
 
+export const JobBudget = __t.object("JobBudget", {
+  jobId: __t.u64(),
+  modelCalls: __t.u32(),
+  researchCalls: __t.u32(),
+});
+export type JobBudget = __Infer<typeof JobBudget>;
+
 export const LeaseTimer = __t.object("LeaseTimer", {
   scheduledId: __t.u64(),
   scheduledAt: __t.scheduleAt(),
@@ -335,6 +345,17 @@ export const NegotiationRound = __t.object("NegotiationRound", {
 });
 export type NegotiationRound = __Infer<typeof NegotiationRound>;
 
+export const OperationRecord = __t.object("OperationRecord", {
+  key: __t.string(),
+  jobId: __t.u64(),
+  kind: __t.string(),
+  requestDigest: __t.string(),
+  status: __t.string(),
+  resultJson: __t.option(__t.string()),
+  updatedAt: __t.timestamp(),
+});
+export type OperationRecord = __Infer<typeof OperationRecord>;
+
 export const ParticipantConstraint = __t.object("ParticipantConstraint", {
   id: __t.u64(),
   roomId: __t.u64(),
@@ -364,6 +385,7 @@ export const ParticipationPreferences = __t.object("ParticipationPreferences", {
   speakUpForMe: __t.bool(),
   askMeFirst: __t.bool(),
   giveMeTime: __t.bool(),
+  remindersOptedIn: __t.bool(),
   confirmed: __t.bool(),
   confirmedAt: __t.option(__t.timestamp()),
   proposedBy: __t.string(),
@@ -483,6 +505,7 @@ export const Room = __t.object("Room", {
   membershipRevision: __t.u64(),
   permissionRevision: __t.u64(),
   inviteCode: __t.string(),
+  settingsJson: __t.string(),
   createdAt: __t.timestamp(),
 });
 export type Room = __Infer<typeof Room>;

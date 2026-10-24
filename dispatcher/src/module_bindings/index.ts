@@ -37,6 +37,8 @@ import {
 import AddWorkerReducer from "./add_worker_reducer";
 import AnswerQuestionReducer from "./answer_question_reducer";
 import AskOwnerReducer from "./ask_owner_reducer";
+import CloseThreadsReducer from "./close_threads_reducer";
+import CompleteOperationReducer from "./complete_operation_reducer";
 import ConfirmConstraintPatchReducer from "./confirm_constraint_patch_reducer";
 import ConfirmParticipationPreferencesReducer from "./confirm_participation_preferences_reducer";
 import CreateRoomReducer from "./create_room_reducer";
@@ -56,12 +58,15 @@ import RespondToProposalReducer from "./respond_to_proposal_reducer";
 import SetAgentActivityReducer from "./set_agent_activity_reducer";
 import SetConstraintReducer from "./set_constraint_reducer";
 import SetReminderDelayReducer from "./set_reminder_delay_reducer";
+import SetRoomSettingsReducer from "./set_room_settings_reducer";
 import SubmitAgentMessageReducer from "./submit_agent_message_reducer";
 import SubmitPrivateMessageReducer from "./submit_private_message_reducer";
 import UpsertProfileReducer from "./upsert_profile_reducer";
 import WithdrawConsentReducer from "./withdraw_consent_reducer";
 
 // Import all procedure arg schemas
+import * as BeginOperationProcedure from "./begin_operation_procedure";
+import * as CheckLeaseProcedure from "./check_lease_procedure";
 import * as ClaimJobProcedure from "./claim_job_procedure";
 import * as LoadExecutionContextProcedure from "./load_execution_context_procedure";
 import * as PublishProposalProcedure from "./publish_proposal_procedure";
@@ -255,6 +260,8 @@ const reducersSchema = __reducers(
   __reducerSchema("add_worker", AddWorkerReducer),
   __reducerSchema("answer_question", AnswerQuestionReducer),
   __reducerSchema("ask_owner", AskOwnerReducer),
+  __reducerSchema("close_threads", CloseThreadsReducer),
+  __reducerSchema("complete_operation", CompleteOperationReducer),
   __reducerSchema("confirm_constraint_patch", ConfirmConstraintPatchReducer),
   __reducerSchema("confirm_participation_preferences", ConfirmParticipationPreferencesReducer),
   __reducerSchema("create_room", CreateRoomReducer),
@@ -274,6 +281,7 @@ const reducersSchema = __reducers(
   __reducerSchema("set_agent_activity", SetAgentActivityReducer),
   __reducerSchema("set_constraint", SetConstraintReducer),
   __reducerSchema("set_reminder_delay", SetReminderDelayReducer),
+  __reducerSchema("set_room_settings", SetRoomSettingsReducer),
   __reducerSchema("submit_agent_message", SubmitAgentMessageReducer),
   __reducerSchema("submit_private_message", SubmitPrivateMessageReducer),
   __reducerSchema("upsert_profile", UpsertProfileReducer),
@@ -282,6 +290,8 @@ const reducersSchema = __reducers(
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
 const proceduresSchema = __procedures(
+  __procedureSchema("begin_operation", BeginOperationProcedure.params, BeginOperationProcedure.returnType),
+  __procedureSchema("check_lease", CheckLeaseProcedure.params, CheckLeaseProcedure.returnType),
   __procedureSchema("claim_job", ClaimJobProcedure.params, ClaimJobProcedure.returnType),
   __procedureSchema("load_execution_context", LoadExecutionContextProcedure.params, LoadExecutionContextProcedure.returnType),
   __procedureSchema("publish_proposal", PublishProposalProcedure.params, PublishProposalProcedure.returnType),

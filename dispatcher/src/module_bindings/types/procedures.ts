@@ -6,10 +6,16 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all procedure arg schemas
+import * as BeginOperationProcedure from "../begin_operation_procedure";
+import * as CheckLeaseProcedure from "../check_lease_procedure";
 import * as ClaimJobProcedure from "../claim_job_procedure";
 import * as LoadExecutionContextProcedure from "../load_execution_context_procedure";
 import * as PublishProposalProcedure from "../publish_proposal_procedure";
 
+export type BeginOperationArgs = __Infer<typeof BeginOperationProcedure.params>;
+export type BeginOperationResult = __Infer<typeof BeginOperationProcedure.returnType>;
+export type CheckLeaseArgs = __Infer<typeof CheckLeaseProcedure.params>;
+export type CheckLeaseResult = __Infer<typeof CheckLeaseProcedure.returnType>;
 export type ClaimJobArgs = __Infer<typeof ClaimJobProcedure.params>;
 export type ClaimJobResult = __Infer<typeof ClaimJobProcedure.returnType>;
 export type LoadExecutionContextArgs = __Infer<typeof LoadExecutionContextProcedure.params>;

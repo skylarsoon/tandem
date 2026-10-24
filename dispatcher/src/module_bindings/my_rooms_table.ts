@@ -19,5 +19,6 @@ export default __t.row({
   membershipRevision: __t.u64().name("membership_revision"),
   permissionRevision: __t.u64().name("permission_revision"),
   inviteCode: __t.string().name("invite_code"),
+  settingsJson: __t.string().name("settings_json"),
   createdAt: __t.timestamp().name("created_at"),
 });

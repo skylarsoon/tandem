@@ -27,5 +27,6 @@ export const params = {
   get impacts() {
     return __t.array(ImpactInput);
   },
+  selectedCandidateRefs: __t.array(__t.string()),
 };
 export const returnType = __t.string()

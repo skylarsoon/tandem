@@ -21,5 +21,7 @@ export default __t.row({
   observedAt: __t.string().name("observed_at"),
   factsJson: __t.string().name("facts_json"),
   missingFields: __t.array(__t.string()).name("missing_fields"),
+  inputRevision: __t.u64().name("input_revision"),
+  membershipRevision: __t.u64().name("membership_revision"),
   recordedAt: __t.timestamp().name("recorded_at"),
 });
