@@ -17,7 +17,11 @@ class FlightSolver:
     def solve(self, snapshot, briefs, candidates):
         model = cp_model.CpModel()
         caps = {b.owner: b.hard_cap_cents for b in briefs}
-        eligible = [c for c in candidates if c.owner in caps and c.total_cents is not None and c.total_cents <= caps[c.owner]]
+        needs_bag = {b.owner for b in briefs if b.baggage_required}
+        # Known to break a hard requirement → not an option. Unknown baggage stays
+        # selectable so the owner's agent can object and request evidence.
+        eligible = [c for c in candidates if c.owner in caps and c.total_cents is not None and c.total_cents <= caps[c.owner]
+                    and not (c.owner in needs_bag and c.baggage_included is False)]
         variables = {c.id: model.new_bool_var(c.id) for c in eligible}
         for owner in snapshot.members:
             model.add(sum(variables[c.id] for c in eligible if c.owner == owner) == 1)

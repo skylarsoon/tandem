@@ -2,14 +2,15 @@ from copy import deepcopy
 
 import pytest
 
-from tandem_worker.adapters.memo23 import build_input, local_epoch, money_cents, normalize_item, validate_input_schema
+from tandem_worker.adapters.memo23 import build_input, local_epoch, money_cents, normalize_item, normalize_offers, validate_input_schema
 from tandem_worker.contracts import ContractError
 
 
 def test_explicit_one_way_input_has_no_private_caps(live_case):
     data = build_input(live_case.config.searches[0], {"purpose": "INITIAL"})
     assert data == {"origin": "SFO", "destination": "LAX", "departDate": "2027-01-15", "adults": 1,
-        "cabinClass": "economy", "currency": "USD", "maxItems": 10, "sortBy": "top"}
+        "cabinClass": "economy", "currency": "USD", "maxItems": 10, "sortBy": "top",
+        "resolveBookingOptions": True, "maxBookingItineraries": 10}
 
 
 def test_targeted_search_changes_only_approved_criteria(live_case):
@@ -93,3 +94,58 @@ def test_dst_ambiguity_is_not_silently_resolved(day, clock):
 def test_pinned_schema_validation_rejects_changed_input_contract():
     with pytest.raises(ContractError, match="APIFY_SCHEMA_INCOMPATIBLE"):
         validate_input_schema({"components": {"schemas": {"inputSchema": {"properties": {}}}}})
+
+
+def with_booking_options(row, *options):
+    """Adds memo23 booking-option fields: (is_airline, price, first_bag_fee)."""
+    row = {**row, "booking-options-count": len(options)}
+    for n, (is_airline, price, bag) in enumerate(options, start=1):
+        row.update({f"booking-option-{n}-is-airline": is_airline, f"booking-option-{n}-price-usd": price,
+                    f"booking-option-{n}-provider": "Alaska" if is_airline else "Agency"})
+        if bag is not None:
+            row[f"booking-option-{n}-first-bag-fee"] = bag
+    return row
+
+
+def test_airline_booking_price_is_a_complete_total(live_case):
+    row = with_booking_options(live_case.apify.rows[0], (False, 110.00, None), (True, 129.40, 35), (True, 131.00, 35))
+    candidate = normalize_item(row, live_case.config.searches[0], run_record(live_case))
+    # Cheapest airline-direct price, not the cheaper agency fare or the listing price.
+    assert candidate.total_cents == 12940
+    assert candidate.cost_basis == "COMPLETE_FLIGHT_TOTAL" and candidate.missing_critical_fields == ()
+
+
+def test_agency_only_offers_stay_observed(live_case):
+    row = with_booking_options(live_case.apify.rows[0], (False, 110.00, 30))
+    candidate = normalize_item(row, live_case.config.searches[0], run_record(live_case))
+    assert candidate.cost_basis == "OBSERVED_FLIGHT_PRICE" and candidate.missing_critical_fields == ("mandatory_fees",)
+    assert normalize_offers(row, live_case.config.searches[0], run_record(live_case)) == [candidate]
+
+
+@pytest.mark.parametrize("fee,expected", [(35, 16440), ("$35", 16440), ("$35.00", 16440), (0, 12940)])
+def test_with_bag_variant_adds_the_airline_bag_fee(live_case, fee, expected):
+    row = with_booking_options(live_case.apify.rows[0], (True, 129.40, fee))
+    base, with_bag = normalize_offers(row, live_case.config.searches[0], run_record(live_case))
+    assert base.baggage_included is False and base.total_cents == 12940
+    assert with_bag.id == base.id + "-bag1" and with_bag.total_cents == expected
+    assert with_bag.baggage_included is True and with_bag.checked_bags_included == 1
+    assert with_bag.cost_basis == "COMPLETE_FLIGHT_TOTAL" and with_bag.flight_identity == base.flight_identity
+
+
+@pytest.mark.parametrize("bag_fee,bags", [(None, 0), ("varies", 0), (35, 1)])
+def test_no_bag_variant_when_fee_unknown_or_bag_already_included(live_case, bag_fee, bags):
+    row = with_booking_options({**live_case.apify.rows[0], "checked-bags-included": bags}, (True, 129.40, bag_fee))
+    assert len(normalize_offers(row, live_case.config.searches[0], run_record(live_case))) == 1
+
+
+def test_solver_skips_known_bagless_fares_for_travellers_who_need_a_bag(live_case):
+    from tandem_worker.contracts import Snapshot
+    from tandem_worker.solver import FlightSolver
+    row = with_booking_options(live_case.apify.rows[0], (True, 129.40, 35))
+    base, with_bag = normalize_offers(row, live_case.config.searches[0], run_record(live_case))
+    snapshot = Snapshot(room_id="r", members=("p1",))
+    needs_bag = live_case.config.briefs[0].model_copy(update={"baggage_required": True})
+    assert FlightSolver().solve(snapshot, [needs_bag], [base, with_bag]).selected == (with_bag.id,)
+    assert FlightSolver().solve(snapshot, [live_case.config.briefs[0]], [base, with_bag]).selected == (base.id,)
+    unknown = base.model_copy(update={"baggage_included": None})
+    assert FlightSolver().solve(snapshot, [needs_bag], [unknown]).selected == (unknown.id,), "unknown stays selectable"

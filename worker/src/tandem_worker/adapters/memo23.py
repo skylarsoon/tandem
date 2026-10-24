@@ -19,7 +19,7 @@ from .apify import ApprovedFlightSearch
 ACTOR_ID = "ulPbFXCmcjxx3iPnp"
 ACTOR_BUILD = "0.0.141"
 BUILD_ID = "eByt1QXZwUhbeMtQr"
-NORMALIZER_VERSION = "memo23-0.0.141-v2"
+NORMALIZER_VERSION = "memo23-0.0.141-v3"
 
 
 class MemoFilters(Record):
@@ -63,7 +63,9 @@ def build_input(search: MemoSearch, request: dict, max_items=10):
             raise ContractError("TARGETED_SEARCH_RELAXES_FILTER")
     result = {"origin": search.origin, "destination": search.destination,
         "departDate": search.departure_date.isoformat(), "adults": 1, "cabinClass": "economy",
-        "currency": "USD", "maxItems": max_items, "sortBy": filters.sort_by}
+        "currency": "USD", "maxItems": max_items, "sortBy": filters.sort_by,
+        # Per-seller prices and bag fees for every returned itinerary (see airline_offer).
+        "resolveBookingOptions": True, "maxBookingItineraries": max_items}
     if filters.max_stops is not None:
         result["maxStops"] = filters.max_stops
     if filters.checked_bags is not None:
@@ -79,7 +81,8 @@ def validate_input_schema(openapi):
         raise ContractError("APIFY_SCHEMA_INCOMPATIBLE") from None
     required = {"origin": "string", "destination": "string", "departDate": "string", "adults": "integer",
                 "cabinClass": "string", "currency": "string", "maxItems": "integer", "sortBy": "string",
-                "maxStops": "integer", "checkedBags": "integer"}
+                "maxStops": "integer", "checkedBags": "integer", "resolveBookingOptions": "boolean",
+                "maxBookingItineraries": "integer"}
     for name, kind in required.items():
         if fields.get(name, {}).get("type") != kind:
             raise ContractError("APIFY_SCHEMA_INCOMPATIBLE")
@@ -118,6 +121,50 @@ def money_cents(value):
         raise ValueError("INVALID_PRICE") from None
 
 
+def fee_cents(value):
+    """Bag fees may arrive as numbers or display strings like "$35"; unparseable means unknown."""
+    if isinstance(value, str):
+        value = value.strip().replace("$", "").replace(",", "")
+    try:
+        return money_cents(value)
+    except ValueError:
+        return None
+
+
+def airline_offer(row):
+    """Cheapest booking option sold by the airline itself, or None.
+
+    Google Flights prices include VAT/GST and airport taxes; only optional
+    extras (bags, payment-card fees) are excluded
+    (https://support.google.com/travel/answer/2475306). Buying direct from the
+    airline avoids agency service fees, so this price is treated as the complete
+    trip total. Card fees remain a disclosed limitation, not a hidden zero.
+    """
+    count = row.get("booking-options-count")
+    if type(count) is not int or count < 1:
+        return None
+    best = None
+    for n in range(1, count + 1):
+        if row.get(f"booking-option-{n}-is-airline") is not True:
+            continue
+        price = fee_cents(row.get(f"booking-option-{n}-price-usd"))
+        if price is not None and (best is None or price < best["price"]):
+            best = {"price": price, "first_bag": fee_cents(row.get(f"booking-option-{n}-first-bag-fee"))}
+    return best
+
+
+def normalize_offers(row, search: MemoSearch, run, *, freshness_seconds=900):
+    """The flight as listed, plus a with-one-checked-bag variant when the airline
+    lists its first-bag fee and the fare doesn't already include a bag."""
+    base = normalize_item(row, search, run, freshness_seconds=freshness_seconds)
+    offer = airline_offer(row)
+    if offer is None or base.baggage_included is True or offer["first_bag"] is None:
+        return [base]
+    with_bag = base.model_copy(update={"id": base.id + "-bag1", "total_cents": base.total_cents + offer["first_bag"],
+                                       "checked_bags_included": 1, "baggage_included": True})
+    return [base, Candidate.model_validate(with_bag.model_dump())]
+
+
 def normalize_item(row, search: MemoSearch, run, *, freshness_seconds=900):
     if row.get("record-type") != "flight" or row.get("currency") != "USD":
         raise ValueError("UNSUPPORTED_ROW")
@@ -129,7 +176,8 @@ def normalize_item(row, search: MemoSearch, run, *, freshness_seconds=900):
     passengers = row.get("passengers")
     if isinstance(passengers, bool) or passengers not in (None, 1, "1 adult"):
         raise ValueError("PASSENGER_COUNT_MISMATCH")
-    price = money_cents(row["price"])
+    offer = airline_offer(row)
+    price = offer["price"] if offer else money_cents(row["price"])
     departed = local_epoch(row["depart-date"], row["depart-time"], search.origin_timezone)
     arrived = local_epoch(row["arrive-date"], row["arrive-time"], search.destination_timezone)
     if arrived < departed:
@@ -149,7 +197,9 @@ def normalize_item(row, search: MemoSearch, run, *, freshness_seconds=900):
         arrival_timezone=search.destination_timezone, observed_at=run["observed_at"],
         valid_until=run["observed_at"] + freshness_seconds, source_url=url, run_ref=run["run_id"],
         actor_id=ACTOR_ID, actor_build=run["build"], dataset_ref=run["dataset_id"], flight_identity=identity,
-        mode="APIFY_OBSERVED", cost_basis="OBSERVED_FLIGHT_PRICE",
-        # A search listing alone does not establish complete mandatory costs.
-        missing_critical_fields=("mandatory_fees",), checked_bags_included=bags,
+        mode="APIFY_OBSERVED",
+        # A search listing alone does not establish complete mandatory costs;
+        # the airline's own booking price does (see airline_offer).
+        cost_basis="COMPLETE_FLIGHT_TOTAL" if offer else "OBSERVED_FLIGHT_PRICE",
+        missing_critical_fields=() if offer else ("mandatory_fees",), checked_bags_included=bags,
         baggage_included=None if bags is None else bags >= 1)

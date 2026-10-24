@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from .adapters.apify import ApifyFlightResearch, ApifyHTTP, RunLedger
 from .adapters.claude import ClaudeModel
-from .adapters.memo23 import ACTOR_ID, BUILD_ID, NORMALIZER_VERSION, build_input, normalize_item
+from .adapters.memo23 import ACTOR_ID, BUILD_ID, NORMALIZER_VERSION, build_input, normalize_offers
 from .budget import ProviderBudget
 from .contracts import Act, ContractError, Decision, Limits, Payload, ResearchRequest, Snapshot, VoiceDraft, digest
 from .policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
@@ -75,7 +75,7 @@ def make_providers(config, settings, directory, *, clock=None, claude_client=Non
         approved_searches=list(config.searches), clock=clock, budget=budget,
         build_input=lambda search, purpose: build_input(search, {"purpose": purpose}, config.limits.max_items),
         request_input_builder=lambda search, request: build_input(search, request, config.limits.max_items),
-        normalize_item=lambda item, search, run: normalize_item(item, search, run, freshness_seconds=config.limits.freshness_seconds),
+        normalize_item=lambda item, search, run: normalize_offers(item, search, run, freshness_seconds=config.limits.freshness_seconds),
         max_items=config.limits.max_items, max_charge_usd=config.limits.max_charge_usd,
         poll_deadline_seconds=config.limits.poll_deadline_seconds, normalizer_version=NORMALIZER_VERSION)
     return Providers(model, CheckedResearch(gateway), client, budget, ledger, settings.apify_actor_build)

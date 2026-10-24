@@ -224,14 +224,17 @@ class ApifyFlightResearch:
                     raise ContractError("APIFY_SCHEMA_CHANGED")
                 for item in page[:min(50, self.max_items - offset)]:
                     try:
-                        candidate = Candidate.model_validate(self.normalize_item(item, search, dict(run)))
-                        if candidate.owner != search.owner or candidate.mode != "APIFY_OBSERVED" or candidate.run_ref != run["run_id"]:
+                        produced = self.normalize_item(item, search, dict(run))
+                        # A row may yield several priced variants (e.g. with a checked bag).
+                        candidates = [Candidate.model_validate(c) for c in (produced if isinstance(produced, list) else [produced])]
+                        if any(c.owner != search.owner or c.mode != "APIFY_OBSERVED" or c.run_ref != run["run_id"] for c in candidates):
                             raise ValueError("INVALID_PROVENANCE")
-                        if candidate.id in seen:
-                            duplicates += 1
-                            continue
-                        seen.add(candidate.id)
-                        normalized.append(candidate)
+                        for candidate in candidates:
+                            if candidate.id in seen:
+                                duplicates += 1
+                                continue
+                            seen.add(candidate.id)
+                            normalized.append(candidate)
                     except (ValidationError, ValueError, KeyError, TypeError):
                         quarantined += 1
                 if len(page) < min(50, self.max_items - offset):

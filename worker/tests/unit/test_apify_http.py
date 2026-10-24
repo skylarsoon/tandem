@@ -38,7 +38,8 @@ def test_failed_start_is_not_automatically_retried(monkeypatch):
 def schema():
     fields = {name: {"type": kind} for name, kind in {"origin": "string", "destination": "string", "departDate": "string",
         "adults": "integer", "cabinClass": "string", "currency": "string", "maxItems": "integer", "sortBy": "string",
-        "maxStops": "integer", "checkedBags": "integer"}.items()}
+        "maxStops": "integer", "checkedBags": "integer", "resolveBookingOptions": "boolean",
+        "maxBookingItineraries": "integer"}.items()}
     return {"components": {"schemas": {"inputSchema": {"properties": fields}}}}
 
 
