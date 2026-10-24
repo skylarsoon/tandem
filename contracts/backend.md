@@ -20,9 +20,12 @@ Every JSON example in `examples/` was captured from a real run. Request examples
 | Dispatcher | TypeScript SDK, subscribes to `worker_pending_jobs` (§8). |
 
 Connection details:
-- **Local:** `spacetime start`, then `spacetime publish --server local tandem-dev` (from the repo root).
-- **Shared dev:** Maincloud `tandem-dev`. URL and worker registration to follow once it's published.
-- **Never run the test suites against the shared database.** They wipe data.
+- **Shared (everyone uses this):** Maincloud, URL `https://maincloud.spacetimedb.com`, database `tandem-dev`. Dashboard: https://spacetimedb.com/tandem-dev.
+  - The browser connects with `withUri("https://maincloud.spacetimedb.com").withDatabaseName("tandem-dev")`.
+  - The worker and dispatcher accounts are registered. Their tokens are in Ronit's git-ignored `worker/.env` and `dispatcher/.env`; ask him for them privately, never in git or chat.
+- **Republishing** (owner only): `spacetime publish --server maincloud --module-path spacetimedb tandem-dev`. A breaking schema change needs `--break-clients` or a data wipe, so tell the team first.
+- **Local, for development:** `spacetime start`, then `spacetime publish --server local tandem-dev` from the repo root.
+- **Never run the test suites against the shared database.** The test scripts start their own throwaway local server.
 
 ### Encoding rules (tested)
 

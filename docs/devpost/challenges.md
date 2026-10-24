@@ -50,6 +50,10 @@ We wrote an adapter, aligned the rules (picking the stricter option each time), 
 
 **Spec drift between documents.** Our PRD and architecture evolved separately and started contradicting each other (when to show who hasn't approved, what happens to earlier agreements when plans change). We made the architecture the source of truth for building, listed every conflict explicitly, and settled them as a team instead of letting each person pick silently.
 
+**Live flight prices weren't complete enough to approve.** When we connected the real Google Flights scraper, every result came back as an observed fare without mandatory fees, so the honest answer was "we can't put this in front of people as an approvable total." Instead of quietly treating missing fees as zero, both the worker's validator and the database's publish check reject incomplete prices, and a live run ends as *exploratory only*, not as a fake agreement. Getting complete totals (a priced-offer provider, or an explicit fee model) is the next step.
+
+**Our tests broke the moment we logged in to the cloud.** SpacetimeDB remembers which identity owns each database *name*, even across restarts of a throwaway in-memory server. After we logged in to Maincloud with a new identity, our test scripts were refused permission to republish their old test databases. Each test run now publishes to a uniquely named database, which also makes runs fully isolated.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

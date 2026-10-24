@@ -384,7 +384,9 @@ Rehearse it with the simulator (below): `negotiate --crash-after 1`, then run `n
 The simulator plays the worker with clearly labelled FIXTURE flights.
 
 ```bash
-# 1. Local backend (or use the shared Maincloud database once published)
+# 1. Backend: the shared Maincloud database is already published (tandem-dev).
+#    Use STDB_URL=https://maincloud.spacetimedb.com STDB_DB=tandem-dev below.
+#    For a private local copy instead:
 spacetime start                                   # terminal 1
 spacetime publish --server local tandem-dev       # from the repo root
 
@@ -403,7 +405,11 @@ STDB_WORKER_TOKEN=<token> python3 spacetimedb/scripts/simulate.py negotiate --ro
 STDB_WORKER_TOKEN=<token> python3 spacetimedb/scripts/simulate.py negotiate --room <room_id>
 
 # 5. Optional: the dispatcher, so the worker gets woken instantly
-cd dispatcher && STDB_URL=http://127.0.0.1:3000 STDB_DB=tandem-dev STDB_TOKEN=<token> npm start
+cd dispatcher && set -a && source .env && set +a && npm start      # .env points at Maincloud
+
+# Live Claude + Apify against the shared database (worker/.env has the keys)
+cd worker && .venv/bin/tandem-worker live-room seed --config live.json --state-dir ./live-state
+.venv/bin/tandem-worker run --providers live --config live.json --state-dir ./live-state
 ```
 
 To show presence without a browser: `STDB_TOKEN=<a person's token> npx tsx src/tools/hold-connection.ts` (in `dispatcher/`).
