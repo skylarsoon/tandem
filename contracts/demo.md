@@ -21,6 +21,13 @@ SpacetimeDB is a **database and an application server in one**. You write your b
 
 The model in one line: **reads are live subscriptions; writes are function calls that run as transactions.**
 
+> **Example.**
+> 1. Bob types the invite code and clicks Join. His browser calls the `join_room` reducer.
+> 2. The transaction commits: Bob gets a membership row and a personal agent, and the room's `membership_revision` goes up.
+> 3. Alice, Carol and Dave are subscribed to `room_members`, so Bob appears on their screens in the same instant.
+>
+> Nobody wrote an API endpoint or a websocket broadcast for this.
+
 | A typical stack | SpacetimeDB |
 |---|---|
 | Frontend → REST API server → database | Frontend → database (the logic runs inside it) |
@@ -43,6 +50,15 @@ const membership = table(
 );
 ```
 
+> **Example rows** in `membership` for our test room:
+>
+> | id | room_id | member | display_name | role | active |
+> |---|---|---|---|---|---|
+> | 1 | 1 | `0xc200b8…` | Alice | ORGANIZER | true |
+> | 2 | 1 | `0xc200df…` | Bob | PARTICIPANT | true |
+>
+> `byRoomMember` makes "is this identity a member of room 1?" an index lookup instead of a table scan.
+
 **2. Reducers.** These are the functions clients call to change data. Each call runs as **one transaction**: every write lands, or none do. Reducers can't return data; they either succeed or throw an error. Inside a reducer, `ctx.sender` is the caller's identity and `ctx.db` gives access to every table, private ones included. Ours (trimmed):
 
 ```ts
@@ -56,12 +72,24 @@ export const joinRoom = spacetimedb.reducer(
 );
 ```
 
+> **Example.**
+> - Bob clicks Join a second time. The reducer throws, the client gets `530 INVALID_STATE: already a member of this room`, and nothing changes.
+> - If the reducer had already written a row before throwing, that write would be rolled back too.
+
 **3. Procedures.** Like reducers, but they **can return a value** and can make outbound HTTP calls. Database work happens inside `ctx.withTx(...)`, and that block may run more than once, so it must be safe to repeat. We use procedures wherever the caller needs an answer back, like claiming a job and getting a lease:
 
 ```ts
 export const checkLease = spacetimedb.procedure({ jobId: t.u64(), attempt: t.u32() }, t.string(),
   (ctx, args) => runProcedure(() => ctx.withTx(tx => leaseFields(requireLease(tx, args.jobId, args.attempt)))));
 ```
+
+> **Example.** A real `claim_job` response from `examples/claim_job.response.json`:
+> ```json
+> {"ok": true, "job_id": 4, "generation": 4, "room_id": 1, "kind": "PLAN", "attempt": 1,
+>  "input_revision": 5, "membership_revision": 4, "permission_revision": 5,
+>  "lease_expires_at_micros": "1792839963270410", "graph_thread_ref": null}
+> ```
+> A reducer couldn't hand back the `attempt` number. That's why claiming is a procedure.
 
 **4. Views.** Read-only functions that compute rows **for whoever is asking** (`ctx.sender`). Views must be public, but they can read private tables, so a view is how you expose *some* private data to *the right* person. Views can only read through indexes, and clients subscribe to them like tables:
 
@@ -71,6 +99,13 @@ export const myConstraints = spacetimedb.view({ name: 'my_constraints', public: 
   ctx => [...ctx.db.participantConstraint.byOwner.filter(ctx.sender)]);   // only your rows
 ```
 
+> **Example.** The same query, `SELECT * FROM my_constraints`, run by two people (real output):
+> ```
+> Alice → [{"key": "flight_budget_total", "value_json": "50000", "hardness": "HARD", "private_rationale": "saving for rent"}]
+> Bob   → [{"key": "flight_budget_total", "value_json": "65000", "hardness": "HARD", "private_rationale": null}]
+> ```
+> Querying the table directly (`SELECT * FROM participant_constraint`) is refused: *"no such table … it may be marked private."*
+
 **5. Scheduled reducers.** You insert a row with a time into a schedule table, and the database calls the reducer at that time. Clients can't call these directly. We use them for lease expiry and reminders:
 
 ```ts
@@ -78,13 +113,27 @@ export const expireLease = spacetimedb.reducer({ onSchedule: leaseTimer }, { arg
   (ctx, { arg }) => { /* if the lease really expired, put the job back to PENDING */ });
 ```
 
+> **Example timeline.**
+> 1. **12:00:00** The worker claims job 4 with a 60-second lease. The same transaction inserts a `lease_timer` row for 12:01:00.
+> 2. **12:00:20** The worker crashes, so no more renewals arrive.
+> 3. **12:01:00** `expire_lease` fires and sees the lease really expired. Job 4 goes back to `PENDING`, the dispatcher's subscription sees it reappear, and another worker claims it as attempt 2.
+
 **6. Lifecycle hooks.** `init` runs once on first publish; `clientConnected` and `clientDisconnected` run as clients come and go (we use them for presence).
+
+> **Example.** Alice opens the app in two tabs, so `presence.connections` is 2. She closes one; it drops to 1 and she still shows online. She closes the other: 0, offline, and `last_seen` is set.
 
 **7. Event tables** are transient rows that are broadcast on commit and never stored. Clients only receive them if the table is public, and views can't read them, so they can't be filtered per caller.
 
 ### Identity
 
 Every client connects with a token that maps to an **Identity** (a 256-bit id). The module sees it as `ctx.sender` and makes every permission decision from it. A token can be minted with `POST /v1/identity`, issued automatically on first connection, or come from an OIDC login provider. Service accounts (our worker and dispatcher) are just identities the module keeps on an allowlist.
+
+> **Example.**
+> ```
+> $ curl -X POST http://127.0.0.1:3000/v1/identity
+> {"identity": "c200c91036f0350a…", "token": "eyJ0eXAiOiJKV1QiLCJhbGci…"}
+> ```
+> The worker keeps that token as a secret, and the owner allowlists the identity with `add_worker`. When that worker calls `respond_to_proposal`, the module sees a worker identity and refuses: `NOT_AUTHORIZED: worker identities cannot perform human actions`.
 
 ### Subscriptions: how screens stay live
 
@@ -93,6 +142,15 @@ Every client connects with a token that maps to an **Identity** (a 256-bit id). 
 3. The SDK keeps a local cache and fires `onInsert` / `onUpdate` / `onDelete`, which is what React re-renders from.
 
 The client never polls, and the UI never shows a half-applied transaction.
+
+> **Example** (TypeScript, as in our dispatcher):
+> ```ts
+> conn.subscriptionBuilder()
+>   .onApplied(() => console.log('initial snapshot loaded'))
+>   .subscribe(['SELECT * FROM room_consent_counts']);
+> conn.db.roomConsentCounts.onUpdate((_ctx, before, after) => render(after));
+> ```
+> When Carol approves, every subscriber's row changes from `{"accepted": 1, "pending": 3}` to `{"accepted": 2, "pending": 2}` in the same update. That's the "2 of 4 approved" counter.
 
 ### Runtime rules inside reducers
 
@@ -114,6 +172,16 @@ The client never polls, and the UI never shows a half-applied transaction.
     - top-level argument names are camelCase, but nested fields and result columns are snake_case
     - options are sent as `{"some": v}`
     - reducer errors come back as HTTP 530 with `CODE: detail`
+
+> **Example** (how the Python worker calls a reducer):
+> ```
+> POST /v1/database/tandem-dev/call/renew_lease
+> Authorization: Bearer <worker token>
+> {"jobId": 4, "attempt": 1, "leaseSeconds": 60}
+>
+> → 200 (empty body) on success
+> → 530 "LEASE_LOST: attempt 1 was replaced by attempt 2" if another worker took over
+> ```
 
 ### Day-to-day commands
 
@@ -168,6 +236,8 @@ Python worker (LangGraph) ── HTTP: procedures + reducers via SpacetimeBacken
 
 #### One planning cycle, end to end
 
+Running example: a four-person Hawaii trip. Alice's hard budget is $500 and her private reason is "saving for rent"; the others have $650 each.
+
 1. **A person changes their budget.** `set_constraint` runs as one transaction: write the constraint, bump the room's `input_revision`, mark open jobs `SUPERSEDED`, mark open proposals `SUPERSEDED` with their consents `STALE`, and insert a new `PLAN` job. Everyone sees "a participant updated their requirements", never which one or why.
 2. **The worker gets woken.** The new job appears in `worker_pending_jobs`; the dispatcher's subscription fires and it POSTs to the worker.
 3. **The worker claims the job.** The `claim_job` procedure returns an attempt number and a 60-second lease (renewed every 15 s). Every later worker write checks four things: the caller, the attempt, an unexpired lease, and that the room's revisions still match the job's snapshot. Failures return `LEASE_LOST` or `STALE_SNAPSHOT`.
@@ -188,6 +258,13 @@ Python worker (LangGraph) ── HTTP: procedures + reducers via SpacetimeBacken
 8. **The plan is published.** `publish_proposal` re-validates the selected flights server-side: one per member, under hard caps, baggage where required, unexpired prices, arrivals within the room's window. It then stores immutable terms with a SHA-256 digest and creates `PENDING` consent rows, all in one transaction.
 9. **People decide.** `respond_to_proposal` must send the exact version and digest, and the room's revisions must be unchanged. Agreement is recomputed in the same transaction and requires every affected member's `ACCEPTED`.
 
+**What this looks like in the example** (real output from a test run):
+- **After Alice and Carol approve,** everyone's `room_consent_counts` shows `{"required": 4, "accepted": 2, "declined": 0, "pending": 2}`. It's a count, with no names.
+- **Then Carol changes her budget to $600.** Bob still has the old plan open and clicks Approve: `STALE_SNAPSHOT: proposal 1 was superseded`.
+- **Alice's earlier approval** now reads `STALE` in `my_consents`, so she'll review the new plan when it arrives.
+- **Bob's feed** only ever said `"A participant updated their requirements"`: no name, no amount, no reason.
+- **If the worker tries to approve:** `NOT_AUTHORIZED: worker identities cannot perform human actions`.
+
 #### Guarantees and how they're enforced
 
 | Guarantee | Mechanism |
@@ -200,6 +277,15 @@ Python worker (LangGraph) ── HTTP: procedures + reducers via SpacetimeBacken
 | Agents act within their owner's wishes | Confirmed settings gate room speech; grants bound to owner, kind and draft |
 | A buggy worker can't publish a bad plan | Server-side flight validation inside `publish_proposal` |
 | Agents can't argue forever | Thread and round turn budgets, charged once per message |
+
+**Each guarantee, as a concrete failure we test:**
+- **Outdated tab:** Bob approves version 1 after Carol's change → `STALE_SNAPSHOT`.
+- **Old worker:** a worker whose lease expired posts a message → `LEASE_LOST`; the replacement (attempt 2) succeeds.
+- **Retry:** the same message key sent twice → one message and one turn charged. Same key, different text → `KEY_BODY_MISMATCH`.
+- **Privacy:** an agent writes *"Alice is SAVING FOR RENT, so this is too expensive"* → `PRIVATE_CONTENT_DETECTED`, and nothing is posted.
+- **Settings:** Alice has *speak up* off and her agent objects in the room → `CONSULTATION_REQUIRED`. It can object after she grants permission for that exact draft.
+- **Bad plan:** the worker publishes Alice on a $500.01 flight → `INVALID_PROPOSAL`.
+- **Endless debate:** the 7th message in a 6-turn thread → `TURN_BUDGET_EXHAUSTED`.
 
 #### Live features
 
