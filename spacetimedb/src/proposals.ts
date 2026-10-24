@@ -1,0 +1,215 @@
+import { t } from 'spacetimedb/server';
+import type { Identity } from 'spacetimedb';
+import spacetimedb from './schema';
+import {
+  RESPONSES,
+  STAGES,
+  containsPrivateText,
+  digest,
+  emitEvent,
+  fail,
+  oneOf,
+  parseJson,
+  refResolves,
+  requireHuman,
+  requireLease,
+  requireMember,
+  requireMembershipById,
+  requireRoom,
+  requireWorker,
+  runProcedure,
+  setMilestone,
+  withReceipt,
+} from './guards';
+import { messageOwnAgent, recomputeAgreement } from './effects';
+
+const ImpactInput = t.object('ImpactInput', { memberId: t.u64(), impactJson: t.string() });
+
+// Atomic publication: immutable proposal + private impacts + PENDING consent
+// rows + milestone + job SUCCEEDED, all in one transaction. The terms digest is
+// computed here from the exact termsJson bytes; send canonical JSON.
+export const publishProposal = spacetimedb.procedure(
+  {
+    jobId: t.u64(),
+    attempt: t.u32(),
+    requestKey: t.string(),
+    stage: t.string(),
+    termsJson: t.string(),
+    sharedSummaryJson: t.string(),
+    validationJson: t.string(),
+    evidenceRefs: t.array(t.string()),
+    affectedMemberIds: t.array(t.u64()),
+    impacts: t.array(ImpactInput),
+  },
+  t.string(),
+  (ctx, args) =>
+    runProcedure(() =>
+      ctx.withTx(tx => {
+        requireWorker(tx);
+        return withReceipt(tx, 'publish_proposal', args.requestKey, args, () => {
+          const j = requireLease(tx, args.jobId, args.attempt);
+          if (j.kind !== 'PLAN') fail('INVALID_STATE', 'only PLAN jobs publish proposals');
+          const r = requireRoom(tx, j.roomId);
+          oneOf(args.stage, STAGES, 'stage');
+          parseJson(args.termsJson, 'termsJson');
+          parseJson(args.sharedSummaryJson, 'sharedSummaryJson');
+          parseJson(args.validationJson, 'validationJson');
+          for (const ref of args.evidenceRefs) {
+            if (!refResolves(tx, r.id, ref)) fail('EVIDENCE_EXPIRED', `evidence ${ref} is not recorded in this room`);
+          }
+          if (containsPrivateText(tx, r.id, args.termsJson) || containsPrivateText(tx, r.id, args.sharedSummaryJson)) {
+            fail('PRIVATE_CONTENT_DETECTED', 'shared proposal text contains a participant’s private reason');
+          }
+
+          let affected: Identity[];
+          if (args.affectedMemberIds.length > 0) {
+            affected = args.affectedMemberIds.map(id => requireMembershipById(tx, r.id, id).member);
+          } else {
+            affected = [...tx.db.membership.byRoomMember.filter(r.id)].filter(m => m.active).map(m => m.member);
+          }
+          if (affected.length === 0) fail('INVALID_STATE', 'no active members to review the proposal');
+
+          let version = 0;
+          for (const p of [...tx.db.proposal.byRoomStage.filter([r.id, args.stage])]) {
+            version = Math.max(version, p.version);
+            if (p.state === 'AWAITING_REVIEW' || p.state === 'AGREED') {
+              tx.db.proposal.id.update({ ...p, state: 'SUPERSEDED' });
+              for (const c of [...tx.db.consent.byProposalMember.filter(p.id)]) {
+                tx.db.consent.id.update({ ...c, response: 'STALE', updatedAt: tx.timestamp });
+              }
+            }
+          }
+
+          const termsDigest = digest(args.termsJson);
+          const p = tx.db.proposal.insert({
+            id: 0n,
+            roomId: r.id,
+            stage: args.stage,
+            version: version + 1,
+            jobId: j.id,
+            inputRevision: j.inputRevision,
+            membershipRevision: j.membershipRevision,
+            permissionRevision: j.permissionRevision,
+            termsJson: args.termsJson,
+            termsDigest,
+            sharedSummaryJson: args.sharedSummaryJson,
+            validationJson: args.validationJson,
+            evidenceRefs: args.evidenceRefs,
+            affectedMembers: affected,
+            state: 'AWAITING_REVIEW',
+            createdAt: tx.timestamp,
+          });
+          for (const impact of args.impacts) {
+            parseJson(impact.impactJson, 'impactJson');
+            const m = requireMembershipById(tx, r.id, impact.memberId);
+            tx.db.participantImpact.insert({
+              id: 0n,
+              proposalId: p.id,
+              roomId: r.id,
+              owner: m.member,
+              impactJson: impact.impactJson,
+            });
+          }
+          for (const member of affected) {
+            tx.db.consent.insert({
+              id: 0n,
+              proposalId: p.id,
+              roomId: r.id,
+              member,
+              termsDigest,
+              response: 'PENDING',
+              note: undefined,
+              updatedAt: tx.timestamp,
+            });
+          }
+          setMilestone(tx, r.id, args.stage, 'IN_REVIEW', p.id);
+          tx.db.job.id.update({
+            ...j,
+            status: 'SUCCEEDED',
+            outcome: 'PUBLISHED',
+            outcomeJson: JSON.stringify({ proposal_id: Number(p.id) }),
+            leaseOwner: undefined,
+            leaseExpiresAt: undefined,
+            updatedAt: tx.timestamp,
+          });
+          tx.db.room.id.update({ ...r, status: 'AWAITING_REVIEW' });
+          emitEvent(tx, r.id, 'PROPOSAL_PUBLISHED', { proposal_id: Number(p.id), version: p.version, stage: p.stage });
+          return { proposal_id: Number(p.id), version: p.version, terms_digest: termsDigest };
+        }) as object;
+      })
+    )
+);
+
+const RESPONSE_TO_CONSENT: Record<string, string> = {
+  ACCEPT: 'ACCEPTED',
+  NOT_COMFORTABLE: 'DECLINED',
+  SUGGEST_ALTERNATIVE: 'DECLINED',
+  ASK_MY_AGENT: 'PENDING',
+  DECIDE_LATER: 'PENDING',
+};
+
+// Human-only. Approval binds to the exact version, digest and current room
+// revisions; anything stale is rejected rather than applied to new terms.
+export const respondToProposal = spacetimedb.reducer(
+  {
+    proposalId: t.u64(),
+    version: t.u32(),
+    termsDigest: t.string(),
+    response: t.string(),
+    note: t.option(t.string()),
+  },
+  (ctx, args) => {
+    requireHuman(ctx);
+    const p = ctx.db.proposal.id.find(args.proposalId);
+    if (!p) fail('NOT_FOUND', `proposal ${args.proposalId}`);
+    requireMember(ctx, p.roomId);
+    if (!p.affectedMembers.some(m => m.isEqual(ctx.sender))) fail('NOT_AUTHORIZED', 'you are not asked to review this proposal');
+    if (p.state === 'SUPERSEDED') fail('STALE_SNAPSHOT', `proposal ${p.id} was superseded`);
+    if (p.state !== 'AWAITING_REVIEW') fail('INVALID_STATE', `proposal ${p.id} is ${p.state}; use withdraw_consent`);
+    if (p.version !== args.version || p.termsDigest !== args.termsDigest) {
+      fail('STALE_SNAPSHOT', 'version or terms digest does not match the current proposal');
+    }
+    const r = requireRoom(ctx, p.roomId);
+    if (
+      r.inputRevision !== p.inputRevision ||
+      r.membershipRevision !== p.membershipRevision ||
+      r.permissionRevision !== p.permissionRevision
+    ) {
+      fail('STALE_SNAPSHOT', 'the room changed after this proposal was published');
+    }
+    oneOf(args.response, RESPONSES, 'response');
+
+    for (const c of ctx.db.consent.byProposalMember.filter([p.id, ctx.sender])) {
+      ctx.db.consent.id.update({
+        ...c,
+        response: RESPONSE_TO_CONSENT[args.response],
+        note: args.note,
+        updatedAt: ctx.timestamp,
+      });
+    }
+    if (args.response === 'NOT_COMFORTABLE' || args.response === 'ASK_MY_AGENT' || args.response === 'SUGGEST_ALTERNATIVE') {
+      messageOwnAgent(ctx, p.roomId, `[${args.response} on proposal ${p.id} v${p.version}] ${args.note ?? ''}`.trim());
+    }
+    recomputeAgreement(ctx, p.id);
+  }
+);
+
+export const withdrawConsent = spacetimedb.reducer(
+  { proposalId: t.u64(), note: t.option(t.string()) },
+  (ctx, { proposalId, note }) => {
+    requireHuman(ctx);
+    const p = ctx.db.proposal.id.find(proposalId);
+    if (!p) fail('NOT_FOUND', `proposal ${proposalId}`);
+    requireMember(ctx, p.roomId);
+    if (p.state !== 'AWAITING_REVIEW' && p.state !== 'AGREED') fail('INVALID_STATE', `proposal ${p.id} is ${p.state}`);
+    let withdrew = false;
+    for (const c of ctx.db.consent.byProposalMember.filter([p.id, ctx.sender])) {
+      if (c.response !== 'ACCEPTED') fail('INVALID_STATE', 'there is no acceptance to withdraw');
+      ctx.db.consent.id.update({ ...c, response: 'WITHDRAWN', note, updatedAt: ctx.timestamp });
+      withdrew = true;
+    }
+    if (!withdrew) fail('NOT_AUTHORIZED', 'you are not asked to review this proposal');
+    messageOwnAgent(ctx, p.roomId, `[WITHDRAWN from proposal ${p.id} v${p.version}] ${note ?? ''}`.trim());
+    recomputeAgreement(ctx, p.id);
+  }
+);
