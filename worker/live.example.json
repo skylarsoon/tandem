@@ -1,0 +1,32 @@
+{
+  "room_id": "live-provider-demo",
+  "briefs": [
+    {
+      "owner": "p1",
+      "hard_cap_cents": 50000,
+      "baggage_required": false,
+      "preferences": {
+        "confirmed": true,
+        "speak_up_for_me": true,
+        "ask_me_first": true,
+        "give_me_time": true
+      }
+    }
+  ],
+  "searches": [
+    {
+      "owner": "p1",
+      "origin": "SFO",
+      "destination": "LAX",
+      "departure_date": "2027-01-15",
+      "origin_timezone": "America/Los_Angeles",
+      "destination_timezone": "America/Los_Angeles",
+      "initial_filters": {"sort_by": "top"},
+      "targeted_filters": {
+        "HARD_LIMIT": {"sort_by": "price"},
+        "BAGGAGE_UNKNOWN": {"sort_by": "price", "checked_bags": 1}
+      }
+    }
+  ],
+  "limits": {"model_calls": 4, "actor_runs": 1, "max_items": 10, "max_charge_usd": 1.0}
+}

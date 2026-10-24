@@ -97,7 +97,7 @@ class Worker:
                     return {"outcome": "AWAITING_REVIEW", "proposal_ref": result["proposal_ref"]}
                 outcome = result.get("outcome") or "UNRESOLVED"
                 self.backend.finish_job(claim, outcome)
-                return {"outcome": outcome}
+                return {"outcome": outcome, **({"validation_checks": result["validation_checks"]} if result.get("validation_checks") else {})}
         except ContractError as exc:
             if exc.code not in {"LEASE_LOST", "STALE_SNAPSHOT"}:
                 try:

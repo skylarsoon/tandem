@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 from .backend import LocalBackend
-from .contracts import Message, Question, Snapshot
+from .contracts import ContractError, Message, Question, Snapshot
 from .fixtures import FixtureResearch, ScriptedModel, scenario_inputs
 from .ports import SystemClock
 from .runner import Worker
@@ -38,8 +38,8 @@ def run_scenario(name, directory):
     return {"result": result, "report": backend.shared_report(), "mode": "FIXTURE"}
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Tandem worker: synthetic offline scenarios and typed contracts")
+def _main():
+    parser = argparse.ArgumentParser(description="Tandem worker: explicit fixture and live-provider workflows")
     sub = parser.add_subparsers(dest="command", required=True)
     scenario = sub.add_parser("scenario")
     scenario.add_argument("name", choices=SCENARIOS)
@@ -62,7 +62,37 @@ def main():
             command_parser.add_argument("--version", type=int, default=1)
             command_parser.add_argument("--response", choices=["yes", "no"], required=True)
     sub.add_parser("contracts", help="Print JSON schemas for backend integration")
+    providers = sub.add_parser("providers", help="Configure/check Claude and Apify; local test state only")
+    provider_actions = providers.add_subparsers(dest="provider_action", required=True)
+    for name in ("check", "smoke"):
+        command_parser = provider_actions.add_parser(name)
+        command_parser.add_argument("--config", type=Path, required=True)
+        command_parser.add_argument("--env-file", type=Path, default=Path(".env"))
+        if name == "check":
+            command_parser.add_argument("--online", action="store_true", help="Read-only provider metadata checks; no generation or Actor starts")
+        else:
+            command_parser.add_argument("--state-dir", type=Path, required=True)
+    run = sub.add_parser("run", help="Run the worker using live providers and the LOCAL test backend")
+    run.add_argument("--providers", choices=["live"], required=True)
+    run.add_argument("--config", type=Path, required=True)
+    run.add_argument("--env-file", type=Path, default=Path(".env"))
+    run.add_argument("--state-dir", type=Path, required=True)
     args = parser.parse_args()
+    if args.command in {"providers", "run"}:
+        # Fixture-only commands do not import providers, read .env, or need keys.
+        from .config import load_config, load_settings
+        from .live import check_providers, run_live, smoke
+        config, settings = load_config(args.config), load_settings(args.env_file)
+        if args.command == "run":
+            result = run_live(config, settings, args.state_dir)
+        elif args.provider_action == "check":
+            result = check_providers(config, settings, online=args.online)
+        else:
+            result = smoke(config, settings, args.state_dir)
+        print(json.dumps(result, indent=2))
+        if result.get("status") not in (None, "OK"):
+            raise SystemExit(2)
+        return
     if args.command == "contracts":
         print(json.dumps({c.__name__: c.model_json_schema() for c in (Message, Question, Snapshot)}, indent=2))
         return
@@ -90,6 +120,14 @@ def main():
         with tempfile.TemporaryDirectory(prefix="tandem-worker-") as directory:
             result = run_scenario(args.name, Path(directory))
     print(json.dumps(result, indent=2))
+
+
+def main():
+    try:
+        _main()
+    except ContractError as error:
+        print(json.dumps({"status": "ERROR", "code": error.code}))
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":

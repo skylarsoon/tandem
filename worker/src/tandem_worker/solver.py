@@ -49,8 +49,10 @@ class FlightValidator:
                 checks.append("HARD_COST")
             if candidate.observed_at > now or candidate.valid_until <= now:
                 checks.append("EVIDENCE_EXPIRED")
+            if candidate.cost_basis != "COMPLETE_FLIGHT_TOTAL" or candidate.missing_critical_fields:
+                checks.append("INCOMPLETE_COST_EVIDENCE")
             if brief.baggage_required and candidate.baggage_included is not True:
-                checks.append("BAGGAGE_UNKNOWN")
+                checks.append("BAGGAGE_UNKNOWN" if candidate.baggage_included is None else "BAGGAGE_REQUIRED")
         if records and max(c.arrival_epoch for c in records) - min(c.arrival_epoch for c in records) > snapshot.arrival_overlap_seconds:
             checks.append("ARRIVAL_OVERLAP")
         return ValidationReport(valid=not checks, snapshot_ref=digest(snapshot), candidate_digest=digest([c.model_dump(mode="json") for c in candidates]),

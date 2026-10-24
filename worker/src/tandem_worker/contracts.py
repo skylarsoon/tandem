@@ -71,8 +71,19 @@ class Candidate(Record):
     source_url: str
     run_ref: str
     mode: Literal["FIXTURE", "APIFY_OBSERVED", "PROVIDER_VERIFIED", "CACHED_WITH_TIMESTAMP", "SANDBOX"]
-    cost_basis: Literal["COMPLETE_FLIGHT_TOTAL"]
+    cost_basis: Literal["COMPLETE_FLIGHT_TOTAL", "OBSERVED_FLIGHT_PRICE"]
     baggage_included: bool | None = None
+    missing_critical_fields: tuple[str, ...] = ()
+    actor_id: str | None = None
+    actor_build: str | None = None
+    dataset_ref: str | None = None
+    flight_identity: str | None = None
+    departure_epoch: int | None = None
+    departure_timezone: str | None = None
+    arrival_timezone: str | None = None
+    checked_bags_included: int | None = None
+    # valid_until is a local freshness deadline, never a held fare's expiry.
+    provider_expires_at: float | None = None
 
     @model_validator(mode="after")
     def valid_evidence(self):
@@ -187,6 +198,27 @@ class Question(Record):
 class SolverResult(Record):
     status: Literal["OPTIMAL", "FEASIBLE", "INFEASIBLE", "MODEL_INVALID", "UNKNOWN"]
     selected: tuple[str, ...] = ()
+
+
+class ResearchRequest(Record):
+    purpose: Literal["INITIAL", "TARGETED", "REFRESH"]
+    members: tuple[str, ...]
+    target_owners: tuple[str, ...]
+    scope: Literal["FLIGHTS_ONLY"] = "FLIGHTS_ONLY"
+    room_id: str
+    input_revision: int
+    permission_revision: int
+    observed_at: float
+    blocker_message_ref: str = ""
+    blocker_code: Literal["NONE", "HARD_LIMIT", "BAGGAGE_UNKNOWN", "MISSING_FACT", "NO_MATCHING_CANDIDATE", "ARRIVAL_OVERLAP"] = "NONE"
+
+    @model_validator(mode="after")
+    def check_targets(self):
+        if not self.target_owners or not set(self.target_owners) <= set(self.members):
+            raise ValueError("INVALID_RESEARCH_TARGET")
+        if self.purpose == "TARGETED" and self.blocker_code == "NONE":
+            raise ValueError("TARGETED_BLOCKER_REQUIRED")
+        return self
 
 
 class ValidationReport(Record):
