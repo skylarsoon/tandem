@@ -15,8 +15,10 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Callable
 
-from ..contracts import Brief, Candidate, Claim, ContractError, Limits, Message, Preferences, Question, Snapshot, ValidationReport, digest
+from ..contracts import (Brief, Candidate, Claim, ContractError, IntakeContext, IntakeMessage, Limits, Message, Preferences,
+                         Question, Snapshot, TripBrief, ValidationReport, digest)
 from ..ports import Clock, SystemClock
+from ..briefs import brief_from_constraints
 from ..solver import POLICY
 
 # Worker question kinds ↔ module question kinds.
@@ -37,7 +39,6 @@ PROMPTS = {
     "EXPLORE": "May your agent search beyond the range you allowed?",
     "MISSING_FACT": "Your agent needs one more detail before continuing.",
 }
-NO_CONFIRMED_CAP = 10**12
 JOB_CLAIM_ERRORS = {"INVALID_STATE": "JOB_NOT_ELIGIBLE", "NOT_FOUND": "JOB_NOT_ELIGIBLE"}
 
 
@@ -183,7 +184,7 @@ class SpacetimeBackend:
         # snapshot_ref = digest(Snapshot), exactly what FlightValidator stamps on its report.
         snapshot = self._snapshot(self.http.procedure(self.token, "load_execution_context",
                                                       job_id=job["job_id"], attempt=job["attempt"]))
-        return Claim(job_id=str(job["job_id"]), worker_id=worker_id, attempt_token=str(job["attempt"]),
+        return Claim(job_id=str(job["job_id"]), worker_id=worker_id, attempt_token=str(job["attempt"]), kind=job["kind"],
             generation=str(job["generation"]), snapshot_ref=digest(snapshot),
             graph_thread_ref=job["graph_thread_ref"] or f"graph-v1:room:{job['room_id']}:generation:{job['generation']}:coordinator",
             lease_expiry=int(job["lease_expires_at_micros"]) / 1_000_000)
@@ -209,8 +210,7 @@ class SpacetimeBackend:
 
     def pending_jobs(self) -> list[dict]:
         jobs = self.http.view(self.token, "worker_pending_jobs")
-        return [j for j in sorted(jobs, key=lambda j: j["id"])
-                if j["kind"] == "PLAN" and (self.room_id is None or j["room_id"] == self.room_id)]
+        return [j for j in sorted(jobs, key=lambda j: j["id"]) if self.room_id is None or j["room_id"] == self.room_id]
 
     def eligible_jobs(self):
         return [str(j["id"]) for j in self.pending_jobs()]
@@ -229,28 +229,10 @@ class SpacetimeBackend:
         if member is None:
             raise ContractError("NOT_AUTHORIZED")
         mine = {c["key"]: c for c in ctx["constraints"] if c["member_id"] == member["member_id"]}
-        budget = mine.get("flight_budget_total")
-        cap = NO_CONFIRMED_CAP
-        if budget is not None:
-            # flight_cost_v1 treats the budget as a cap: a soft budget is capped
-            # at the owner's authorized exploration range when one was given.
-            allowed = budget["authorized_range"] if isinstance(budget["authorized_range"], dict) else {}
-            cap = int(budget["value"] if budget["hardness"] == "HARD" else allowed.get("max", budget["value"]))
         prefs = member["participation_preferences"]
-
-        def hard(key):
-            row = mine.get(key)
-            return row["value"] if row and row["hardness"] == "HARD" else None
-        trip_cap = hard("trip_budget_total")
-        return Brief(owner=owner, hard_cap_cents=cap,
-            trip_cap_cents=int(trip_cap) if trip_cap is not None else None,
-            own_bedroom=bool((mine.get("own_bedroom") or {}).get("value")),
-            stay_min_rating=(mine.get("stay_min_rating") or {}).get("value"),
-            preferences=Preferences(speak_up_for_me=prefs["speak_up_for_me"], ask_me_first=prefs["ask_me_first"],
-                give_me_time=prefs["give_me_time"], confirmed=prefs["confirmed"], revision=prefs["revision"]),
-            private_reason=(budget or {}).get("private_rationale") or "",
-            baggage_required=bool(mine.get("baggage_required", {}).get("value")),
-            reminders_opted_in=prefs["reminders_opted_in"])
+        return brief_from_constraints(owner, mine, Preferences(speak_up_for_me=prefs["speak_up_for_me"],
+            ask_me_first=prefs["ask_me_first"], give_me_time=prefs["give_me_time"], confirmed=prefs["confirmed"],
+            revision=prefs["revision"]), prefs["reminders_opted_in"])
 
     # ---------- receipt-backed operations ----------
 
@@ -482,6 +464,60 @@ class SpacetimeBackend:
     def room_event(self, claim, kind, payload, key):
         self.http.call(self.token, "emit_event", request_key=f"job{claim.generation}:event:{key}",
             type=kind, member_id=None, payload_json=json.dumps(payload, sort_keys=True), **self._attempt(claim))
+
+    # ---------- onboarding ----------
+
+    def load_intake(self, claim):
+        ctx = self._context(claim)
+        subject = ctx.get("subject")
+        if subject is None:
+            raise ContractError("NOT_HANDLED")
+        by_id = {m["member_id"]: m for m in ctx["members"]}
+        me = by_id[subject["member_id"]]
+        trip = ctx.get("trip_brief") or {}
+        intake = subject.get("intake") or {}
+        return IntakeContext(member_id=me["member_id"], owner=self.owner_name(me), display_name=me["display_name"],
+            purpose=subject["purpose"], is_organizer=me["role"] == "ORGANIZER",
+            others=tuple(m["display_name"] for m in ctx["members"] if m["active"] and m["member_id"] != me["member_id"]),
+            description=trip.get("description", ""),
+            brief=TripBrief.model_validate(trip["brief"]) if trip.get("state") == "CONFIRMED" else None,
+            brief_state=trip.get("state"),
+            messages=tuple(IntakeMessage(id=m["id"], sender=m["sender"], body=m["body"]) for m in subject["messages"]),
+            pending=tuple(p["patch"] for p in subject["patches"] if p["state"] == "PENDING"),
+            confirmed_keys=tuple(c["key"] for c in ctx["constraints"] if c["member_id"] == me["member_id"]),
+            intake_state=intake.get("state"), coverage=intake.get("coverage") or {},
+            question_count=intake.get("question_count", 0),
+            preferences_confirmed=me["participation_preferences"]["confirmed"])
+
+    def _member_id(self, claim, owner):
+        member = self._members(self._context(claim)).get(owner)
+        if member is None:
+            raise ContractError("NOT_AUTHORIZED")
+        return member["member_id"]
+
+    def propose_patch(self, claim, owner, patch, source_message_id, key):
+        self.http.call(self.token, "propose_constraint_patch", request_key=f"job{claim.generation}:patch:{key}",
+            member_id=self._member_id(claim, owner), patch_json=json.dumps(patch, sort_keys=True),
+            source_message_id=some(source_message_id) if source_message_id is not None else None, **self._attempt(claim))
+
+    def withdraw_patches(self, claim, owner, key):
+        self.http.call(self.token, "withdraw_constraint_patches", request_key=f"job{claim.generation}:withdraw:{key}",
+            member_id=self._member_id(claim, owner), **self._attempt(claim))
+
+    def update_intake(self, claim, owner, coverage, state, asked, key):
+        self.http.call(self.token, "update_intake", request_key=f"job{claim.generation}:intake:{key}",
+            member_id=self._member_id(claim, owner), coverage_json=json.dumps(coverage, sort_keys=True), state=state,
+            asked_question=asked, **self._attempt(claim))
+
+    def propose_preferences(self, claim, owner, speak_up, ask_first, give_time, key):
+        self.http.call(self.token, "propose_participation_preferences", request_key=f"job{claim.generation}:prefs:{key}",
+            member_id=self._member_id(claim, owner), speak_up_for_me=speak_up, ask_me_first=ask_first,
+            give_me_time=give_time, **self._attempt(claim))
+
+    def propose_trip_brief(self, claim, brief, unclear, key):
+        self.http.call(self.token, "propose_trip_brief", request_key=f"job{claim.generation}:brief:{key}",
+            brief_json=json.dumps(TripBrief.model_validate(primitive(brief)).model_dump(mode="json"), sort_keys=True),
+            unclear_json=json.dumps(list(unclear)), **self._attempt(claim))
 
     def finish_job(self, claim, outcome):
         self.http.call(self.token, "finish_job", request_key=f"{claim.job_id}:{claim.attempt_token}:finish:{outcome}",

@@ -10,6 +10,7 @@ from langgraph.types import Command
 
 from .contracts import ContractError, Limits
 from .graphs.coordinator import build_coordinator
+from .graphs.intake import run_intake
 from .ports import SystemClock
 from .solver import FlightSolver, FlightValidator
 
@@ -74,6 +75,11 @@ class Worker:
         thread = threading.Thread(target=heartbeat, daemon=True)
         thread.start()
         try:
+            if claim.kind != "PLAN":
+                # Onboarding is one short pass per message; no graph checkpoint needed.
+                outcome = run_intake(LeaseGuard(self.backend, lost), claim, self.model)
+                self.backend.finish_job(claim, outcome)
+                return {"outcome": outcome}
             with SqliteSaver.from_conn_string(self.checkpoint_path) as saver:
                 graph = build_coordinator(LeaseGuard(self.backend, lost), claim, self.model, self.research, self.solver,
                     self.validator, self.clock, self.limits, saver)

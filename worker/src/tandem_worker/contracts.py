@@ -46,6 +46,14 @@ class Brief(Record):
     trip_cap_cents: int | None = Field(default=None, ge=0)
     own_bedroom: bool = False
     stay_min_rating: float | None = Field(default=None, ge=0, le=5)
+    # From onboarding: where they fly from, when they're willing to land
+    # ({"earliest": "HH:MM", "latest": "HH:MM"}, local), how many stops, an
+    # explicit "money's no issue", and private notes planning can't use yet.
+    origin_airport: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    arrival_window: dict | None = None
+    max_stops: int | None = Field(default=None, ge=0, le=3)
+    no_budget_limit: bool = False
+    notes: tuple[str, ...] = ()
 
 
 class Snapshot(Record):
@@ -136,6 +144,7 @@ class Claim(Record):
     graph_thread_ref: str
     snapshot_ref: str
     lease_expiry: float
+    kind: Literal["PLAN", "INTERPRET", "INTAKE"] = "PLAN"
 
 
 class Act(StrEnum):
@@ -363,3 +372,94 @@ class Limits(Record):
         if self.heartbeat_seconds >= self.lease_seconds:
             raise ValueError("HEARTBEAT_MUST_PRECEDE_EXPIRY")
         return self
+
+
+# ---------- Conversational onboarding ----------
+
+Topic = Literal["origin", "dates", "money", "settings"]
+CoverageState = Literal["OPEN", "ANSWERED", "UNCLEAR", "SKIPPED"]
+TOPICS: tuple[str, ...] = ("origin", "dates", "money", "settings")
+IntakeKey = Literal["origin_airport", "dates_ok", "flight_budget_total", "trip_budget_total", "no_budget_limit",
+                    "baggage_required", "own_bedroom", "stay_min_rating", "arrival_window", "max_stops", "trip_note"]
+
+
+class TripBrief(Record):
+    """The organizer's trip, as their agent understood it and they confirmed."""
+    destination: str = Field(min_length=1, max_length=120)
+    destination_airport: str = Field(pattern=r"^[A-Z]{3}$")
+    start_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    end_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    components: tuple[Literal["FLIGHT", "STAY", "TRANSFER"], ...] = ("FLIGHT",)
+    group_size: int | None = Field(default=None, ge=1, le=20)
+    vibe: str = Field(default="", max_length=200)
+
+
+class BriefDraft(Record):
+    """Model output for a trip description: a brief only if every field was stated,
+    plus what to ask the organizer about."""
+    brief: TripBrief | None = None
+    unclear: tuple[str, ...] = ()
+
+
+class IntakeItem(Record):
+    """One thing the traveller said, with their exact words. `interpreted` marks a
+    reading the summary must spell out (e.g. "no red-eyes" → land 06:00-23:00)."""
+    key: IntakeKey
+    value: str | int | float | bool | dict[str, str]
+    hardness: Literal["HARD", "SOFT"] = "HARD"
+    authorized_range: dict[str, int] | None = None
+    unit: str = ""
+    private_rationale: str = Field(default="", max_length=300)
+    source_message_id: int
+    source_quote: str = Field(min_length=1, max_length=300)
+    interpreted: bool = False
+
+
+class IntakeSettings(Record):
+    speak_up_for_me: bool | None = None
+    ask_me_first: bool | None = None
+    source_message_id: int | None = None
+    source_quote: str = ""
+
+
+class Unclear(Record):
+    topic: Topic
+    reason: str = Field(max_length=200)
+
+
+class IntakeExtraction(Record):
+    items: tuple[IntakeItem, ...] = ()
+    settings: IntakeSettings | None = None
+    unclear: tuple[Unclear, ...] = ()
+
+
+class IntakeQuestion(Record):
+    text: str = Field(min_length=5, max_length=300)
+    topics: tuple[Topic, ...] = Field(min_length=1, max_length=2)
+
+
+class IntakeMessage(Record):
+    id: int
+    sender: Literal["HUMAN", "AGENT"]
+    body: str
+
+
+class IntakeContext(Record):
+    """Everything an onboarding job may see: the shared brief and this one
+    traveller's own conversation. Never anyone else's."""
+    member_id: int
+    owner: str
+    purpose: Literal["BRIEF", "INTAKE", "MESSAGE"]
+    display_name: str = ""
+    is_organizer: bool = False
+    others: tuple[str, ...] = ()
+    description: str = ""
+    brief: TripBrief | None = None
+    brief_state: Literal["DRAFT", "PROPOSED", "CONFIRMED"] | None = None
+    messages: tuple[IntakeMessage, ...] = ()
+    pending: tuple[dict, ...] = ()
+    confirmed_keys: tuple[str, ...] = ()
+    intake_state: Literal["ASKING", "SUMMARY", "CONFIRMED"] | None = None
+    coverage: dict = Field(default_factory=dict)
+    question_count: int = 0
+    preferences_confirmed: bool = False

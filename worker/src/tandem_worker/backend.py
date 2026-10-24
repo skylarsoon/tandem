@@ -12,7 +12,10 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .contracts import Brief, Candidate, Claim, ContractError, Limits, Message, Preferences, Question, Snapshot, ValidationReport, digest
+from .contracts import (TOPICS, Brief, Candidate, Claim, ContractError, IntakeContext, IntakeMessage, Limits, Message,
+                        Preferences, Question, Snapshot, TripBrief, ValidationReport, digest)
+from .briefs import NO_CONFIRMED_CAP, brief_from_constraints
+from .intake_policy import MAX_QUESTIONS, MONEY_KEYS
 from .ports import Clock, SystemClock
 from .solver import TripValidator, relaxed
 
@@ -66,7 +69,8 @@ class LocalBackend:
         job = state["jobs"].get(claim.job_id)
         if not job or job["status"] != "RUNNING" or job["token"] != claim.attempt_token or job["worker"] != claim.worker_id or job["expiry"] <= self.clock.now():
             raise ContractError("LEASE_LOST")
-        if digest(state["snapshot"]) != claim.snapshot_ref:
+        # Onboarding jobs serve one person's conversation and outlive room revisions.
+        if job.get("kind", "PLAN") == "PLAN" and digest(state["snapshot"]) != claim.snapshot_ref:
             raise ContractError("STALE_SNAPSHOT")
         return job
 
@@ -90,14 +94,15 @@ class LocalBackend:
                 self._checked(state, claim)
                 return claim
             job = state["jobs"][job_id]
-            if job["snapshot_ref"] != digest(state["snapshot"]):
+            kind = job.get("kind", "PLAN")
+            if kind == "PLAN" and job["snapshot_ref"] != digest(state["snapshot"]):
                 raise ContractError("STALE_SNAPSHOT")
             eligible = job["status"] == "QUEUED" or (job["status"] == "RUNNING" and job["expiry"] <= self.clock.now())
             if not eligible:
                 raise ContractError("JOB_NOT_ELIGIBLE")
             job.update(status="RUNNING", worker=worker_id, token=uuid.uuid4().hex, expiry=self.clock.now() + self.limits.lease_seconds)
             claim = Claim(job_id=job_id, worker_id=worker_id, attempt_token=job["token"], generation=job["generation"],
-                snapshot_ref=job["snapshot_ref"], lease_expiry=job["expiry"],
+                snapshot_ref=job["snapshot_ref"] or digest(state["snapshot"]), lease_expiry=job["expiry"], kind=kind,
                 graph_thread_ref=f"graph-v1:{state['snapshot']['room_id']}:{job['generation']}:coordinator")
             self._record(state, key, body, primitive(claim))
             return claim
@@ -380,7 +385,11 @@ class LocalBackend:
             self._checked(state, claim)
             if owner not in state["snapshot"]["members"]:
                 raise ContractError("NOT_AUTHORIZED")
-            state["notes"].setdefault(owner, {})[f"{claim.generation}:{key}"] = text
+            note_key = f"{claim.generation}:{key}"
+            if note_key not in state["notes"].setdefault(owner, {}):
+                # The agent's side of the owner's private conversation.
+                self._message(state, owner, "AGENT", text)
+            state["notes"][owner][note_key] = text
 
     def room_event(self, claim, kind, payload, key):
         with self._tx() as state:
@@ -413,7 +422,7 @@ class LocalBackend:
     def _supersede(self, state, revision):
         state["snapshot"][revision] += 1
         for job in state["jobs"].values():
-            if job["status"] not in {"SUCCEEDED", "CANCELLED", "SUPERSEDED"}:
+            if job.get("kind", "PLAN") == "PLAN" and job["status"] not in {"SUCCEEDED", "CANCELLED", "SUPERSEDED"}:
                 job.update(status="SUPERSEDED", token=None, expiry=0)
                 self._close_threads(state, job["generation"], "SUPERSEDED")
         for proposal in state["proposals"].values():
@@ -444,7 +453,8 @@ class LocalBackend:
 
     def eligible_jobs(self):
         with self._tx() as state:
-            return [j["id"] for j in state["jobs"].values() if j["snapshot_ref"] == digest(state["snapshot"]) and
+            return [j["id"] for j in state["jobs"].values()
+                    if (j.get("kind", "PLAN") != "PLAN" or j["snapshot_ref"] == digest(state["snapshot"])) and
                     (j["status"] == "QUEUED" or (j["status"] == "RUNNING" and j["expiry"] <= self.clock.now()))]
 
     def current_snapshot(self):
@@ -468,3 +478,206 @@ class LocalBackend:
                     if r["message"]["audience"] == "PUBLIC_SUMMARY"],
                 "threads": state["threads"], "proposals": state["proposals"], "consent_count": len(state["consents"]),
                 "events": state["events"]}
+
+    # ---------- onboarding (local harness of the module's intake flow) ----------
+
+    def seed_trip(self, members: tuple[str, ...], organizer: str | None = None) -> None:
+        """A room with people but no limits yet: they arrive through onboarding."""
+        with self._tx() as state:
+            if state:
+                raise ContractError("ALREADY_SEEDED")
+            snapshot = Snapshot(room_id="fixture-room", members=tuple(members))
+            state.update(snapshot=primitive(snapshot), jobs={}, receipts={}, messages={}, threads={}, questions={},
+                operations={}, candidates={}, candidate_context={}, proposals={}, consents=[], grants={}, events=[],
+                sequence=0, notes={}, impacts={},
+                briefs={o: primitive(Brief(owner=o, hard_cap_cents=NO_CONFIRMED_CAP)) for o in members})
+            self._onboarding(state)["organizer"] = organizer or members[0]
+
+    @staticmethod
+    def _onboarding(state):
+        return state.setdefault("onboarding", {"organizer": state["snapshot"]["members"][0], "trip_brief": None,
+            "intakes": {}, "pmessages": [], "patches": [], "constraints": {}, "job_seq": 0})
+
+    def _message(self, state, owner, sender, body):
+        board = self._onboarding(state)
+        board["pmessages"].append({"id": len(board["pmessages"]) + 1, "owner": owner, "sender": sender, "body": body})
+        return board["pmessages"][-1]["id"]
+
+    def _agent_job(self, state, kind, owner, purpose):
+        board = self._onboarding(state)
+        board["job_seq"] += 1
+        job_id = f"{kind.lower()}-{board['job_seq']}"
+        state["jobs"][job_id] = dict(id=job_id, kind=kind, subject=owner, purpose=purpose, generation=job_id,
+            snapshot_ref=None, status="QUEUED", token=None, worker=None, expiry=0, questions=[],
+            calls={"model": 0, "research": 0})
+        return job_id
+
+    # Human side (what the app's screens call).
+
+    def describe_trip(self, description: str) -> str:
+        with self._tx() as state:
+            board = self._onboarding(state)
+            old = board["trip_brief"] or {"revision": 0, "brief": None}
+            board["trip_brief"] = {"description": description, "brief": old["brief"], "unclear": [], "state": "DRAFT",
+                                   "revision": old["revision"] + 1}
+            return self._agent_job(state, "INTAKE", board["organizer"], "BRIEF")
+
+    def confirm_trip_brief(self) -> None:
+        with self._tx() as state:
+            board = self._onboarding(state)
+            brief = board["trip_brief"]
+            if not brief or brief["state"] != "PROPOSED":
+                raise ContractError("INVALID_STATE")
+            brief["state"] = "CONFIRMED"
+            state["snapshot"]["components"] = list(brief["brief"]["components"])
+            for owner in state["snapshot"]["members"]:
+                if owner not in board["intakes"]:
+                    board["intakes"][owner] = {"state": "ASKING", "coverage": self._coverage(state, owner), "question_count": 0}
+                    self._agent_job(state, "INTAKE", owner, "INTAKE")
+            self._supersede(state, "input_revision")
+
+    def _coverage(self, state, owner):
+        keys = set(self._onboarding(state)["constraints"].get(owner, {}))
+        confirmed = state["briefs"][owner]["preferences"]["confirmed"]
+        return {"origin": "ANSWERED" if "origin_airport" in keys else "OPEN", "dates": "OPEN",
+                "money": "ANSWERED" if keys & MONEY_KEYS else "OPEN", "settings": "ANSWERED" if confirmed else "OPEN"}
+
+    def say(self, owner: str, body: str) -> str:
+        """The owner writes to their own agent; an INTERPRET job reads it."""
+        with self._tx() as state:
+            self._message(state, owner, "HUMAN", body)
+            return self._agent_job(state, "INTERPRET", owner, "MESSAGE")
+
+    def _apply(self, state, owner, patch):
+        row = {k: patch[k] for k in ("value", "hardness") if k in patch}
+        row["authorized_range"] = patch.get("authorized_range")
+        row["private_rationale"] = patch.get("private_rationale")
+        rows = self._onboarding(state)["constraints"].setdefault(owner, {})
+        rows[patch["key"]] = row
+        old = Brief.model_validate(state["briefs"][owner])
+        state["briefs"][owner] = primitive(brief_from_constraints(owner, rows, old.preferences, old.reminders_opted_in))
+
+    def confirm_origin(self, owner: str, patch_id: int) -> None:
+        with self._tx() as state:
+            board = self._onboarding(state)
+            patch = next((p for p in board["patches"] if p["id"] == patch_id and p["owner"] == owner), None)
+            if not patch or patch["state"] != "PENDING" or patch["patch"]["key"] != "origin_airport":
+                raise ContractError("INVALID_STATE")
+            patch["state"] = "CONFIRMED"
+            self._apply(state, owner, patch["patch"])
+            board["intakes"][owner]["coverage"]["origin"] = "ANSWERED"
+            self._supersede(state, "input_revision")
+
+    def confirm_intake(self, owner: str, accepted: list[int], settings: dict | None = None) -> None:
+        with self._tx() as state:
+            board = self._onboarding(state)
+            intake = board["intakes"].get(owner)
+            if not intake or intake["state"] != "SUMMARY":
+                raise ContractError("INVALID_STATE")
+            for patch in board["patches"]:
+                if patch["owner"] == owner and patch["state"] == "PENDING":
+                    patch["state"] = "CONFIRMED" if patch["id"] in accepted else "REJECTED"
+                    if patch["state"] == "CONFIRMED":
+                        self._apply(state, owner, patch["patch"])
+            prefs = state["briefs"][owner]["preferences"]
+            if settings is not None:
+                prefs.update(settings, confirmed=True, revision=prefs["revision"] + 1)
+            if not prefs["confirmed"]:
+                raise ContractError("PREFERENCES_UNCONFIRMED")
+            keys = set(board["constraints"].get(owner, {}))
+            if not keys & MONEY_KEYS or "origin_airport" not in keys:
+                raise ContractError("INTAKE_INCOMPLETE")
+            intake["state"] = "CONFIRMED"
+            self._supersede(state, "input_revision")
+
+    def conversation(self, owner: str) -> list[dict]:
+        with self._tx() as state:
+            return [m for m in self._onboarding(state)["pmessages"] if m["owner"] == owner]
+
+    def patches_of(self, owner: str) -> list[dict]:
+        with self._tx() as state:
+            return [p for p in self._onboarding(state)["patches"] if p["owner"] == owner]
+
+    def intake_of(self, owner: str) -> dict | None:
+        with self._tx() as state:
+            return self._onboarding(state)["intakes"].get(owner)
+
+    def trip_brief(self) -> dict | None:
+        with self._tx() as state:
+            return self._onboarding(state)["trip_brief"]
+
+    def brief_of(self, owner: str) -> Brief:
+        with self._tx() as state:
+            return Brief.model_validate(state["briefs"][owner])
+
+    # Worker side (what the intake engine calls).
+
+    def load_intake(self, claim):
+        with self._tx() as state:
+            job = self._checked(state, claim)
+            board = self._onboarding(state)
+            owner, members = job["subject"], state["snapshot"]["members"]
+            trip = board["trip_brief"] or {}
+            intake = board["intakes"].get(owner) or {}
+            return IntakeContext(member_id=members.index(owner) + 1, owner=owner, purpose=job["purpose"],
+                is_organizer=owner == board["organizer"], others=tuple(m for m in members if m != owner),
+                description=trip.get("description", ""), brief=trip.get("brief") if trip.get("state") == "CONFIRMED" else None,
+                brief_state=trip.get("state"),
+                messages=tuple(IntakeMessage(id=m["id"], sender=m["sender"], body=m["body"]) for m in board["pmessages"] if m["owner"] == owner),
+                pending=tuple(p["patch"] for p in board["patches"] if p["owner"] == owner and p["state"] == "PENDING"),
+                confirmed_keys=tuple(board["constraints"].get(owner, {})), intake_state=intake.get("state"),
+                coverage=intake.get("coverage", {}), question_count=intake.get("question_count", 0),
+                preferences_confirmed=state["briefs"][owner]["preferences"]["confirmed"])
+
+    def propose_patch(self, claim, owner, patch, source_message_id, key):
+        with self._tx() as state:
+            self._checked(state, claim)
+            board = self._onboarding(state)
+            if self._receipt(state, f"patch:{claim.job_id}:{key}", patch):
+                return
+            quote = patch.get("source_quote")
+            if quote is not None:
+                source = next((m for m in board["pmessages"] if m["id"] == source_message_id), None)
+                if not source or source["owner"] != owner or source["sender"] != "HUMAN" or quote not in source["body"]:
+                    raise ContractError("INVALID_EVIDENCE_REF")
+            board["patches"].append({"id": len(board["patches"]) + 1, "owner": owner, "patch": patch,
+                                     "source_message_id": source_message_id, "state": "PENDING"})
+            self._record(state, f"patch:{claim.job_id}:{key}", patch, None)
+
+    def withdraw_patches(self, claim, owner, key):
+        with self._tx() as state:
+            self._checked(state, claim)
+            for patch in self._onboarding(state)["patches"]:
+                if patch["owner"] == owner and patch["state"] == "PENDING":
+                    patch["state"] = "REJECTED"
+
+    def update_intake(self, claim, owner, coverage, state_name, asked, key):
+        with self._tx() as state:
+            self._checked(state, claim)
+            if self._receipt(state, f"intake:{claim.job_id}:{key}", [coverage, state_name, asked]):
+                return
+            intake = self._onboarding(state)["intakes"][owner]
+            if intake["state"] == "CONFIRMED" or state_name not in ("ASKING", "SUMMARY") or set(coverage) != set(TOPICS):
+                raise ContractError("INVALID_STATE")
+            count = intake["question_count"] + (1 if asked else 0)
+            if count > MAX_QUESTIONS:
+                raise ContractError("TURN_BUDGET_EXHAUSTED")
+            intake.update(state=state_name, coverage=dict(coverage), question_count=count)
+            self._record(state, f"intake:{claim.job_id}:{key}", [coverage, state_name, asked], None)
+
+    def propose_preferences(self, claim, owner, speak_up, ask_first, give_time, key):
+        with self._tx() as state:
+            self._checked(state, claim)
+            prefs = state["briefs"][owner]["preferences"]
+            if prefs["confirmed"]:
+                raise ContractError("INVALID_STATE")
+            prefs.update(speak_up_for_me=speak_up, ask_me_first=ask_first, give_me_time=give_time)
+
+    def propose_trip_brief(self, claim, brief, unclear, key):
+        with self._tx() as state:
+            self._checked(state, claim)
+            trip = self._onboarding(state)["trip_brief"]
+            if not trip or trip["state"] == "CONFIRMED":
+                raise ContractError("INVALID_STATE")
+            trip.update(brief=primitive(TripBrief.model_validate(primitive(brief))), unclear=list(unclear), state="PROPOSED",
+                        revision=trip["revision"] + 1)

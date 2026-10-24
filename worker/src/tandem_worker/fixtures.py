@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 
-from .contracts import Act, Brief, Candidate, Decision, Preferences, Snapshot, VoiceDraft, VoiceSegment
+from .contracts import (Act, Brief, BriefDraft, Candidate, Decision, IntakeExtraction, Preferences, Snapshot, TripBrief,
+                        VoiceDraft, VoiceSegment)
 
 
 HOUR = 3600
@@ -147,3 +150,54 @@ class ScriptedModel:
     def voice(self, context):
         self.voices.append(copy.deepcopy(context))
         return VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k, text=v) for k, v in context["facts"].items()))
+
+
+# ---------- Onboarding personas ----------
+
+PERSONAS = json.loads((Path(__file__).parent / "personas" / "travellers.json").read_text())
+
+
+def persona(name: str) -> dict:
+    return next(p for p in PERSONAS["travellers"] if p["name"] == name)
+
+
+class PersonaModel(ScriptedModel):
+    """Deterministic onboarding model for scripted personas. Extraction is the
+    persona file's annotated reading of each message; questions fall back to the
+    engine's own wording; the trip brief is the file's."""
+    def extract(self, context):
+        p, items, settings, unclear = persona(context["owner"]), [], None, []
+        for message in context["messages"]:
+            if message["sender"] != "HUMAN":
+                continue
+            for reply in p["replies"]:
+                if reply["says"] not in message["body"]:
+                    continue
+                items += [{**item, "source_message_id": message["id"]} for item in reply.get("items", [])]
+                if reply.get("settings"):
+                    settings = {**reply["settings"], "source_message_id": message["id"]}
+                unclear += reply.get("unclear", [])
+        return IntakeExtraction(items=tuple(items), settings=settings, unclear=tuple(unclear))
+
+    def ask(self, context):
+        raise ValueError("scripted personas use the engine's fallback questions")
+
+    def brief(self, context):
+        return BriefDraft(brief=TripBrief(**PERSONAS["trip"]["brief"]))
+
+
+class ScriptedTraveller:
+    """Answers its agent like the persona would: the opener first, then whatever
+    the agent asked about (up to two topics), each answer used once."""
+    def __init__(self, name: str):
+        self.persona, self.used = persona(name), set()
+
+    def reply(self, asked: list[str]) -> str | None:
+        said = []
+        for topic in asked:
+            for i, reply in enumerate(self.persona["replies"]):
+                if i not in self.used and reply["when"] == topic:
+                    self.used.add(i)
+                    said.append(reply["says"])
+                    break
+        return " ".join(said) or None
