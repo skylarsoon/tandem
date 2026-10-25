@@ -74,3 +74,48 @@ test('streaming microphone turns populate real message actions, never approve, a
   await page.getByRole('tab', { name: 'Agent discussion' }).click();
   expect(await page.evaluate(() => (window as any).voiceStreams.every((s: MediaStream) => s.getTracks().every(t => t.readyState === 'ended')))).toBe(true);
 });
+
+test('discussion groups repeated deliveries, speaks each evaluation once, and surfaces a private action', async ({ page }, info) => {
+  const spoken: string[] = [];
+  await page.route('https://api.cartesia.ai/tts/sse', async route => {
+    spoken.push(route.request().postDataJSON().transcript);
+    await route.fulfill({ contentType: 'text/event-stream', body: speech() });
+  });
+  await open(page);
+  await page.getByRole('tab', { name: 'Agent discussion' }).click();
+  await page.getByRole('button', { name: 'Enable voice' }).click();
+  await expect(page.getByRole('button', { name: 'Voice on' })).toBeVisible();
+  await page.evaluate(() => {
+    const facts = 'The fare is $128.00 including taxes. It lands at 18:38 local time. No checked bag is included.';
+    const base = { roomId: 1n, draftRef: 'draft-a', claimRefs: [], evidenceRefs: ['flight-a'] };
+    (window as any).discussionRows = [
+      { ...base, id: 20n, createdAt: 20n, senderAgentId: 9n, recipientAgentId: 1n, type: 'PROPOSE', utterance: 'Could you evaluate this option? '+facts },
+      { ...base, id: 21n, createdAt: 21n, senderAgentId: 1n, recipientAgentId: 9n, type: 'EVALUATE', utterance: 'This works for my traveller; they will still review and approve it themselves. '+facts },
+    ];
+    window.planningFixture.setTables({ room_messages: (window as any).discussionRows });
+  });
+  await expect.poll(() => spoken.length).toBe(2);
+  expect(spoken[1]).not.toContain('$128');
+  await page.evaluate(() => {
+    const rows = (window as any).discussionRows;
+    window.planningFixture.setTables({ room_messages: [...rows, { ...rows[0], id: 22n, createdAt: 22n }, { ...rows[1], id: 23n, createdAt: 23n }] });
+  });
+  await expect(page.locator('.conversation-panel--discussion .chat-item')).toHaveCount(2);
+  await page.waitForTimeout(1500);
+  expect(spoken).toHaveLength(2);
+  await page.evaluate(() => window.planningFixture.setTables({ my_questions: [{ id: 40n, roomId: 1n, state: 'OPEN', version: 1, kind: 'CONCESSION_CONSULTATION', prompt: 'PRIVATE_CANARY: Is this compromise OK?', createdAt: 40n }] }));
+  await expect(page.getByRole('button', { name: 'Answer privately' })).toBeVisible();
+  await expect(page.locator('.conversation-panel--discussion')).not.toContainText('PRIVATE_CANARY');
+  for (const size of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size);
+    const panel = page.locator('.conversation-panel--discussion');
+    const box = await panel.boundingBox();
+    expect(box!.height).toBeLessThanOrEqual(size.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.getByRole('button', { name: 'Answer privately' })).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`discussion-fixed-${size.width}.png`) });
+  }
+  await page.getByRole('button', { name: 'Answer privately' }).click();
+  await expect(page.getByText('PRIVATE_CANARY: Is this compromise OK?', { exact: true })).toBeVisible();
+  expect(spoken.join(' ')).not.toContain('PRIVATE_CANARY');
+});

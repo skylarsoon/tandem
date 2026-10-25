@@ -9,6 +9,7 @@ export type TimelineItem = {
   speaker: string;
   row: Row;
   text?: string;
+  discussionMeta?: { originalText: string; deliveries: number; recipients: string[] };
   time: bigint;
 };
 export const preferenceDefaults = {

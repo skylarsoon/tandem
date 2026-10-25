@@ -1101,3 +1101,15 @@ button:focus-visible, a:focus-visible, summary:focus-visible, select:focus-visib
  .conversation-panel--personal .chat-composer { padding:8px 12px; }
  .conversation-panel--personal .send-receipt { margin-top:5px; }
 }
+
+/* Discussion summarizes repeated audit deliveries; original text stays available. */
+.discussion-source { margin-top: 12px; font-size: .8rem; color: var(--muted, #7d718a); }
+.discussion-source summary { cursor: pointer; }
+.discussion-source p { margin-top: 10px; line-height: 1.6; }
+.discussion-action-needed { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; background: #fff4dc; border-bottom: 1px solid #e6d1a8; }
+.discussion-action-needed strong, .discussion-action-needed span { display: block; }
+.discussion-action-needed span { font-size: .85rem; margin-top: 4px; }
+.discussion-action-needed button { flex-shrink: 0; }
+
+.conversation-feed .discussion-action-needed { position: sticky; top: 0; z-index: 2; margin-bottom: 16px; border: 1px solid #e6d1a8; border-radius: 16px; }
+@media (max-width: 600px) { .discussion-action-needed { padding: 12px; flex-wrap: wrap; } }
