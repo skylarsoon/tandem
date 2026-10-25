@@ -135,3 +135,25 @@ def test_a_planning_agent_knows_its_person_only_by_what_they_confirmed(ready_roo
     assert {a["question_id"] for a in profile["answers"]} == {"C01", "C03"}
     answer(client, dave, "C03", {"ranked": ["affordability"], "confirmed": True})
     assert his(room.context(worker, job_id))["summary"] is None, "his answers moved on: the old summary isn't him any more"
+
+
+def test_pending_summary_follows_edits_and_terminal_failure_is_visible(client, worker):
+    person = client.mint_identity()
+    answer(client, person, "C01", "Summary check")
+    client.call(person, "request_profile_summary")
+    old = calibration(client, person)
+    answer(client, person, "C02", {"selected": ["food"]})
+    updated = calibration(client, person)
+    assert updated["job_id"] != old["job_id"]
+    assert updated["profile_revision"] > old["profile_revision"]
+    assert updated["state"] == "PENDING"
+    jobs = [j for j in client.view(worker, "worker_pending_jobs") if j["kind"] == "PROFILE"]
+    assert len(jobs) == 1
+    job = jobs[0]
+    claim = client.procedure(worker, "claim_job", job_id=some(job["id"]), lease_seconds=60, request_key=key())
+    client.call(worker, "finish_job", job_id=job["id"], attempt=claim["attempt"], request_key=key(),
+                outcome="MODEL_CALL_BUDGET_EXHAUSTED", outcome_json="{}")
+    assert calibration(client, person)["state"] == "FAILED"
+    assert calibration(client, client.mint_identity()) is None
+    client.call(person, "request_profile_summary")
+    assert calibration(client, person)["state"] == "PENDING"

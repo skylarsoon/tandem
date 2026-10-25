@@ -4,10 +4,11 @@ import { describe, expect, it } from "vitest";
 import { ProfileOnboarding } from "../components/profile";
 import { core } from "../lib/profile";
 
-function renderProfile(completed: string[]) {
+function renderProfile(completed: string[], state?: string) {
   const snapshot = {
     status: "ready",
     tables: {
+      my_profile_calibration: state ? [{ state, jobId: 1n }] : [],
       my_profile_answers: completed.map((questionId) => ({
         questionId,
         status: questionId === "C01" ? "ANSWERED" : "SKIPPED",
@@ -50,4 +51,12 @@ describe("profile flow ordering", () => {
     expect(html).toContain("Add more about me (optional)");
     expect(html).not.toContain("profile-section");
   });
+});
+
+
+it("shows a retry for a failed summary instead of claiming it is still writing", () => {
+  const html = renderProfile(core.map(q => q.id), "FAILED");
+  expect(html).toContain("Retry summary");
+  expect(html).toContain("Your answers are saved");
+  expect(html).not.toContain("a few seconds");
 });

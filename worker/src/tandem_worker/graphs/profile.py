@@ -13,6 +13,11 @@ from ..profile_policy import facts, fallback_summary, summary_ok
 
 def run_profile(backend, claim, model) -> str:
     ctx = backend.load_profile(claim)
+    # Do not spend another model call on an obsolete request after lease recovery.
+    requested = ctx.get("job", {}).get("profile_revision")
+    if requested is not None and requested != ctx.get("profile_revision"):
+        backend.finish_job(claim, "STALE_PROFILE")
+        return "STALE_PROFILE"
     stated = facts(ctx["answers"])
     context = {"facts": stated, "correction": (ctx.get("calibration") or {}).get("correction")}
     summary = None

@@ -56,3 +56,14 @@ def test_rooms_get_suggestions_only_from_answers_a_trip_can_use():
     assert offered["own_bedroom"].hardness == "SOFT", "a preference stays a preference"
     assert asks_first(profile) is True and asks_first({"C09": {"selected": "ask_per_plan"}}) is True and asks_first({}) is None
     assert suggestions({}) == {}
+
+
+def test_stale_summary_does_not_spend_another_model_call():
+    from unittest.mock import Mock
+    from tandem_worker.graphs.profile import run_profile
+    backend, claim, model = Mock(), Mock(), Mock()
+    backend.load_profile.return_value = {"job": {"profile_revision": 1}, "profile_revision": 2}
+    assert run_profile(backend, claim, model) == "STALE_PROFILE"
+    model.profile_summary.assert_not_called()
+    backend.operation.assert_not_called()
+    backend.finish_job.assert_called_once_with(claim, "STALE_PROFILE")

@@ -51,6 +51,9 @@ function syncProfile(ctx: Ctx, questionId: string, value: unknown) {
   if (questionId === 'C03') fields.priorityRanking = v && typeof v === 'object' ? (v.ranked as string[]) : [];
   if (questionId === 'F03') fields.selfDescription = typeof v === 'string' ? v.trim() : '';
   ctx.db.profile.owner.update({ ...p, ...fields, revision: p.revision + 1n, updatedAt: ctx.timestamp });
+  // Keep an already-requested summary aligned with edits made while it waits.
+  const calibration = ctx.db.profileCalibration.owner.find(ctx.sender);
+  if (calibration?.state === 'PENDING') queueSummary(ctx, undefined);
 }
 
 function store(ctx: Ctx, questionId: string, status: string, value: unknown) {
@@ -243,5 +246,13 @@ export const myProfileAnswers = spacetimedb.view({ name: 'my_profile_answers', p
 export const myProfileCalibration = spacetimedb.view(
   { name: 'my_profile_calibration', public: true },
   t.option(profileCalibration.rowType),
-  ctx => ctx.db.profileCalibration.owner.find(ctx.sender) ?? undefined
+  ctx => {
+    const row = ctx.db.profileCalibration.owner.find(ctx.sender);
+    if (!row || row.state !== 'PENDING') return row ?? undefined;
+    const profile = ctx.db.profile.owner.find(ctx.sender);
+    if (profile && profile.revision !== row.profileRevision) return { ...row, state: 'STALE' };
+    const job = row.jobId === undefined ? undefined : ctx.db.job.id.find(row.jobId);
+    if (!job || ['FINISHED', 'FAILED', 'CANCELLED'].includes(job.status)) return { ...row, state: 'FAILED' };
+    return row;
+  }
 );

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { connect } from "../lib/client";
 import { RankedPriorities } from "./ranked-priorities";
 import { CharacterPicker } from "./agent-companions";
@@ -144,6 +144,20 @@ function Calibration({ client, calibration, act, disabled }: {
   const [correction, setCorrection] = useState("");
   const reducers = client.connection.reducers;
   const state = calibration?.state;
+  const [slow, setSlow] = useState(false);
+  const recovered = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    setSlow(false);
+    if (state !== "PENDING") return;
+    const timer = setTimeout(() => setSlow(true), 60000);
+    return () => clearTimeout(timer);
+  }, [state, calibration?.jobId]);
+  useEffect(() => {
+    const job = String(calibration?.jobId);
+    if (state !== "STALE" || recovered.current === job) return;
+    recovered.current = job;
+    void act(() => reducers.requestProfileSummary({}));
+  }, [state, calibration?.jobId, reducers, act]);
   return (
     <div className="profile-calibration">
       <h3>Does this sound like you?</h3>
@@ -153,7 +167,18 @@ function Calibration({ client, calibration, act, disabled }: {
           <button disabled={disabled} onClick={() => act(() => reducers.requestProfileSummary({}))}>Write my summary</button>
         </>
       )}
-      {state === "PENDING" && <p className="hint">Your agent is writing it… this takes a few seconds.</p>}
+      {(state === "PENDING" || state === "STALE") && (
+        <div role="status">
+          <p className="hint">{state === "STALE" ? "Updating your summary with your latest answers…" : slow
+            ? "Your summary is taking longer than expected. Your answers are saved; you can continue or retry."
+            : "Your summary has been requested. It will appear here when your agent finishes."}</p>
+          {slow && <button disabled={disabled} onClick={() => act(() => reducers.requestProfileSummary({}))}>Retry summary</button>}
+        </div>
+      )}
+      {state === "FAILED" && <div role="alert">
+        <p className="hint">Your agent couldn’t finish the summary. Your answers are saved.</p>
+        <button disabled={disabled} onClick={() => act(() => reducers.requestProfileSummary({}))}>Retry summary</button>
+      </div>}
       {(state === "PROPOSED" || state === "CONFIRMED") && calibration.summary && (
         <>
           <blockquote>{calibration.summary}</blockquote>
