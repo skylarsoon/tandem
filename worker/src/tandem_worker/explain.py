@@ -171,7 +171,8 @@ def room_conflict_event(conflicts: tuple[Conflict, ...]) -> dict:
                       "TOO_MANY_STOPS": f"{who}: no flight found has few enough connections.",
                       "BAGGAGE_UNAVAILABLE": f"{who}: no fare found confirms a required checked bag.",
                       "TRIP_LIMIT": f"{who}: the cheapest trip found is above a private limit.",
-                      "NO_CANDIDATES": f"{who}: no fare with a complete price was found."}[code])
+                      "NO_CANDIDATES": f"{who}: no fare with a complete price was found.",
+                      "RULE": f"{who}: no option found fits their limits."}[code])
     for conflict in conflicts:
         if not conflict.owner and (conflict.code, conflict.requirement) in SHARED_TEXT:
             lines.append(SHARED_TEXT[(conflict.code, conflict.requirement)])

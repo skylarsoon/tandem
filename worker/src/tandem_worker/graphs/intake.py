@@ -5,7 +5,9 @@ agent opens with one trip-aware question, then reads every answer, keeps only
 what was actually said (intake_policy.verify), and either asks about the
 essentials still open or sends one summary to confirm. The origin is proposed
 as soon as it's said, so searches can start early; everything else waits for
-the summary. Model calls go through operation receipts, so a retried job never
+the summary. After onboarding, a message that changes something ("my budget is
+now $900") becomes a pending change its owner confirms on its own; the room then
+replans. Model calls go through operation receipts, so a retried job never
 asks twice."""
 from __future__ import annotations
 
@@ -14,7 +16,8 @@ from datetime import date
 from pydantic import ValidationError
 
 from ..contracts import BriefDraft, ContractError, IntakeContext, IntakeExtraction, digest
-from ..intake_policy import MAX_QUESTIONS, fallback_question, open_topics, opening_question, patch_json, summary_text, verify
+from ..intake_policy import (MAX_QUESTIONS, describe, fallback_question, open_topics, opening_question, patch_json, summary_text,
+                             verify)
 from ..profile_suggest import asks_first, suggestions
 from ..rules import attributes
 
@@ -37,12 +40,43 @@ def checkable() -> dict:
             "aggregates": {a: s["type"] for a, s in catalog["aggregates"].items()}}
 
 
+def _extract(backend, claim, model, ctx):
+    transcript = [m.model_dump() for m in ctx.messages]
+    return _model(backend, claim, "extract", {
+        "owner": ctx.owner, "brief": ctx.brief.model_dump(), "messages": transcript,
+        "already_confirmed": list(ctx.confirmed_keys), "checkable": checkable()}, model.extract, IntakeExtraction) or IntakeExtraction()
+
+
+def _change(backend, claim, model, ctx) -> str:
+    """After onboarding: what their newest message changes, as pending changes they confirm
+    (nothing changes until they do). Only what that message said; never a re-read of old ones."""
+    last_agent = max((i for i, m in enumerate(ctx.messages) if m.sender == "AGENT"), default=-1)
+    new = {m.id for m in ctx.messages[last_agent + 1:] if m.sender == "HUMAN"}
+    if not new:
+        return "NOTHING_NEW"
+    items, _, _, _ = verify(_extract(backend, claim, model, ctx), ctx)
+    changes = [i for i in items if i.source_message_id in new]
+    step = f"intake:{claim.job_id}:change"
+    if not changes:
+        backend.notify_owner(claim, ctx.owner, "Noted. I didn't catch a change to your dates, budget or limits there; "
+                             "if something changed, tell me what it is now.", f"{step}:none")
+        return "NO_CHANGE"
+    for n, item in enumerate(changes):
+        backend.propose_patch(claim, ctx.owner, patch_json(item), item.source_message_id, f"{step}:{n}")
+    lines = ["Here's the change I heard. Confirm it and I'll replan with it:"]
+    lines += [f"• {describe(i)} (you said “{i.source_quote}”)" for i in changes]
+    backend.notify_owner(claim, ctx.owner, "\n".join(lines), f"{step}:summary")
+    return "CHANGE_PROPOSED"
+
+
 def run_intake(backend, claim, model) -> str:
     ctx: IntakeContext = backend.load_intake(claim)
     if ctx.purpose == "BRIEF" or (ctx.is_organizer and ctx.brief_state in ("DRAFT", "PROPOSED") and ctx.purpose == "MESSAGE"):
         return _brief(backend, claim, model, ctx)
+    if ctx.brief is not None and ctx.intake_state == "CONFIRMED" and ctx.purpose == "MESSAGE":
+        return _change(backend, claim, model, ctx)
     if ctx.brief is None or ctx.intake_state not in ("ASKING", "SUMMARY"):
-        return "NOT_HANDLED"  # owner chat outside onboarding isn't handled yet
+        return "NOT_HANDLED"
     suggested = suggestions(ctx.profile)
     if ctx.question_count == 0 and ctx.purpose == "INTAKE":
         # The first message is always the same kind of trip-aware opener. A usual airport
@@ -59,11 +93,7 @@ def run_intake(backend, claim, model) -> str:
     if not reopened and (not ctx.messages or ctx.messages[-1].sender != "HUMAN"):
         return "NOTHING_NEW"
 
-    transcript = [m.model_dump() for m in ctx.messages]
-    extraction = _model(backend, claim, "extract", {
-        "owner": ctx.owner, "brief": ctx.brief.model_dump(), "messages": transcript,
-        "already_confirmed": list(ctx.confirmed_keys), "checkable": checkable()}, model.extract, IntakeExtraction) or IntakeExtraction()
-    items, settings, coverage, reasons = verify(extraction, ctx)
+    items, settings, coverage, reasons = verify(_extract(backend, claim, model, ctx), ctx)
     # The usual airport offered from their profile covers "where from" until they say otherwise.
     if coverage["origin"] != "ANSWERED" and any(p.get("key") == "origin_airport" and p.get("source_profile") for p in ctx.pending):
         coverage["origin"] = "ANSWERED"
@@ -101,10 +131,11 @@ def run_intake(backend, claim, model) -> str:
 
     # Everything essential is covered (or the question budget is spent): one summary.
     backend.withdraw_patches(claim, ctx.owner, f"{step}:withdraw")
-    for item in items:
+    for n, item in enumerate(items):
         if item.key == "origin_airport" and "origin_airport" in ctx.confirmed_keys:
             continue
-        backend.propose_patch(claim, ctx.owner, patch_json(item), item.source_message_id, f"{step}:{item.key}")
+        # Each item its own receipt: several rules share the key "rule".
+        backend.propose_patch(claim, ctx.owner, patch_json(item), item.source_message_id, f"{step}:{item.key}:{n}")
     # Profile defaults they didn't mention here, offered for this trip (confirmed with the rest).
     offered = [s for k, s in suggested.items() if k not in by_key and k not in ctx.confirmed_keys]
     for suggestion in offered:

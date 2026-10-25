@@ -20,8 +20,9 @@ export type Catalog = {
 export type Verdict = 'SATISFIED' | 'VIOLATED' | 'UNKNOWN' | 'NOT_APPLICABLE';
 
 const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between'];
-const ORDERED = ['money', 'int', 'number', 'epoch', 'time'];
+const ORDERED = ['money', 'int', 'number', 'epoch', 'time', 'date'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class RuleError extends Error {
   code = 'INVALID_RULE';
@@ -39,8 +40,16 @@ export function attributeType(rule: Rule, catalog: Catalog): string {
   return found?.type ?? bad(`nothing carries ${rule.category}.${rule.attribute ?? rule.aggregate}`);
 }
 
-// A value of an attribute's type, in comparable form (times as minutes).
+// A value of an attribute's type, in comparable form (times as minutes, dates as days).
 function scalar(value: unknown, kind: string): number | boolean | string {
+  if (kind === 'date') {
+    if (typeof value === 'string' && DATE.test(value)) {
+      const [y, m, d] = value.split('-').map(Number);
+      const ms = Date.UTC(y, m - 1, d);
+      if (new Date(ms).toISOString().slice(0, 10) === value) return ms / 86_400_000;
+    }
+    bad(`${JSON.stringify(value)} isn't a date (YYYY-MM-DD)`);
+  }
   if (kind === 'time') {
     if (typeof value !== 'string' || !TIME.test(value)) bad(`${JSON.stringify(value)} isn't a time (HH:MM)`);
     const [h, m] = value.split(':');

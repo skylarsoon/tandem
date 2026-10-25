@@ -2,7 +2,7 @@
 
 export const RULE_ATTRIBUTES = {
   "version": 1,
-  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), text. shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up.",
+  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), date (local YYYY-MM-DD), text. shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up. trip_bound: the attribute must sit inside the trip's dates (room settings start_date/end_date) for every pick: by_end means on or before the end date (e.g. arriving), from_start on or after the start date (e.g. leaving to go home). search_date: a person's own firm rule on this attribute moves their search: outbound searches no earlier than their earliest allowed date, return no later than their latest.",
   "categories": {
     "FLIGHT": {
       "total_cents": {
@@ -32,6 +32,47 @@ export const RULE_ATTRIBUTES = {
       "checked_bags_included": {
         "type": "int",
         "label": "checked bags included"
+      },
+      "departure_date": {
+        "type": "date",
+        "label": "departure date",
+        "search_date": "outbound"
+      },
+      "arrival_date": {
+        "type": "date",
+        "label": "arrival date",
+        "trip_bound": "by_end"
+      },
+      "duration_minutes": {
+        "type": "int",
+        "label": "travel time in minutes"
+      },
+      "return_departure_epoch": {
+        "type": "epoch",
+        "label": "return departure"
+      },
+      "return_arrival_epoch": {
+        "type": "epoch",
+        "label": "return landing"
+      },
+      "return_departure_date": {
+        "type": "date",
+        "label": "return date",
+        "trip_bound": "from_start",
+        "search_date": "return"
+      },
+      "return_arrival_date": {
+        "type": "date",
+        "label": "date back home",
+        "search_date": "return"
+      },
+      "return_stops": {
+        "type": "int",
+        "label": "return connections"
+      },
+      "return_duration_minutes": {
+        "type": "int",
+        "label": "return travel time in minutes"
       }
     },
     "STAY": {
@@ -190,29 +231,39 @@ export const LEGACY_KEYS = {
 
 export const DECISIONS = {
   "version": 1,
-  "about": "How each kind of choice is made, as data. chooses: one_per_person (each traveller picks their own) or one_for_group. pays: each (your own pick), split (shared equally) or per_person (a per-head price). A room plans the categories its settings list; group rules limit the group's combined choice, with values from room settings.",
+  "about": "How each kind of choice is made, as data. chooses: one_per_person (each traveller picks their own) or one_for_group. pays: each (your own pick), split (shared equally) or per_person (a per-head price). A room plans the categories its settings list; group rules limit the group's combined choice, with values from room settings. When the organizer gives stages (an order), each stage is decided on its own: scope is the kind of proposal it publishes and milestone the progress stage it moves.",
   "categories": {
     "FLIGHT": {
       "chooses": "one_per_person",
-      "pays": "each"
+      "pays": "each",
+      "scope": "FLIGHT_BUNDLE",
+      "milestone": "TRAVEL"
     },
     "STAY": {
       "chooses": "one_for_group",
       "pays": "split",
-      "fits_everyone": "capacity"
+      "fits_everyone": "capacity",
+      "scope": "SINGLE_SHARED_BOOKING",
+      "milestone": "STAY_EXPERIENCES"
     },
     "TRANSFER": {
       "chooses": "one_for_group",
       "pays": "split",
-      "fits_everyone": "capacity"
+      "fits_everyone": "capacity",
+      "scope": "SINGLE_SHARED_BOOKING",
+      "milestone": "TRAVEL"
     },
     "ACTIVITY": {
       "chooses": "one_for_group",
-      "pays": "per_person"
+      "pays": "per_person",
+      "scope": "ACTIVITY_DECISION",
+      "milestone": "STAY_EXPERIENCES"
     },
     "DINNER": {
       "chooses": "one_for_group",
-      "pays": "per_person"
+      "pays": "per_person",
+      "scope": "ACTIVITY_DECISION",
+      "milestone": "STAY_EXPERIENCES"
     }
   },
   "group_rules": [

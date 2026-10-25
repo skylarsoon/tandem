@@ -123,11 +123,24 @@ class LocalBackend:
             return Brief.model_validate(state["briefs"][owner])
 
     def read_rules(self, claim):
-        from .briefs import rules_from_brief
-        from .rules import Need, RoomRules, Rule, SearchFact
         with self._tx() as state:
             self._checked(state, claim)
-            items = [x for o in state["snapshot"]["members"] for x in rules_from_brief(Brief.model_validate(state["briefs"][o]))]
+            return self._room_rules(state)
+
+    def _room_rules(self, state):
+        """As the database keeps them: confirmed named limits through the shared conversion
+        (hard and soft), plus rules confirmed as rules. Rooms seeded with Briefs directly
+        (no onboarding rows) read their Briefs' limits."""
+        from .briefs import rules_from_brief
+        from .rules import Need, RoomRules, Rule, SearchFact, from_legacy
+        rows = self._onboarding(state)["constraints"] if "onboarding" in state else {}
+        items = []
+        for o in state["snapshot"]["members"]:
+            if rows.get(o):
+                items += [x for key, row in rows[o].items() for x in from_legacy(o, key, row)]
+            else:
+                items += rules_from_brief(Brief.model_validate(state["briefs"][o]))
+            items += [Rule.model_validate({**r, "owner": o}) for r in state.get("rules", {}).get(o, [])]
         return RoomRules(rules=tuple(x for x in items if isinstance(x, Rule)), needs=tuple(x for x in items if isinstance(x, Need)),
                          facts=tuple(x for x in items if isinstance(x, SearchFact)))
 
@@ -382,9 +395,12 @@ class LocalBackend:
             records = [Candidate.model_validate(state["candidates"][ref]) for ref in selected]
             if not report.valid or report.snapshot_ref != claim.snapshot_ref or report.selected != tuple(selected) or report.candidate_digest != digest([primitive(c) for c in candidates]):
                 raise ContractError("INVALID_VALIDATION_REPORT")
-            # The backend re-checks every hard rule from its own records.
+            # The backend re-checks every hard rule from its own records, for what this proposal decides.
+            if scope != "COMPLETE_PLAN":
+                snapshot = snapshot.model_copy(update={"components": tuple(dict.fromkeys(r.category for r in records))})
             briefs = [Brief.model_validate(state["briefs"][o]) for o in snapshot.members]
             checked = TripValidator().validate(snapshot, briefs, records, tuple(selected), self.clock.now())
+            self._check_rules(state, snapshot, records)
             if "INVALID_COVERAGE" in checked.checks:
                 raise ContractError("INVALID_COVERAGE")
             if not checked.valid or not all(b.preferences.confirmed for b in briefs):
@@ -393,7 +409,8 @@ class LocalBackend:
             proposal_id = f"proposal-{digest(terms)[:16]}-{claim.generation}"
             state["proposals"][proposal_id] = dict(terms=terms, terms_digest=digest(terms), snapshot_ref=claim.snapshot_ref,
                 state="AWAITING_REVIEW", required_members=list(snapshot.members),
-                summary=explanation.summary if explanation else None)
+                summary=explanation.summary if explanation else None, decision_id=decision_id, scope=scope, stage=stage,
+                burdens=dict(burdens or {}), generation=claim.generation)
             if explanation:
                 if {n.impact.owner for n in explanation.impacts} - set(snapshot.members):
                     raise ContractError("INVALID_PROPOSAL")
@@ -402,6 +419,21 @@ class LocalBackend:
             job.update(status="SUCCEEDED", outcome=proposal_id, expiry=0)
             self._close_threads(state, claim.generation, "RESOLVED")
             return self._record(state, f"publish:{claim.job_id}:{key}", body, proposal_id)
+
+    def _check_rules(self, state, snapshot, records):
+        """Like the database: each pick against its owner's rules (everyone's, for a shared pick)
+        and the trip's dates. Unknown fails a person's rule; a pick without a trip-date fact isn't held to it."""
+        from .rules import evaluate
+        rules = self._room_rules(state).within_trip(snapshot.start_date, snapshot.end_date)
+        for record in records:
+            facts = record.model_dump(mode="json")
+            owners = [record.owner] if record.owner else list(snapshot.members)
+            for rule in rules.binding(None, record.category):
+                if rule.owner is not None and rule.owner not in owners:
+                    continue
+                verdict = evaluate(rule, facts)
+                if verdict == "VIOLATED" or (verdict == "UNKNOWN" and rule.owner is not None):
+                    raise ContractError("INVALID_PROPOSAL")
 
     def notify_owner(self, claim, owner, text, key):
         with self._tx() as state:
@@ -570,6 +602,13 @@ class LocalBackend:
             facts = brief["brief"]
             state["snapshot"].update(destination=facts["destination"], destination_airport=facts["destination_airport"],
                                      start_date=facts["start_date"], end_date=facts["end_date"])
+            # As the database's settings: the organizer's order, and arrivals held together only if required.
+            together = facts.get("arrive_together") or state["snapshot"].get("arrive_together", "required")
+            state["snapshot"].update(arrive_together=together, stages=list(facts.get("stages") or state["snapshot"].get("stages") or []),
+                                     activities=facts.get("activities"))
+            if together != "required":
+                from .adapters.spacetime import NO_ARRIVAL_LIMIT
+                state["snapshot"]["arrival_overlap_seconds"] = NO_ARRIVAL_LIMIT
             for owner in state["snapshot"]["members"]:
                 if owner not in board["intakes"]:
                     board["intakes"][owner] = {"state": "ASKING", "coverage": self._coverage(state, owner), "question_count": 0}
@@ -589,11 +628,23 @@ class LocalBackend:
             return self._agent_job(state, "INTERPRET", owner, "MESSAGE")
 
     def _apply(self, state, owner, patch):
+        if "rule" in patch:  # any checkable limit, kept as a rule with their words
+            mine = state.setdefault("rules", {}).setdefault(owner, [])
+            slot = lambda r: (r.get("category"), r.get("attribute"), r.get("aggregate"), r["operator"], r.get("kind", "hard"))  # noqa: E731
+            mine[:] = [r for r in mine if slot(r) != slot(patch["rule"])]  # a later statement replaces it
+            mine.append({**patch["rule"], "source_quote": patch.get("source_quote") or ""})
+            return
         row = {k: patch[k] for k in ("value", "hardness") if k in patch}
+        row["source_quote"] = patch.get("source_quote")
         row["authorized_range"] = patch.get("authorized_range")
         row["private_rationale"] = patch.get("private_rationale")
         self._onboarding(state)["constraints"].setdefault(owner, {})[patch["key"]] = row
         state["briefs"][owner] = primitive(apply_row(Brief.model_validate(state["briefs"][owner]), patch["key"], row))
+
+    @staticmethod
+    def _has_money_rule(state, owner):
+        from .rules import Rule, attribute_type
+        return any(attribute_type(Rule.model_validate(r)) == "money" for r in state.get("rules", {}).get(owner, []))
 
     def confirm_origin(self, owner: str, patch_id: int) -> None:
         with self._tx() as state:
@@ -604,6 +655,17 @@ class LocalBackend:
             patch["state"] = "CONFIRMED"
             self._apply(state, owner, patch["patch"])
             board["intakes"][owner]["coverage"]["origin"] = "ANSWERED"
+            self._supersede(state, "input_revision")
+
+    def confirm_patch(self, owner: str, patch_id: int) -> None:
+        """One change after onboarding ("my budget is now $900"), confirmed by its owner: replan."""
+        with self._tx() as state:
+            board = self._onboarding(state)
+            patch = next((p for p in board["patches"] if p["id"] == patch_id and p["owner"] == owner), None)
+            if not patch or patch["state"] != "PENDING":
+                raise ContractError("INVALID_STATE")
+            patch["state"] = "CONFIRMED"
+            self._apply(state, owner, patch["patch"])
             self._supersede(state, "input_revision")
 
     def confirm_intake(self, owner: str, accepted: list[int], settings: dict | None = None) -> None:
@@ -623,7 +685,7 @@ class LocalBackend:
             if not prefs["confirmed"]:
                 raise ContractError("PREFERENCES_UNCONFIRMED")
             keys = set(board["constraints"].get(owner, {}))
-            if not keys & MONEY_KEYS or "origin_airport" not in keys:
+            if (not keys & MONEY_KEYS and not self._has_money_rule(state, owner)) or "origin_airport" not in keys:
                 raise ContractError("INTAKE_INCOMPLETE")
             intake["state"] = "CONFIRMED"
             state["snapshot"]["onboarded"] = sorted({*state["snapshot"].get("onboarded", []), owner})

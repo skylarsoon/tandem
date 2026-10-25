@@ -592,6 +592,92 @@
     "total_cents": 45000
    },
    "expect": "INVALID_RULE"
+  },
+  {
+   "name": "leaving on a date or later: the day before is too early",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "departure_date",
+    "operator": "gte",
+    "value": "2026-11-21"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "departure_date": "2026-11-20"
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "leaving on a date or later: that day is fine",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "departure_date",
+    "operator": "gte",
+    "value": "2026-11-21"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "departure_date": "2026-11-21"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "back home by a date compares across months",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "return_arrival_date",
+    "operator": "lte",
+    "value": "2026-11-24"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "return_arrival_date": "2026-12-01"
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "a date range",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "departure_date",
+    "operator": "between",
+    "value": [
+     "2026-11-20",
+     "2026-11-22"
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "departure_date": "2026-11-21"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "a date that doesn't exist is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "departure_date",
+    "operator": "gte",
+    "value": "2026-02-30"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "departure_date": "2026-03-01"
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a missing return date is unknown, never fine",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "return_arrival_date",
+    "operator": "lte",
+    "value": "2026-11-24"
+   },
+   "facts": {
+    "category": "FLIGHT"
+   },
+   "expect": "UNKNOWN"
   }
  ],
  "legacy_cases": [

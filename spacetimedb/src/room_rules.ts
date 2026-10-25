@@ -8,7 +8,7 @@ import { type Catalog, type LegacyTable, type Rule, RuleError, attributeType, ev
 // meanings live in the catalogs. Not exported from the module entry.
 
 export const CATALOG = RULE_ATTRIBUTES as unknown as Catalog & {
-  categories: Record<string, Record<string, { type: string; shared_by_setting?: string }>>;
+  categories: Record<string, Record<string, { type: string; shared_by_setting?: string; trip_bound?: string }>>;
 };
 const LEGACY = LEGACY_KEYS as unknown as LegacyTable;
 
@@ -94,6 +94,15 @@ export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: stri
     throw error;
   }
   const kind = rule.kind ?? 'hard';
+  // A later statement about the same thing (same attribute or total, same comparison, must or wish) replaces it.
+  for (const r of [...ctx.db.participantRule.byRoom.filter(roomId)]) {
+    if (!r.owner.isEqual(ctx.sender) || r.legacyKey !== undefined) continue;
+    const before = JSON.parse(r.ruleJson) as Rule;
+    if (before.category === rule.category && before.attribute === rule.attribute && before.aggregate === rule.aggregate &&
+        before.operator === rule.operator && (before.kind ?? 'hard') === kind) {
+      ctx.db.participantRule.id.delete(r.id);
+    }
+  }
   return ctx.db.participantRule.insert({
     id: 0n,
     roomId,
@@ -146,6 +155,20 @@ export function checkCandidateRules(rules: OwnedRule[], owners: Identity[], cate
     }
     if (verdict === 'VIOLATED') fail('INVALID_PROPOSAL', `candidate ${ref} breaks a traveller's confirmed ${rule.attribute} limit`);
     if (verdict === 'UNKNOWN') fail('INVALID_PROPOSAL', `candidate ${ref} doesn't confirm ${rule.attribute}, which a traveller requires`);
+  }
+}
+
+// The trip's own dates bind every pick: attributes the catalog marks trip_bound stay
+// on or before the end (by_end, e.g. arriving) or on or after the start (from_start,
+// e.g. leaving for home). A pick without that fact (one-way: no way home) isn't held to it.
+export function checkTripBounds(settings: Record<string, unknown>, category: string, facts: Record<string, unknown>, ref: string): void {
+  for (const [attribute, spec] of Object.entries(CATALOG.categories[category] ?? {})) {
+    const value = spec.trip_bound === 'by_end' ? settings.end_date : spec.trip_bound === 'from_start' ? settings.start_date : undefined;
+    if (typeof value !== 'string') continue;
+    const rule: Rule = { category, attribute, operator: spec.trip_bound === 'by_end' ? 'lte' : 'gte', value };
+    if (evaluateRule(rule, { ...facts, category }, CATALOG) === 'VIOLATED') {
+      fail('INVALID_PROPOSAL', `candidate ${ref} falls outside the trip's dates (${attribute})`);
+    }
   }
 }
 

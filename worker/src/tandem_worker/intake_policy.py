@@ -19,7 +19,7 @@ BUDGET_KEYS = {"flight_budget_total", "trip_budget_total"}
 TRIP_SCOPE = ("all in", "all-in", "total", "whole trip", "entire trip", "everything", "overall", "including", "in total")
 FLIGHT_SCOPE = ("flight", "airfare", "fare", "ticket", "plane")
 FIRM = ("max", "under", "no more than", "can't go", "cannot go", "can't do more", "cap", "limit", "at most", "tops",
-        "won't go over", "not over", "hard", "absolutely", "not a cent")
+        "won't go over", "not over", "hard", "absolutely", "not a cent", "exceed")
 FLEX = ("around", "about", "-ish", "ish", "roughly", "flexible", "stretch", "give or take", "approximately", "if needed")
 # A requirement needs a firm word; a hedge ("would be nice", "flexible") makes it a
 # preference. Recording it as a requirement would be assuming; dropping it would lose it.
@@ -99,6 +99,8 @@ def _check_rule(item: IntakeItem, said: str) -> str | None:
             continue
         if kind == "money":
             stated = any(abs(f * 100 - v) < 1 for f in amounts(quote))
+        elif kind == "date":  # "November 21" or "the 21st" states 2026-11-21's day
+            stated = float(date.fromisoformat(v).day) in amounts(quote)
         elif kind in ("int", "number", "epoch"):
             stated = any(abs(f - v) < 0.01 for f in amounts(quote))
         else:
@@ -159,7 +161,8 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
             item = item.model_copy(update={"interpreted": True})  # "nonstop" read as 0 stops: shown as a reading
         # A later statement replaces an earlier one about the same thing.
         slot = item.key if item.key != "rule" else (
-            f"rule:{item.rule.get('category')}.{item.rule.get('attribute') or item.rule.get('aggregate')}:{item.rule.get('operator')}")
+            f"rule:{item.rule.get('category')}.{item.rule.get('attribute') or item.rule.get('aggregate')}:{item.rule.get('operator')}"
+            f":{item.hardness}")
         items[slot] = item
     settings = extraction.settings
     if settings is not None and (settings.source_message_id not in said or not settings.source_quote
@@ -174,6 +177,8 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
     have = set(items) | set(ctx.confirmed_keys)
     if any(i.key == "rule" and _is_money(i) for i in items.values()):
         have.add("trip_budget_total")  # any money limit covers money
+    if any(i.key == "rule" and _rule_type(i) == "date" for i in items.values()):
+        have.add("dates_ok")  # their own dates answer whether the trip's dates work
     coverage = {
         "origin": "ANSWERED" if "origin_airport" in have else "OPEN",
         "dates": "ANSWERED" if have & {"dates_ok", "arrival_window"} else "OPEN",
@@ -181,6 +186,12 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
         "settings": "ANSWERED" if ctx.preferences_confirmed or (
             settings is not None and settings.speak_up_for_me is not None and settings.ask_me_first is not None) else "OPEN",
     }
+    dates_said = items.get("dates_ok")
+    if dates_said is not None and dates_said.value is False and not any(
+            i.key == "rule" and _rule_type(i) == "date" for i in items.values()):
+        # "The dates don't work" isn't an answer yet: which dates do?
+        coverage["dates"] = "UNCLEAR"
+        reasons.setdefault("dates", "Which dates can you do: what's the earliest you can leave, and when do you need to be back?")
     for topic, reason in reasons.items():
         if coverage.get(topic) != "ANSWERED":
             coverage[topic] = "UNCLEAR"
@@ -251,10 +262,14 @@ def patch_json(item: IntakeItem) -> dict:
 
 
 def _is_money(item: IntakeItem) -> bool:
+    return _rule_type(item) == "money"
+
+
+def _rule_type(item: IntakeItem) -> str | None:
     try:
-        return attribute_type(Rule.model_validate({**(item.rule or {}), "kind": "hard"})) == "money"
+        return attribute_type(Rule.model_validate({**(item.rule or {}), "kind": "hard"}))
     except (RuleError, ValidationError):
-        return False
+        return None
 
 
 WORDS = {"lte": "at most", "lt": "under", "gte": "at least", "gt": "over", "eq": "is", "neq": "isn't",
@@ -265,7 +280,7 @@ def describe_rule(rule: Rule) -> str:
     """A rule in plain words, from the catalog's labels: "Stay: rating at least 4.5"."""
     catalog = attributes()
     spec = catalog["aggregates"][rule.aggregate] if rule.aggregate else catalog["categories"][rule.category][rule.attribute]
-    show = (lambda v: money(v)) if spec["type"] == "money" else str
+    show = money if spec["type"] == "money" else day if spec["type"] == "date" else str
     if spec["type"] == "bool":
         must = "" if rule.kind == "soft" else "must "
         text = must + ("have " if rule.value else "not have ") + spec["label"]
@@ -276,6 +291,12 @@ def describe_rule(rule: Rule) -> str:
     else:
         text = f"{spec['label']} {WORDS[rule.operator]} {show(rule.value)}"
     return text[0].upper() + text[1:] if rule.aggregate else f"{rule.category.title()}: {text}"
+
+
+def day(iso: str) -> str:
+    """2026-11-25 as "Nov 25"."""
+    d = date.fromisoformat(iso)
+    return f"{d:%b} {d.day}"
 
 
 def money(cents: int) -> str:

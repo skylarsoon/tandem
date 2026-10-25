@@ -189,3 +189,20 @@ def test_dates_out_of_order_are_refused(room, client, worker):
     backwards = dict(BRIEF, start_date="2027-02-16", end_date="2027-02-12")
     expect_error("INVALID_ARGUMENT", room.client.call, worker, "propose_trip_brief", job_id=job["id"],
                  attempt=room.leases[job["id"]], request_key=key(), brief_json=json.dumps(backwards), unclear_json="[]")
+
+
+def test_the_organizers_order_and_arrival_choice_become_room_settings(room, client, worker):
+    room.client.call(room.people["alice"], "set_trip_description", room_id=room.room_id,
+                     description="Flights first, then a place, then activities. Separate arrivals are fine.")
+    job = brief_job(room, worker)
+    bad = dict(BRIEF, stages=["FLIGHT", "YACHT"])
+    expect_error("INVALID_ARGUMENT", room.client.call, worker, "propose_trip_brief", job_id=job["id"],
+                 attempt=room.leases[job["id"]], request_key=key(), brief_json=json.dumps(bad), unclear_json="[]")
+    staged = dict(BRIEF, components=["FLIGHT", "STAY"], stages=["FLIGHT", "STAY", "ACTIVITY"], arrive_together="off", activities=3)
+    room.client.call(worker, "propose_trip_brief", job_id=job["id"], attempt=room.leases[job["id"]],
+                     request_key=key(), brief_json=json.dumps(staged), unclear_json="[]")
+    [brief] = [b for b in client.view(room.people["alice"], "room_trip_brief") if b["room_id"] == room.room_id]
+    room.client.call(room.people["alice"], "confirm_trip_brief", room_id=room.room_id, revision=brief["revision"])
+    [mine] = [r for r in client.view(room.people["alice"], "my_rooms") if r["id"] == room.room_id]
+    settings = json.loads(mine["settings_json"])
+    assert (settings["stages"], settings["arrive_together"], settings["activities"]) == (["FLIGHT", "STAY", "ACTIVITY"], "off", 3)

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -24,8 +25,9 @@ from pydantic import Field
 from .contracts import ContractError, Record
 
 OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between")
-ORDERED = {"money", "int", "number", "epoch", "time"}
+ORDERED = {"money", "int", "number", "epoch", "time", "date"}
 TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class Rule(Record):
@@ -67,11 +69,73 @@ class RoomRules(Record):
     rules: tuple[Rule, ...] = ()
     needs: tuple[Need, ...] = ()
     facts: tuple[SearchFact, ...] = ()
+    # The trip's own dates (from the catalog's trip_bound marks): they bind every pick.
+    bounds: tuple[Rule, ...] = ()
 
     def binding(self, owner: str | None = None, category: str | None = None) -> list[Rule]:
-        """Hard rules in force, active or kept (optionally one owner's, on one category's candidates)."""
-        return [r for r in self.rules if r.kind == "hard" and r.state in ("active", "kept")
-                and (owner is None or r.owner == owner) and (category is None or r.category == category)]
+        """Hard rules in force, active or kept (optionally one owner's, on one category's
+        candidates), plus the trip's dates, which bind everyone."""
+        own = [r for r in self.rules if r.kind == "hard" and r.state in ("active", "kept")
+               and (owner is None or r.owner == owner) and (category is None or r.category == category)]
+        return own + [b for b in self.bounds if category is None or b.category == category]
+
+    def within_trip(self, start_date: str | None, end_date: str | None) -> "RoomRules":
+        return self.model_copy(update={"bounds": trip_bound_rules(start_date, end_date)})
+
+
+def search_dates(rules: RoomRules, owner: str, category: str, start: str | None, end: str | None) -> tuple[str | None, str | None]:
+    """The dates to search for one person: the trip's dates, narrowed by their own firm rules
+    on attributes the catalog marks search_date (e.g. "can't leave before the 21st")."""
+    from datetime import timedelta
+    shift = lambda day, days: (date.fromisoformat(day) + timedelta(days=days)).isoformat()  # noqa: E731
+    out, back = start, end
+    spec = attributes()["categories"].get(category, {})
+    for rule in rules.binding(owner, category):
+        role = spec.get(rule.attribute, {}).get("search_date")
+        if rule.owner != owner or role is None:
+            continue
+        low = {"gte": rule.value, "eq": rule.value, "gt": rule.value and shift(rule.value, 1),
+               "between": rule.value[0] if isinstance(rule.value, list) else None}.get(rule.operator)
+        high = {"lte": rule.value, "eq": rule.value, "lt": rule.value and shift(rule.value, -1),
+                "between": rule.value[1] if isinstance(rule.value, list) else None}.get(rule.operator)
+        if role == "outbound" and low is not None:
+            out = low if out is None else max(out, low)
+        if role == "return" and high is not None:
+            back = high if back is None else min(back, high)
+    return out, back
+
+
+def dates_outside_trip(rules: RoomRules, owner: str, category: str, start: str | None, end: str | None) -> set[str]:
+    """The person's own date rules that can't fit the trip at all (leaving after it ends,
+    back before it starts, or leaving after they must be back): the root of "no plan",
+    whatever options were found."""
+    out, back = search_dates(rules, owner, category, start, end)
+    if not ((end and out and out > end) or (start and back and back < start) or (out and back and out > back)):
+        return set()
+    spec = attributes()["categories"].get(category, {})
+    return {r.attribute for r in rules.binding(owner, category) if r.owner == owner and spec.get(r.attribute, {}).get("search_date")}
+
+
+def _day(iso: str) -> str:
+    d = date.fromisoformat(iso)
+    return f"{d:%b} {d.day}"
+
+
+def trip_bound_rules(start_date: str | None, end_date: str | None) -> tuple[Rule, ...]:
+    """Each attribute the catalog marks trip_bound, held to the trip's dates: by_end on or
+    before the end (arriving), from_start on or after the start (leaving for home). A pick
+    without that fact (a one-way flight has no way home) isn't held to it."""
+    out = []
+    for category, attrs in attributes()["categories"].items():
+        for name, spec in attrs.items():
+            bound = spec.get("trip_bound")
+            if bound == "by_end" and end_date:
+                out.append(Rule(category=category, attribute=name, operator="lte", value=end_date,
+                                source_quote=f"the trip ends {_day(end_date)}"))
+            elif bound == "from_start" and start_date:
+                out.append(Rule(category=category, attribute=name, operator="gte", value=start_date,
+                                source_quote=f"the trip starts {_day(start_date)}"))
+    return tuple(out)
 
 
 class RuleError(ContractError):
@@ -107,7 +171,14 @@ def attribute_type(rule: Rule) -> str:
 
 
 def _scalar(value: Any, kind: str) -> Any:
-    """A value of an attribute's type, in comparable form (times as minutes)."""
+    """A value of an attribute's type, in comparable form (times as minutes, dates as days)."""
+    if kind == "date":
+        if isinstance(value, str) and DATE.match(value):
+            try:
+                return date.fromisoformat(value).toordinal()
+            except ValueError:
+                pass
+        raise RuleError(f"{value!r} isn't a date (YYYY-MM-DD)")
     if kind == "time":
         if not isinstance(value, str) or not TIME.match(value):
             raise RuleError(f"{value!r} isn't a time (HH:MM)")

@@ -1,3 +1,4 @@
+import { RULE_ATTRIBUTES } from './rule_catalog';
 import { SenderError, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
 import { sha256, bytesToHex } from '@spacetimedb/crypto';
@@ -441,6 +442,21 @@ export function validateRoomSettings(settings: unknown): Record<string, unknown>
   }
   if (typeof s.start_date === 'string' && typeof s.end_date === 'string' && s.start_date > s.end_date) {
     fail('INVALID_ARGUMENT', 'start_date must not be after end_date');
+  }
+  // How arrivals relate: 'required' keeps everyone within arrival_overlap_seconds; 'preferred' is
+  // only a wish; 'off' leaves arrivals free (the organizer said separate arrivals are fine).
+  if (s.arrive_together !== undefined && !['required', 'preferred', 'off'].includes(s.arrive_together as string)) {
+    fail('INVALID_ARGUMENT', 'arrive_together must be required, preferred or off');
+  }
+  // The organizer's order of decisions: catalog categories, once each.
+  const stages = s.stages;
+  if (stages !== undefined && (!Array.isArray(stages) || stages.length === 0 || new Set(stages).size !== stages.length ||
+      stages.some(c => typeof c !== 'string' || !(c in RULE_ATTRIBUTES.categories)))) {
+    fail('INVALID_ARGUMENT', 'stages must list catalog categories, once each');
+  }
+  const activities = s.activities;
+  if (activities !== undefined && (typeof activities !== 'number' || !Number.isInteger(activities) || activities < 0 || activities > 20)) {
+    fail('INVALID_ARGUMENT', 'activities must be a whole number from 0 to 20');
   }
   if (s.destination_airport !== undefined && (typeof s.destination_airport !== 'string' || !/^[A-Z]{3}$/.test(s.destination_airport))) {
     fail('INVALID_ARGUMENT', 'destination_airport must be a 3-letter IATA code');

@@ -1,0 +1,191 @@
+{
+  "fixture_name": "tandem_four_persona_onboarding",
+  "schema": "contracts/profile_answers.schema.json",
+  "users": [
+    {
+      "test_user_id": "alex",
+      "answers": {
+        "display_name": "Alex",
+        "activity_interests": {
+          "selected": [
+            "nature",
+            "hiking",
+            "local_culture",
+            "food"
+          ]
+        },
+        "priority_ranking": {
+          "ranked": [
+            "affordability",
+            "togetherness",
+            "discovery",
+            "experience_quality",
+            "time_efficiency"
+          ],
+          "confirmed": true
+        },
+        "spending_style": {
+          "selected": "low"
+        },
+        "daily_pace": {
+          "selected": "full"
+        },
+        "planning_style": {
+          "selected": "loose"
+        },
+        "group_style": {
+          "selected": "together"
+        },
+        "persistent_needs": {
+          "selected": [
+            "none"
+          ]
+        },
+        "consultation_style": {
+          "selected": "suggest_then_review"
+        }
+      }
+    },
+    {
+      "test_user_id": "bella",
+      "answers": {
+        "display_name": "Bella",
+        "activity_interests": {
+          "selected": [
+            "beaches",
+            "wellness",
+            "food",
+            "shopping"
+          ]
+        },
+        "priority_ranking": {
+          "ranked": [
+            "comfort",
+            "experience_quality",
+            "time_efficiency",
+            "togetherness",
+            "affordability"
+          ],
+          "confirmed": true
+        },
+        "spending_style": {
+          "selected": "experience_first"
+        },
+        "daily_pace": {
+          "selected": "slow"
+        },
+        "planning_style": {
+          "selected": "essentials"
+        },
+        "group_style": {
+          "selected": "key_together"
+        },
+        "persistent_needs": {
+          "selected": [
+            "none"
+          ]
+        },
+        "consultation_style": {
+          "selected": "ask_first"
+        }
+      }
+    },
+    {
+      "test_user_id": "chris",
+      "answers": {
+        "display_name": "Chris",
+        "activity_interests": {
+          "selected": [
+            "hiking",
+            "sports",
+            "nature",
+            "beaches"
+          ]
+        },
+        "priority_ranking": {
+          "ranked": [
+            "time_efficiency",
+            "experience_quality",
+            "discovery",
+            "affordability",
+            "comfort"
+          ],
+          "confirmed": true
+        },
+        "spending_style": {
+          "selected": "save_and_splurge"
+        },
+        "daily_pace": {
+          "selected": "full"
+        },
+        "planning_style": {
+          "selected": "detailed"
+        },
+        "group_style": {
+          "selected": "key_together"
+        },
+        "persistent_needs": {
+          "selected": [
+            "none"
+          ]
+        },
+        "consultation_style": {
+          "selected": "suggest_then_review"
+        }
+      }
+    },
+    {
+      "test_user_id": "dana",
+      "answers": {
+        "display_name": "Dana",
+        "activity_interests": {
+          "selected": [
+            "art_history",
+            "local_culture",
+            "food",
+            "classes"
+          ]
+        },
+        "priority_ranking": {
+          "ranked": [
+            "togetherness",
+            "experience_quality",
+            "comfort",
+            "affordability",
+            "discovery"
+          ],
+          "confirmed": true
+        },
+        "spending_style": {
+          "selected": "balance"
+        },
+        "daily_pace": {
+          "selected": "balanced"
+        },
+        "planning_style": {
+          "selected": "essentials"
+        },
+        "group_style": {
+          "selected": "together"
+        },
+        "persistent_needs": {
+          "selected": [
+            "dietary"
+          ]
+        },
+        "consultation_style": {
+          "selected": "ask_per_plan"
+        },
+        "dietary_requirements": {
+          "items": [
+            {
+              "id": "vegetarian",
+              "strength": "REQUIRED",
+              "details": "Vegetarian meals required"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

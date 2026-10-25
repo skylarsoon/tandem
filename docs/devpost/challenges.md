@@ -155,6 +155,14 @@ Now only firm statements become limits. A hedged one is kept as a preference: it
 
 **Options that silently disappear.** Pinning the optimizer's behaviour in a test showed that an option missing a fact a preference needs (say, no stop count) is dropped from the ranking, even if it's the cheapest. If every option lacks the fact, nothing gets planned at all. So preferences will reach the optimizer as precomputed scores where unknown counts as unmet, never as missing.
 
+**Everyone flew on the same day.** Chris can't leave before the 21st and must be back by the 24th, but the system searched everyone's flights on the trip's first day, had no notion of a flight home, and kept a hidden rule that everyone lands within two hours. Dates are now a type the rules understand, and a flight is one round-trip itinerary. A person's own date rules move their search. The trip's dates bind every pick, so nothing lands after the trip ends. The organizer's "happy to arrive on different flights" turns the two-hour rule off.
+
+**Nobody could change their mind.** Once onboarding was confirmed, a later "my budget is now $900" was silently ignored: the agent didn't handle messages after onboarding at all. Now it reads just that message, shows back the change with the person's words, and replans once they confirm.
+
+**Two rules, one receipt.** Every write the worker makes carries a request key, so a retry can't apply it twice. Onboarding keyed each item by its name, and every rule is named "rule". The first person with two rules (Chris: leave after the 21st, back by the 24th) made the second write look like a forged retry, and his onboarding stopped. Each item now gets its own key.
+
+**"No plan" that blamed the wrong thing.** When Chris's new date left no flight, the old explanation only knew the named limits, so it would have told him his fare limit was the problem. Now the explanation names every rule that ruled his options out, in his words, starting with dates that can't fit the trip at all: "none of the options found for you fits what you said, “I can't depart until November 25 now” … and the trip's dates (the trip ends Nov 24)". The room only hears "1 traveller: no option found fits their limits".
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

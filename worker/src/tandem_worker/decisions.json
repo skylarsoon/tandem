@@ -1,28 +1,38 @@
 {
   "version": 1,
-  "about": "How each kind of choice is made, as data. chooses: one_per_person (each traveller picks their own) or one_for_group. pays: each (your own pick), split (shared equally) or per_person (a per-head price). A room plans the categories its settings list; group rules limit the group's combined choice, with values from room settings.",
+  "about": "How each kind of choice is made, as data. chooses: one_per_person (each traveller picks their own) or one_for_group. pays: each (your own pick), split (shared equally) or per_person (a per-head price). A room plans the categories its settings list; group rules limit the group's combined choice, with values from room settings. When the organizer gives stages (an order), each stage is decided on its own: scope is the kind of proposal it publishes and milestone the progress stage it moves.",
   "categories": {
     "FLIGHT": {
       "chooses": "one_per_person",
-      "pays": "each"
+      "pays": "each",
+      "scope": "FLIGHT_BUNDLE",
+      "milestone": "TRAVEL"
     },
     "STAY": {
       "chooses": "one_for_group",
       "pays": "split",
-      "fits_everyone": "capacity"
+      "fits_everyone": "capacity",
+      "scope": "SINGLE_SHARED_BOOKING",
+      "milestone": "STAY_EXPERIENCES"
     },
     "TRANSFER": {
       "chooses": "one_for_group",
       "pays": "split",
-      "fits_everyone": "capacity"
+      "fits_everyone": "capacity",
+      "scope": "SINGLE_SHARED_BOOKING",
+      "milestone": "TRAVEL"
     },
     "ACTIVITY": {
       "chooses": "one_for_group",
-      "pays": "per_person"
+      "pays": "per_person",
+      "scope": "ACTIVITY_DECISION",
+      "milestone": "STAY_EXPERIENCES"
     },
     "DINNER": {
       "chooses": "one_for_group",
-      "pays": "per_person"
+      "pays": "per_person",
+      "scope": "ACTIVITY_DECISION",
+      "milestone": "STAY_EXPERIENCES"
     }
   },
   "group_rules": [

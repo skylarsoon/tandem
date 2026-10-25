@@ -111,3 +111,20 @@ def test_any_checkable_limit_becomes_a_rule_only_from_their_own_words():
     assert patch_json(kept[0]) == {"rule": {**rating, "kind": "hard"}, "source_quote": "rated 4.5 or better"}
     assert describe(kept[0]) == "Stay: rating at least 4.5"
     assert describe(kept[2]) == "Your share of the whole trip at most $900"
+
+
+def test_dates_that_dont_work_are_followed_up_and_own_dates_answer_them():
+    said = "Those dates don't work for me."
+    _, _, coverage, reasons = verify(IntakeExtraction(items=(item("dates_ok", False, "Those dates don't work for me"),)), ctx(said))
+    assert coverage["dates"] == "UNCLEAR" and reasons["dates"].startswith("Which dates can you do")
+    said = "I can't leave before November 21 and I need to be back by November 24."
+    leave = item("rule", None, "I can't leave before November 21",
+                 rule={"category": "FLIGHT", "attribute": "departure_date", "operator": "gte", "value": "2026-11-21"})
+    back = item("rule", None, "I need to be back by November 24",
+                rule={"category": "FLIGHT", "attribute": "return_arrival_date", "operator": "lte", "value": "2026-11-24"})
+    wrong_day = item("rule", None, "I can't leave before November 21",
+                     rule={"category": "FLIGHT", "attribute": "departure_date", "operator": "gte", "value": "2026-11-12"})
+    kept, _, coverage, _ = verify(IntakeExtraction(items=(leave, back, wrong_day)), ctx(said))
+    assert coverage["dates"] == "ANSWERED"
+    assert {i.rule["value"] for i in kept} == {"2026-11-21", "2026-11-24"}, "a day they never said is dropped"
+    assert describe(kept[0]) == "Flight: departure date at least Nov 21"

@@ -80,6 +80,9 @@ export const confirmTripBrief = spacetimedb.reducer({ roomId: t.u64(), revision:
     start_date: proposed.start_date ?? before.start_date,
     end_date: proposed.end_date ?? before.end_date,
     components: proposed.components ?? before.components,
+    arrive_together: proposed.arrive_together ?? before.arrive_together,
+    stages: proposed.stages ?? before.stages,
+    activities: proposed.activities ?? before.activities,
   });
   const reopen = [
     ...(before.destination_airport !== undefined && before.destination_airport !== settings.destination_airport ? ['origin'] : []),
@@ -190,6 +193,9 @@ export const proposeTripBrief = spacetimedb.reducer(
         start_date: proposed.start_date,
         end_date: proposed.end_date,
         components: proposed.components,
+        arrive_together: proposed.arrive_together ?? undefined,
+        stages: proposed.stages ?? undefined,
+        activities: proposed.activities ?? undefined,
       });
       if (!Array.isArray(proposed.components) || proposed.components.some(c => !BRIEF_COMPONENTS.includes(c as string))) {
         fail('INVALID_ARGUMENT', 'components');

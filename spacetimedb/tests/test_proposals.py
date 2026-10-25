@@ -276,3 +276,28 @@ def test_arrival_window_and_max_stops_are_enforced_at_publish(ready_room, client
     expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
                  record_flights(room, worker, job_id, {"carol": {"stops": 0}}))  # bob's arrival time unknown
     assert publish_selected(room, worker, job_id, record_flights(room, worker, job_id, fine))["version"] == 1
+
+
+def test_nothing_is_planned_outside_the_trips_dates(ready_room, client, worker):
+    room, _ = ready_room
+    client.call(room.people["alice"], "set_room_settings", room_id=room.room_id,
+                settings_json=json.dumps({"start_date": "2026-11-20", "end_date": "2026-11-24"}))
+    job_id = room.plan_job(worker)
+    room.claim(worker, job_id)
+    after_the_trip = record_flights(room, worker, job_id, {"carol": {"arrival_date": "2026-11-25"}})
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, after_the_trip)
+    home_too_early = record_flights(room, worker, job_id, {"dave": {"return_departure_date": "2026-11-19"}})
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, home_too_early)
+    # One-way flights have no way home to check; arriving on the last day is still inside.
+    fine = record_flights(room, worker, job_id, {"carol": {"arrival_date": "2026-11-24"}})
+    assert publish_selected(room, worker, job_id, fine)["version"] == 1
+
+
+def test_separate_arrivals_lift_the_arrival_window(ready_room, client, worker):
+    room, _ = ready_room
+    client.call(room.people["alice"], "set_room_settings", room_id=room.room_id,
+                settings_json=json.dumps({"arrive_together": "off"}))
+    job_id = room.plan_job(worker)
+    room.claim(worker, job_id)
+    a_day_apart = record_flights(room, worker, job_id, {"dave": {"arrival_epoch": int(__import__("time").time()) + 2 * 86400}})
+    assert publish_selected(room, worker, job_id, a_day_apart)["version"] == 1

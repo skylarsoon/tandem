@@ -87,6 +87,10 @@ class Snapshot(Record):
     start_date: str | None = None
     end_date: str | None = None
     destination: str | None = None
+    # The organizer's order of decisions (catalog categories) and how arrivals relate.
+    stages: tuple[str, ...] = ()
+    arrive_together: Literal["required", "preferred", "off"] = "required"
+    activities: int | None = None
     # Agreed decisions: what later planning builds on and must not silently drop.
     commitments: tuple[Commitment, ...] = ()
     # Each traveller's cumulative approved compromise in this room (H_i, from the ledger).
@@ -97,7 +101,7 @@ class Snapshot(Record):
         if not self.members or len(set(self.members)) != len(self.members) or "mediator" in self.members:
             raise ValueError("INVALID_MEMBERSHIP")
         from .rules import decisions
-        if set(self.components) - set(decisions()["categories"]):
+        if (set(self.components) | set(self.stages)) - set(decisions()["categories"]):
             raise ValueError("UNKNOWN_COMPONENT")
         return self
 
@@ -137,6 +141,17 @@ class Candidate(Record):
     # Local wall-clock arrival "HH:MM" at the destination, and connections.
     arrival_local: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     stops: int | None = Field(default=None, ge=0)
+    # Local dates and travel times, derived from the epochs and zones when not given.
+    departure_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    arrival_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    duration_minutes: int | None = Field(default=None, ge=0)
+    # A round trip is one itinerary: the way home leaves the destination, lands at the origin.
+    return_departure_epoch: int | None = None
+    return_arrival_epoch: int | None = None
+    return_departure_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    return_arrival_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    return_stops: int | None = Field(default=None, ge=0)
+    return_duration_minutes: int | None = Field(default=None, ge=0)
     checked_bags_included: int | None = None
     # valid_until is a local freshness deadline, never a held fare's expiry.
     provider_expires_at: float | None = None
@@ -148,6 +163,30 @@ class Candidate(Record):
     free_cancellation: bool | None = None
     check_in: str | None = None
     check_out: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def derived_facts(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+
+        def local_date(epoch, zone):
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            return datetime.fromtimestamp(epoch, ZoneInfo(zone)).date().isoformat()
+
+        out_zone, there_zone = data.get("departure_timezone"), data.get("arrival_timezone")
+        for field, epoch, zone in (("departure_date", "departure_epoch", out_zone), ("arrival_date", "arrival_epoch", there_zone),
+                                   ("return_departure_date", "return_departure_epoch", there_zone),
+                                   ("return_arrival_date", "return_arrival_epoch", out_zone)):
+            if data.get(field) is None and data.get(epoch) is not None and zone:
+                data[field] = local_date(data[epoch], zone)
+        for field, start, end in (("duration_minutes", "departure_epoch", "arrival_epoch"),
+                                  ("return_duration_minutes", "return_departure_epoch", "return_arrival_epoch")):
+            if data.get(field) is None and data.get(start) is not None and data.get(end) is not None and data[end] >= data[start]:
+                data[field] = (data[end] - data[start]) // 60
+        return data
 
     @model_validator(mode="after")
     def valid_evidence(self):
@@ -310,8 +349,10 @@ class GroupSummary(Record):
 class Conflict(Record):
     """Why no plan exists. Owner-specific conflicts go only to that owner."""
     code: Literal["HARD_LIMIT", "BAGGAGE_UNAVAILABLE", "NO_CANDIDATES", "ARRIVAL_WINDOW",
-                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME", "TOO_MANY_STOPS"]
+                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME", "TOO_MANY_STOPS", "RULE"]
     owner: str | None = None
+    # RULE: the attributes whose rules (the owner's own, or the trip's dates) left them no option.
+    attributes: tuple[str, ...] = ()
     cheapest_cents: int | None = None
     # TRIP_LIMIT: the cheapest trip for this owner and their limit; STAY_UNAVAILABLE:
     # which requirement no stay meets (never whose).
@@ -388,6 +429,8 @@ class Route(Record):
     origin: str = Field(pattern=r"^[A-Z]{3}$")
     destination: str = Field(pattern=r"^[A-Z]{3}$")
     date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    # The way home: the latest day this person can come back (their rules, else the trip's end).
+    return_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     max_stops: int | None = Field(default=None, ge=0, le=3)
 
 
@@ -475,11 +518,20 @@ class TripBrief(Record):
     components: tuple[Literal["FLIGHT", "STAY", "TRANSFER"], ...] = ("FLIGHT",)
     group_size: int | None = Field(default=None, ge=1, le=20)
     vibe: str = Field(default="", max_length=200)
+    # Only what the organizer said: how arrivals relate, the order to decide things in
+    # (catalog categories, any of them), and how many group activities to plan.
+    arrive_together: Literal["required", "preferred", "off"] | None = None
+    stages: tuple[str, ...] | None = None
+    activities: int | None = Field(default=None, ge=0, le=20)
 
     @model_validator(mode="after")
     def dates_in_order(self):
         if self.start_date > self.end_date:
             raise ValueError("TRIP_DATES_OUT_OF_ORDER")
+        from .rules import decisions
+        if self.stages is not None and (not self.stages or len(set(self.stages)) != len(self.stages)
+                                        or set(self.stages) - set(decisions()["categories"])):
+            raise ValueError("UNKNOWN_STAGE")
         return self
 
 

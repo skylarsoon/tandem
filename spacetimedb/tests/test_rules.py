@@ -126,3 +126,13 @@ def test_a_kept_rule_still_binds_and_a_preference_keeps_its_weight(ready_room, c
     shared = dict(scope="SINGLE_SHARED_BOOKING", decision_id="stay", stage="STAY_EXPERIENCES")
     expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
                  [record_shared(room, worker, job_id, "STAY", 90000, rating=4.0)], **shared)
+
+
+def test_a_later_statement_about_the_same_thing_replaces_the_earlier_one(ready_room, client, worker):
+    room, _ = ready_room
+    leave = {"category": "FLIGHT", "attribute": "departure_date", "operator": "gte"}
+    add_rule(room, "carol", {**leave, "value": "2026-11-21"}, "I can't leave before November 21")
+    add_rule(room, "carol", {**leave, "value": "2026-11-25"}, "I can't depart until November 25 now")
+    add_rule(room, "carol", {**leave, "value": "2026-11-22", "kind": "soft"})  # a wish sits beside the must
+    mine = [json.loads(r["rule_json"]) for r in my_rules(room, "carol") if r["legacy_key"] is None]
+    assert sorted((r["value"], r["kind"]) for r in mine) == [("2026-11-22", "soft"), ("2026-11-25", "hard")]

@@ -54,6 +54,10 @@ def some(value):
     return None if value is None else {"some": value}
 
 
+# Arrivals as far apart as you like: the organizer turned arriving together off.
+NO_ARRIVAL_LIMIT = 10**9
+
+
 class StdbHttp:
     """Minimal HTTP client. Top-level argument names are sent camelCase (as the
     module declares them); nested objects and view columns are snake_case."""
@@ -177,7 +181,12 @@ class SpacetimeBackend:
         job, settings = ctx["job"], ctx["room"].get("settings") or {}
         return Snapshot(room_id=str(job["room_id"]), input_revision=job["input_revision"],
             membership_revision=job["membership_revision"], permission_revision=job["permission_revision"],
-            members=tuple(self._members(ctx)), arrival_overlap_seconds=settings.get("arrival_overlap_seconds", 7200),
+            members=tuple(self._members(ctx)),
+            # Arrivals are held together only when the organizer requires it.
+            arrival_overlap_seconds=settings.get("arrival_overlap_seconds", 7200)
+            if settings.get("arrive_together", "required") == "required" else NO_ARRIVAL_LIMIT,
+            arrive_together=settings.get("arrive_together", "required"), stages=tuple(settings.get("stages") or ()),
+            activities=settings.get("activities"),
             components=tuple(settings.get("components", ("FLIGHT",))), people_per_bedroom=settings.get("people_per_bedroom", 2),
             onboarding=(ctx.get("trip_brief") or {}).get("state") == "CONFIRMED",
             onboarded=tuple(sorted(self.owner_name(m) for m in ctx["members"] if m["active"] and any(

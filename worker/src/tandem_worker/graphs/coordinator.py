@@ -8,11 +8,13 @@ from zoneinfo import ZoneInfo
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from ..contracts import Act, Candidate, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
+from ..contracts import Act, Candidate, Conflict, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
+from ..explain_rules import rule_conflict_note
 from ..progress import activity, report as progress
+from ..rules import dates_outside_trip, decisions, evaluate, search_dates
 from ..shortlist import dedupe, shortlist_choices
-from ..solver import POLICY, RELAXABLE, TripSolver, relax_nudge
+from ..solver import POLICY, RELAXABLE, TripSolver, flight_violation, relax_nudge
 from .personal import build_personal, nudges, question_for, send_message
 
 # Solver conflict → the research blocker a targeted search can act on, and what to search again.
@@ -20,10 +22,26 @@ RESEARCH_BLOCKER = {"HARD_LIMIT": "HARD_LIMIT", "BAGGAGE_UNAVAILABLE": "BAGGAGE_
                     "NO_CANDIDATES": "NO_MATCHING_CANDIDATE", "ARRIVAL_WINDOW": "ARRIVAL_OVERLAP",
                     "TRIP_LIMIT": "HARD_LIMIT", "STAY_UNAVAILABLE": "STAY_UNAVAILABLE",
                     "TRANSFER_UNAVAILABLE": "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME": "ARRIVAL_OVERLAP",
-                    "TOO_MANY_STOPS": "NO_MATCHING_CANDIDATE"}
+                    "TOO_MANY_STOPS": "NO_MATCHING_CANDIDATE", "RULE": "NO_MATCHING_CANDIDATE"}
 RESEARCH_CATEGORIES = {"TRIP_LIMIT": ("FLIGHT", "STAY"), "STAY_UNAVAILABLE": ("STAY",), "TRANSFER_UNAVAILABLE": ("TRANSFER",)}
-# The decision this graph plans (the whole trip); other agreed decisions' flights are locked.
+# The decision a room without stages plans (the whole trip); other agreed decisions' picks are locked.
 DECISION = "trip"
+
+
+def next_stage(snapshot: Snapshot) -> str | None:
+    """The first of the organizer's stages not yet agreed (None: none left)."""
+    agreed = {c.decision_id for c in snapshot.commitments}
+    return next((s for s in snapshot.stages if s.lower() not in agreed), None)
+
+
+def planned_decision(snapshot: Snapshot) -> tuple[str, str, str]:
+    """(decision id, scope, milestone) of what this job plans: one stage, as the catalog
+    says that kind of choice is decided, or the whole trip in a room without stages."""
+    if not snapshot.stages or not snapshot.components:
+        return DECISION, "COMPLETE_PLAN", "TRAVEL"
+    category = snapshot.components[0]
+    shape = decisions()["categories"][category]
+    return category.lower(), shape["scope"], shape["milestone"]
 
 
 class CoordinatorState(TypedDict, total=False):
@@ -60,7 +78,13 @@ class CoordinatorState(TypedDict, total=False):
 
 def build_coordinator(backend, claim, model, research, solver, validator, clock, limits, checkpointer):
     def current():
-        return backend.load_execution_context(claim)
+        """The room as this job plans it: with the organizer's stages, only the first one not
+        yet agreed (no components once everything is decided)."""
+        snapshot = backend.load_execution_context(claim)
+        if not snapshot.stages:
+            return snapshot
+        stage = next_stage(snapshot)
+        return snapshot.model_copy(update={"components": (stage,) if stage else ()})
 
     def briefs_for(snapshot):
         return [backend.read_brief(claim, o) for o in snapshot.members]
@@ -84,6 +108,20 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     asked.append(backend.ask_owner(claim, question))
         return sorted(set(asked))
 
+    def empty_conflict(snapshot, rules, owner, brief, candidates):
+        """Why someone has no option. The old named limits explain what they cover; when
+        options that pass those were still excluded, it was a rule they don't know (the
+        person's own dates, the trip's dates, any other rule): name every rule that
+        excluded something, and own dates that can't fit the trip at all. Never guess."""
+        mine = [c for c in candidates if c.owner == owner and c.total_cents is not None]
+        broken = {r.attribute for c in mine for r in rules.binding(owner, c.category)
+                  if evaluate(r, c.model_dump(mode="json")) == "VIOLATED"}
+        broken |= dates_outside_trip(rules, owner, "FLIGHT", snapshot.start_date, snapshot.end_date)
+        known_ok = [c for c in mine if flight_violation(c, brief) is None]
+        if broken and (known_ok or not mine):
+            return Conflict(code="RULE", owner=owner, attributes=tuple(sorted(broken)))
+        return TripSolver.owner_conflict(owner, brief, candidates)
+
     def solution(state):
         # Impacts are private, so they live only in the solver receipt, not in state.
         def missing():
@@ -102,6 +140,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
 
     def discover(state):
         snapshot = current()
+        if not snapshot.components:
+            return {"candidates": [], "need_research": False}  # every stage is decided
         if state["round"] == 0 and not state["candidates"]:
             reused = backend.reusable_candidates(claim)
             if reused:
@@ -118,8 +158,11 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             briefs = {o: backend.read_brief(claim, o) for o in snapshot.members}
             if any(b.origin_airport is None for b in briefs.values()):
                 return {"outcome": "WAITING_FOR_INTAKE"}
+            # Each person's own dates (their firm rules narrow the trip's) — a search needs them, like the airport.
+            rules = backend.read_rules(claim)
+            dates = {o: search_dates(rules, o, "FLIGHT", snapshot.start_date, snapshot.end_date) for o in briefs}
             routes = [{"owner": o, "origin": b.origin_airport, "destination": snapshot.destination_airport,
-                       "date": snapshot.start_date, "max_stops": b.max_stops} for o, b in briefs.items()]
+                       "date": dates[o][0], "return_date": dates[o][1], "max_stops": b.max_stops} for o, b in briefs.items()]
             facts = {"destination": snapshot.destination, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
                      "party_size": len(snapshot.members), "pickup_time": state.get("pickup_time")}
             # The airport transfer is searched once flights are chosen, for the group's latest landing.
@@ -154,6 +197,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
 
     def solve(state):
         snapshot = current()
+        if not snapshot.components:
+            return {"outcome": "ALL_DECIDED", "solver_status": "", "selected": []}
         if snapshot.onboarding and set(snapshot.onboarded) != set(snapshot.members):
             # Searched early; nothing is proposed until everyone has confirmed their onboarding.
             return {"outcome": "WAITING_FOR_INTAKE", "solver_status": "", "selected": []}
@@ -161,9 +206,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         briefs = briefs_for(snapshot)
         by_owner = {b.owner: b for b in briefs}
         relaxations = digest([b.model_dump(mode="json") for b in briefs])[:12]
-        locked = sorted({ref for c in snapshot.commitments if c.decision_id != DECISION for ref in c.refs})
-        # Everyone's rules (private: read here, never kept in the graph's state).
-        room_rules = backend.read_rules(claim)
+        locked = sorted({ref for c in snapshot.commitments if c.decision_id != planned_decision(snapshot)[0] for ref in c.refs})
+        # Everyone's rules (private: read here, never kept in the graph's state), and the trip's dates.
+        room_rules = backend.read_rules(claim).within_trip(snapshot.start_date, snapshot.end_date)
         takes_rules = "rules" in inspect.signature(solver.solve).parameters
 
         def shortlisted(excluded):
@@ -192,7 +237,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     if pick.empty_groups:
                         # Someone has no usable flight at all: say why, never solve as if they did.
                         return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
-                            TripSolver.owner_conflict(o, by_owner[o], candidates) for o in pick.empty_groups))
+                            empty_conflict(plan_for, room_rules, o, by_owner[o], candidates) for o in pick.empty_groups))
                     if takes_rules:
                         return solver.solve(plan_for, briefs, list(pick.candidates), rules=room_rules)
                     return solver.solve(plan_for, briefs, list(pick.candidates))
@@ -344,8 +389,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         snapshot = current()
         candidates = [Candidate.model_validate(c) for c in state["candidates"]]
         briefs = briefs_for(snapshot)
-        report = validator.validate(snapshot, briefs, candidates, tuple(state["selected"]), clock.now())
-        report = ValidationReport.model_validate(report)
+        report = ValidationReport.model_validate(validator.validate(snapshot, briefs, candidates, tuple(state["selected"]), clock.now()))
+        if snapshot.stages:
+            # Checked against this stage of the claimed snapshot (current() narrowed it): bound to that claim.
+            report = report.model_copy(update={"snapshot_ref": claim.snapshot_ref})
         if not report.valid:
             evidence_only = bool(report.checks) and set(report.checks) <= {"INCOMPLETE_COST_EVIDENCE", "BAGGAGE_UNKNOWN"}
             return {"outcome": "EXPLORATORY_ONLY" if evidence_only else "VALIDATION_FAILED", "validation_checks": list(report.checks)}
@@ -355,9 +402,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         progress(backend, claim, "PUBLISH", "STARTED", round=state["round"], cycle=state["cycle"])
         activity(backend, claim, "mediator", "WRITING")
         # Each person's compromise in this plan reaches the ledger only if everyone agrees to it.
+        decision_id, scope, milestone = planned_decision(snapshot)
         ref = backend.publish_proposal(claim, tuple(state["selected"]), candidates, report, "publish",
             explanation(result.group, result.impacts, zone, candidates) if result.group else None,
-            **({"burdens": result.burdens} if result.burdens else {}))
+            **({"burdens": result.burdens} if result.burdens else {}), decision_id=decision_id, scope=scope, stage=milestone)
         return {"proposal_ref": ref, "outcome": "AWAITING_REVIEW"}
 
     def exhausted(state):
@@ -367,9 +415,11 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         conflicts = solution(state).conflicts
         briefs = briefs_for(snapshot)
         by_owner = {b.owner: b for b in briefs}
+        rules = backend.read_rules(claim).within_trip(snapshot.start_date, snapshot.end_date)
         for conflict in conflicts:
             if conflict.owner:
-                note = owner_conflict_note(conflict, by_owner[conflict.owner])
+                note = (rule_conflict_note(conflict, rules) if conflict.code == "RULE"
+                        else owner_conflict_note(conflict, by_owner[conflict.owner]))
                 backend.notify_owner(claim, conflict.owner, note, f"no-plan:{state['round']}:{conflict.owner}")
             # A shared requirement that blocks is told only to whoever set it.
             for holder in requirement_holders(conflict, briefs):

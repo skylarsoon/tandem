@@ -26,7 +26,7 @@ import {
 } from './guards';
 import { commitments, messageOwnAgent, recomputeAgreement, scheduleReviewReminders, supersedeProposal } from './effects';
 import { findIntake } from './onboarding';
-import { bindingRules, checkCandidateRules, checkNeeds, costLimitsHold } from './room_rules';
+import { bindingRules, checkCandidateRules, checkNeeds, checkTripBounds, costLimitsHold } from './room_rules';
 
 const ImpactInput = t.object('ImpactInput', { memberId: t.u64(), impactJson: t.string() });
 // burdenMicros: the 0..1 compromise burden in millionths (0..1_000_000).
@@ -110,8 +110,10 @@ function loadCandidate(ctx: Ctx, r: RoomRow, ref: string): { category: string; f
 }
 
 function roomSettings(r: RoomRow) {
-  const settings = JSON.parse(r.settingsJson) as { arrival_overlap_seconds?: number; components?: string[] };
-  return { overlap: settings.arrival_overlap_seconds ?? 7200, components: settings.components ?? ['FLIGHT'] };
+  const settings = JSON.parse(r.settingsJson) as { arrival_overlap_seconds?: number; components?: string[]; arrive_together?: string };
+  // Only 'required' holds arrivals together (a 'preferred' wish is weighed by the planner).
+  const together = (settings.arrive_together ?? 'required') === 'required';
+  return { overlap: together ? settings.arrival_overlap_seconds ?? 7200 : Infinity, components: settings.components ?? ['FLIGHT'] };
 }
 
 // One flight per active member, each within its owner's hard limits, all
@@ -129,6 +131,7 @@ function checkFlights(ctx: Ctx, r: RoomRow, active: Member[], refs: string[], co
     if (typeof facts.arrival_epoch !== 'number') fail('INVALID_PROPOSAL', `candidate ${ref} has no arrival time`);
     // The traveller's own rules on their own flight (fare, bag, landing time, stops...).
     checkCandidateRules(bindingRules(ctx, r.id), [member.member], 'FLIGHT', facts as Record<string, unknown>, ref);
+    checkTripBounds(JSON.parse(r.settingsJson), 'FLIGHT', facts as Record<string, unknown>, ref);
     arrivals.push(facts.arrival_epoch);
   }
   if (costs.flights.size !== active.length) fail('INVALID_COVERAGE', 'every active member needs exactly one selected flight');
@@ -148,6 +151,7 @@ function checkShared(ctx: Ctx, r: RoomRow, active: Member[], ref: string, costs:
   // Everyone's rules on the shared pick, and what it must hold for them.
   const people = active.map(m => m.member);
   checkCandidateRules(bindingRules(ctx, r.id), people, category, facts as Record<string, unknown>, ref);
+  checkTripBounds(JSON.parse(r.settingsJson), category, facts as Record<string, unknown>, ref);
   checkNeeds(ctx, r.id, people, JSON.parse(r.settingsJson), category, facts as Record<string, unknown>, ref);
   costs.shared += total;
   return category;
@@ -256,6 +260,7 @@ function validateScope(ctx: Ctx, r: RoomRow, scope: string, decisionId: string, 
       fail('INVALID_PROPOSAL', `candidate ${refs[0]} doesn't fit everyone`);
     }
     checkCandidateRules(bindingRules(ctx, r.id), active.map(m => m.member), category, facts as Record<string, unknown>, refs[0]);
+    checkTripBounds(JSON.parse(r.settingsJson), category, facts as Record<string, unknown>, refs[0]);
     for (const c of others) {
       if (c.scope !== 'ACTIVITY_DECISION') continue;
       for (const ref of c.selectedRefs) {

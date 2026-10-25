@@ -51,8 +51,8 @@ class TandemOptimizerBridge(TripSolver):
         options = self.prepare(snapshot, briefs, candidates)  # "no plan" explained as people know it
         if isinstance(options, SolverResult):
             return options
-        compiled = compile_request(snapshot, rules or room_rules_from(briefs), candidates, history,
-                                   max_combinations=self.max_combinations)
+        rules = rules or room_rules_from(briefs).within_trip(snapshot.start_date, snapshot.end_date)
+        compiled = compile_request(snapshot, rules, candidates, history, max_combinations=self.max_combinations)
         if compiled.empty:
             return SolverResult(status="INFEASIBLE", policy_version=self.policy, conflicts=tuple(
                 Conflict(code="NO_CANDIDATES", owner=g.owner) for g in compiled.empty))
