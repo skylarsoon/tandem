@@ -141,8 +141,10 @@ class LocalBackend:
             else:
                 items += rules_from_brief(Brief.model_validate(state["briefs"][o]))
             items += [Rule.model_validate({**r, "owner": o}) for r in state.get("rules", {}).get(o, [])]
+        ranking = {o: tuple((state.get("profiles", {}).get(o, {}).get("C03") or {}).get("ranked") or ())
+                   for o in state["snapshot"]["members"]}
         return RoomRules(rules=tuple(x for x in items if isinstance(x, Rule)), needs=tuple(x for x in items if isinstance(x, Need)),
-                         facts=tuple(x for x in items if isinstance(x, SearchFact)))
+                         facts=tuple(x for x in items if isinstance(x, SearchFact)), ranking=ranking)
 
     def renew_lease(self, claim):
         with self._tx() as state:

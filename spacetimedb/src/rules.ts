@@ -19,7 +19,10 @@ export type Catalog = {
 };
 export type Verdict = 'SATISFIED' | 'VIOLATED' | 'UNKNOWN' | 'NOT_APPLICABLE';
 
-const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between'];
+const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between', 'lowest', 'highest'];
+// A preference for the cheapest, shortest, earliest...: a ranking among the options found,
+// never a check on one option, so only ever soft.
+const RANKINGS = ['lowest', 'highest'];
 const ORDERED = ['money', 'int', 'number', 'epoch', 'time', 'date'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -71,6 +74,13 @@ export function validateRule(rule: Rule, catalog: Catalog): void {
   if (rule.kind !== undefined && rule.kind !== 'hard' && rule.kind !== 'soft') bad(`unknown kind ${rule.kind}`);
   const kind = attributeType(rule, catalog);
   const op = rule.operator;
+  if (RANKINGS.includes(op)) {
+    if (rule.kind !== 'soft' || !ORDERED.includes(kind) || (rule.value !== undefined && rule.value !== null) || rule.tolerance !== undefined) {
+      bad(`${op} is a preference on an ordered attribute, with no value`);
+    }
+    checkWeighting(rule, kind);
+    return;
+  }
   if ((kind === 'bool' || kind === 'text') && !['eq', 'neq', 'in', 'not_in'].includes(op)) bad(`${op} doesn't apply to ${kind}`);
   if (op === 'in' || op === 'not_in') {
     if (!Array.isArray(rule.value) || rule.value.length === 0) bad(`${op} needs a non-empty list`);
@@ -113,6 +123,7 @@ export function evaluateRule(rule: Rule, facts: Record<string, unknown>, catalog
   if (rule.aggregate !== undefined) bad('aggregate rules are evaluated on a whole plan, not one candidate');
   if ((facts.category ?? rule.category) !== rule.category) return 'NOT_APPLICABLE';
   validateRule(rule, catalog);
+  if (RANKINGS.includes(rule.operator)) return 'NOT_APPLICABLE'; // a ranking among options, not a check on one
   const actual = facts[rule.attribute!];
   if (actual === undefined || actual === null) return 'UNKNOWN';
   const kind = attributeType(rule, catalog);
@@ -135,7 +146,7 @@ export function evaluateRule(rule: Rule, facts: Record<string, unknown>, catalog
 
 // ---------- The old named limits, as rules (contracts/legacy_keys.json) ----------
 
-export type Need = { category: string; attribute: string; needs: number };
+export type Need = { category: string; attribute: string; needs: number; kind: 'hard' | 'soft' };
 export type SearchFact = { fact: string; value: unknown };
 export type LegacyTable = { keys: Record<string, Record<string, any>>; kept_prefix: string };
 export type LegacyRow = { value: unknown; hardness?: string; authorized_range?: unknown };
@@ -151,8 +162,9 @@ export function fromLegacy(key: string, row: LegacyRow, table: LegacyTable, cata
   if (value === null || value === undefined || ('only_when' in spec && value !== spec.only_when)) return out;
   if (spec.as === 'search_fact') out.facts.push({ fact: spec.fact, value });
   // A need someone hedged ("own room if possible") is a preference, never a must.
-  if (spec.as === 'need' && (row.hardness ?? 'HARD') === 'HARD') {
-    out.needs.push({ category: spec.category, attribute: spec.attribute, needs: spec.needs });
+  if (spec.as === 'need') {
+    out.needs.push({ category: spec.category, attribute: spec.attribute, needs: spec.needs,
+      kind: (row.hardness ?? 'HARD') === 'HARD' ? 'hard' : 'soft' });
   }
   if (spec.as !== 'rule') return out;
   const target = 'aggregate' in spec ? { aggregate: spec.aggregate as string } : { category: spec.category as string, attribute: spec.attribute as string };

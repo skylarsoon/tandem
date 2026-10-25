@@ -174,6 +174,15 @@ def _shortlist_category(candidates, category, snapshot, rules, *, limit, now, lo
 
     options = {o: [c for c in candidates if c.owner == o and usable(c)] for o in snapshot.members}
     slots: list[Slot] = [("cheapest", lambda c: (c.total_cents, getattr(c, spread) if spread else 0))]
+    # Each person's best option for each of their preferences (a nonstop, the shortest), so the
+    # optimizer can weigh them; not only the cheapest survives the cut.
+    from .compiler import score
+    prefs = {o: [r for r in rules.soft(o, category) if r.aggregate is None] for o in snapshot.members}
+    for k in range(max((len(p) for p in prefs.values()), default=0)):
+        def best(c, k=k):
+            mine = prefs.get(c.owner, [])
+            return None if k >= len(mine) else (-score(mine[k], c, options[c.owner]), c.total_cents)
+        slots.append((f"preference_{k}", best))
     if spread:
         window = closest_window(options, spread)
         middle = None if window is None else (window[0] + window[1]) / 2
@@ -181,7 +190,7 @@ def _shortlist_category(candidates, category, snapshot, rules, *, limit, now, lo
         def anchor(c):
             at = getattr(c, spread)
             return None if window is None or not window[0] <= at <= window[1] else (abs(at - middle), c.total_cents)
-        slots.append(("group_anchor", anchor))
+        slots.insert(1, ("group_anchor", anchor))
 
     def span(values):
         values = list(values)

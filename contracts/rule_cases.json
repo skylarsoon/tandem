@@ -678,6 +678,63 @@
     "category": "FLIGHT"
    },
    "expect": "UNKNOWN"
+  },
+  {
+   "name": "as short as possible is a ranking, not a check",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "duration_minutes",
+    "operator": "lowest",
+    "kind": "soft",
+    "importance": 4
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "duration_minutes": 300
+   },
+   "expect": "NOT_APPLICABLE"
+  },
+  {
+   "name": "as short as possible can't be a must",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "duration_minutes",
+    "operator": "lowest"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "duration_minutes": 300
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a ranking has no value",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "duration_minutes",
+    "operator": "highest",
+    "value": 300,
+    "kind": "soft"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "duration_minutes": 300
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a ranking needs an ordered attribute",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "baggage_included",
+    "operator": "lowest",
+    "kind": "soft"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "baggage_included": true
+   },
+   "expect": "INVALID_RULE"
   }
  ],
  "legacy_cases": [

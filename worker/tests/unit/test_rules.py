@@ -25,7 +25,7 @@ def python_conversion(key, row) -> dict:
             out["rules"].append(item.model_dump(include={"category", "attribute", "aggregate", "operator", "value", "kind", "importance", "tolerance"},
                                                 exclude_none=True))
         elif isinstance(item, Need):
-            out["needs"].append({"category": item.category, "attribute": item.attribute, "needs": item.needs})
+            out["needs"].append({"category": item.category, "attribute": item.attribute, "needs": item.needs, "kind": item.kind})
         else:
             out["facts"].append({"fact": item.fact, "value": item.value})
     return out

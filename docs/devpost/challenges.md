@@ -169,6 +169,8 @@ Now only firm statements become limits. A hedged one is kept as a preference: it
 
 **Agreed is agreed, unless it no longer fits.** When Alex's budget drops to $900, the flights everyone already agreed still fit, so they stand; only the stay that was still being reviewed is planned again. But if a change breaks something agreed (a new limit on a fare already chosen, new trip dates), that decision is reopened and planned again, newest first, rather than silently kept.
 
+**Everyone's wishes counted the same.** Bella said "I strongly prefer nonstop" and ranked comfort first; Alex said "I'm fine with layovers to save money" and ranked affordability first. To the optimizer they were the same preference. Now each person's own priority ranking (from their profile) sets how much each of their preferences weighs, through a small catalog that maps priorities to what they're about. Bella gets the $780 nonstop and is asked before paying more; Alex gets the $310 two-stop he'd choose himself. Preferences reach Elena's optimizer as scores between 0 and 1 per option, with unknown counting as unmet, because her optimizer quietly drops an option whose fact a preference needs, and drops everything if no option has it.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

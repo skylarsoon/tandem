@@ -2,12 +2,13 @@
 
 export const RULE_ATTRIBUTES = {
   "version": 1,
-  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), date (local YYYY-MM-DD), text. shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up. trip_bound: the attribute must sit inside the trip's dates (room settings start_date/end_date) for every pick: by_end means on or before the end date (e.g. arriving), from_start on or after the start date (e.g. leaving to go home). search_date: a person's own firm rule on this attribute moves their search: outbound searches no earlier than their earliest allowed date, return no later than their latest.",
+  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), date (local YYYY-MM-DD), text. shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up. trip_bound: the attribute must sit inside the trip's dates (room settings start_date/end_date) for every pick: by_end means on or before the end date (e.g. arriving), from_start on or after the start date (e.g. leaving to go home). search_date: a person's own firm rule on this attribute moves their search: outbound searches no earlier than their earliest allowed date, return no later than their latest. lowest/highest: how a preference for the lowest or highest value reads (\"travel time as short as possible\").",
   "categories": {
     "FLIGHT": {
       "total_cents": {
         "type": "money",
-        "label": "fare"
+        "label": "fare",
+        "lowest": "as cheap as possible"
       },
       "arrival_local": {
         "type": "time",
@@ -15,7 +16,9 @@ export const RULE_ATTRIBUTES = {
       },
       "arrival_epoch": {
         "type": "epoch",
-        "label": "landing"
+        "label": "landing",
+        "lowest": "as early as possible",
+        "highest": "as late as possible"
       },
       "departure_epoch": {
         "type": "epoch",
@@ -45,7 +48,8 @@ export const RULE_ATTRIBUTES = {
       },
       "duration_minutes": {
         "type": "int",
-        "label": "travel time in minutes"
+        "label": "travel time",
+        "lowest": "as short as possible"
       },
       "return_departure_epoch": {
         "type": "epoch",
@@ -72,7 +76,8 @@ export const RULE_ATTRIBUTES = {
       },
       "return_duration_minutes": {
         "type": "int",
-        "label": "return travel time in minutes"
+        "label": "travel time home",
+        "lowest": "as short as possible"
       }
     },
     "STAY": {

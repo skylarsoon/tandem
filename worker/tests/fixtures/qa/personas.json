@@ -3,84 +3,320 @@
   "organizer": "Alex",
   "trip": {
     "description": "We're four friends — Alex, Bella, Chris, and Dana — planning a trip to Honolulu, Hawaii, from November 20–24, 2026.\n\nWe need help planning our flights, accommodation, and activities. Let's handle flights first, then accommodation, then activities.\n\nWe want to have memorable experiences together, but everyone has different budgets, schedules, and preferences. We're happy to arrive on different flights if necessary.",
-    "brief": {"destination": "Honolulu", "destination_airport": "HNL", "start_date": "2026-11-20", "end_date": "2026-11-24",
-              "components": ["FLIGHT", "STAY"], "stages": ["FLIGHT", "STAY", "ACTIVITY"], "arrive_together": "preferred",
-              "group_size": 4, "vibe": "memorable experiences together"}
+    "brief": {
+      "destination": "Honolulu",
+      "destination_airport": "HNL",
+      "start_date": "2026-11-20",
+      "end_date": "2026-11-24",
+      "components": [
+        "FLIGHT",
+        "STAY"
+      ],
+      "stages": [
+        "FLIGHT",
+        "STAY",
+        "ACTIVITY"
+      ],
+      "arrive_together": "preferred",
+      "group_size": 4,
+      "vibe": "memorable experiences together"
+    }
   },
   "travellers": [
     {
       "name": "Alex",
       "origin": "SFO",
       "replies": [
-        {"when": "open", "says": "I'm flying from San Francisco International Airport (SFO). November 20–24 works for me.\n\nMy total budget for this trip is $1,200, and that's a hard limit. For flights, I'd really like to spend around $400 or less, but I can go higher if it still fits my overall budget.\n\nI'm fine with layovers to save money. I'd prefer no more than one stop, but that's flexible.\n\nI care much more about affordability than convenience. I don't need a premium airline or extra comfort.",
-         "items": [
-           {"key": "origin_airport", "value": "SFO", "source_quote": "San Francisco International Airport (SFO)"},
-           {"key": "dates_ok", "value": true, "source_quote": "November 20–24 works for me"},
-           {"key": "trip_budget_total", "value": 120000, "hardness": "HARD", "source_quote": "My total budget for this trip is $1,200, and that's a hard limit"},
-           {"key": "flight_budget_total", "value": 40000, "hardness": "SOFT", "source_quote": "For flights, I'd really like to spend around $400 or less"},
-           {"key": "max_stops", "value": 1, "hardness": "SOFT", "source_quote": "I'd prefer no more than one stop, but that's flexible", "interpreted": true}
-         ]},
-        {"when": "settings", "says": "Yes, you can tell the group if a plan breaks one of my limits.",
-         "settings": {"speak_up_for_me": true, "source_quote": "you can tell the group if a plan breaks one of my limits"}}
+        {
+          "when": "open",
+          "says": "I'm flying from San Francisco International Airport (SFO). November 20–24 works for me.\n\nMy total budget for this trip is $1,200, and that's a hard limit. For flights, I'd really like to spend around $400 or less, but I can go higher if it still fits my overall budget.\n\nI'm fine with layovers to save money. I'd prefer no more than one stop, but that's flexible.\n\nI care much more about affordability than convenience. I don't need a premium airline or extra comfort.",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "SFO",
+              "source_quote": "San Francisco International Airport (SFO)"
+            },
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "November 20–24 works for me"
+            },
+            {
+              "key": "trip_budget_total",
+              "value": 120000,
+              "hardness": "HARD",
+              "source_quote": "My total budget for this trip is $1,200, and that's a hard limit"
+            },
+            {
+              "key": "flight_budget_total",
+              "value": 40000,
+              "hardness": "SOFT",
+              "source_quote": "For flights, I'd really like to spend around $400 or less"
+            },
+            {
+              "key": "max_stops",
+              "value": 1,
+              "hardness": "SOFT",
+              "source_quote": "I'd prefer no more than one stop, but that's flexible",
+              "interpreted": true
+            },
+            {
+              "key": "rule",
+              "rule": {
+                "category": "FLIGHT",
+                "attribute": "total_cents",
+                "operator": "lowest"
+              },
+              "hardness": "SOFT",
+              "source_quote": "I care much more about affordability than convenience"
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "Yes, you can tell the group if a plan breaks one of my limits.",
+          "settings": {
+            "speak_up_for_me": true,
+            "source_quote": "you can tell the group if a plan breaks one of my limits"
+          }
+        }
       ]
     },
     {
       "name": "Bella",
       "origin": "LAX",
       "replies": [
-        {"when": "open", "says": "I'm flying out of Los Angeles International Airport (LAX). November 20–24 works for me.\n\nMy total trip budget is $2,500, and I don't want to exceed that.\n\nI'd prefer to spend around $800 or less on flights, but I'm willing to pay more for something significantly more comfortable.\n\nI strongly prefer nonstop flights. Long layovers really bother me, but if there are no good nonstop options, please ask me before compromising.\n\nI'd rather spend a little more to avoid exhausting travel.",
-         "items": [
-           {"key": "origin_airport", "value": "LAX", "source_quote": "Los Angeles International Airport (LAX)"},
-           {"key": "dates_ok", "value": true, "source_quote": "November 20–24 works for me"},
-           {"key": "trip_budget_total", "value": 250000, "hardness": "HARD", "source_quote": "My total trip budget is $2,500, and I don't want to exceed that"},
-           {"key": "flight_budget_total", "value": 80000, "hardness": "SOFT", "source_quote": "I'd prefer to spend around $800 or less on flights"},
-           {"key": "max_stops", "value": 0, "hardness": "SOFT", "source_quote": "I strongly prefer nonstop flights", "interpreted": true}
-         ],
-         "settings": {"ask_me_first": true, "source_quote": "please ask me before compromising"}},
-        {"when": "settings", "says": "Yes, tell the group when a plan doesn't work for me.",
-         "settings": {"speak_up_for_me": true, "ask_me_first": true, "source_quote": "tell the group when a plan doesn't work for me"}}
+        {
+          "when": "open",
+          "says": "I'm flying out of Los Angeles International Airport (LAX). November 20–24 works for me.\n\nMy total trip budget is $2,500, and I don't want to exceed that.\n\nI'd prefer to spend around $800 or less on flights, but I'm willing to pay more for something significantly more comfortable.\n\nI strongly prefer nonstop flights. Long layovers really bother me, but if there are no good nonstop options, please ask me before compromising.\n\nI'd rather spend a little more to avoid exhausting travel.",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "LAX",
+              "source_quote": "Los Angeles International Airport (LAX)"
+            },
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "November 20–24 works for me"
+            },
+            {
+              "key": "trip_budget_total",
+              "value": 250000,
+              "hardness": "HARD",
+              "source_quote": "My total trip budget is $2,500, and I don't want to exceed that"
+            },
+            {
+              "key": "flight_budget_total",
+              "value": 80000,
+              "hardness": "SOFT",
+              "source_quote": "I'd prefer to spend around $800 or less on flights"
+            },
+            {
+              "key": "max_stops",
+              "value": 0,
+              "hardness": "SOFT",
+              "source_quote": "I strongly prefer nonstop flights",
+              "interpreted": true
+            },
+            {
+              "key": "rule",
+              "rule": {
+                "category": "FLIGHT",
+                "attribute": "duration_minutes",
+                "operator": "lowest"
+              },
+              "hardness": "SOFT",
+              "source_quote": "I'd rather spend a little more to avoid exhausting travel"
+            }
+          ],
+          "settings": {
+            "ask_me_first": true,
+            "source_quote": "please ask me before compromising"
+          }
+        },
+        {
+          "when": "settings",
+          "says": "Yes, tell the group when a plan doesn't work for me.",
+          "settings": {
+            "speak_up_for_me": true,
+            "ask_me_first": true,
+            "source_quote": "tell the group when a plan doesn't work for me"
+          }
+        }
       ]
     },
     {
       "name": "Chris",
       "origin": "SMF",
       "replies": [
-        {"when": "open", "says": "I'm flying from Sacramento International Airport (SMF).\n\nI can't leave before November 21 because I have an obligation on November 20. I also absolutely need to be back by November 24.\n\nMy total trip budget cannot exceed $1,800. I also have a hard maximum of $600 for my flights.\n\nI care about minimizing travel time. A nonstop flight would be great, but one connection is acceptable if it's substantially cheaper.\n\nI'd prefer to arrive as early as possible on November 21.",
-         "items": [
-           {"key": "origin_airport", "value": "SMF", "source_quote": "Sacramento International Airport (SMF)"},
-           {"key": "rule", "rule": {"category": "FLIGHT", "attribute": "departure_date", "operator": "gte", "value": "2026-11-21"}, "hardness": "HARD", "source_quote": "I can't leave before November 21"},
-           {"key": "rule", "rule": {"category": "FLIGHT", "attribute": "return_arrival_date", "operator": "lte", "value": "2026-11-24"}, "hardness": "HARD", "source_quote": "I also absolutely need to be back by November 24"},
-           {"key": "trip_budget_total", "value": 180000, "hardness": "HARD", "source_quote": "My total trip budget cannot exceed $1,800"},
-           {"key": "flight_budget_total", "value": 60000, "hardness": "HARD", "source_quote": "I also have a hard maximum of $600 for my flights"}
-         ]},
-        {"when": "settings", "says": "Tell the group if something doesn't work for me.",
-         "settings": {"speak_up_for_me": true, "source_quote": "Tell the group if something doesn't work for me"}}
+        {
+          "when": "open",
+          "says": "I'm flying from Sacramento International Airport (SMF).\n\nI can't leave before November 21 because I have an obligation on November 20. I also absolutely need to be back by November 24.\n\nMy total trip budget cannot exceed $1,800. I also have a hard maximum of $600 for my flights.\n\nI care about minimizing travel time. A nonstop flight would be great, but one connection is acceptable if it's substantially cheaper.\n\nI'd prefer to arrive as early as possible on November 21.",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "SMF",
+              "source_quote": "Sacramento International Airport (SMF)"
+            },
+            {
+              "key": "rule",
+              "rule": {
+                "category": "FLIGHT",
+                "attribute": "departure_date",
+                "operator": "gte",
+                "value": "2026-11-21"
+              },
+              "hardness": "HARD",
+              "source_quote": "I can't leave before November 21"
+            },
+            {
+              "key": "rule",
+              "rule": {
+                "category": "FLIGHT",
+                "attribute": "return_arrival_date",
+                "operator": "lte",
+                "value": "2026-11-24"
+              },
+              "hardness": "HARD",
+              "source_quote": "I also absolutely need to be back by November 24"
+            },
+            {
+              "key": "trip_budget_total",
+              "value": 180000,
+              "hardness": "HARD",
+              "source_quote": "My total trip budget cannot exceed $1,800"
+            },
+            {
+              "key": "flight_budget_total",
+              "value": 60000,
+              "hardness": "HARD",
+              "source_quote": "I also have a hard maximum of $600 for my flights"
+            },
+            {
+              "key": "rule",
+              "rule": {
+                "category": "FLIGHT",
+                "attribute": "duration_minutes",
+                "operator": "lowest"
+              },
+              "hardness": "SOFT",
+              "source_quote": "I care about minimizing travel time"
+            },
+            {
+              "key": "rule",
+              "rule": {
+                "category": "FLIGHT",
+                "attribute": "arrival_epoch",
+                "operator": "lowest"
+              },
+              "hardness": "SOFT",
+              "source_quote": "I'd prefer to arrive as early as possible on November 21"
+            },
+            {
+              "key": "max_stops",
+              "value": 0,
+              "hardness": "SOFT",
+              "source_quote": "A nonstop flight would be great",
+              "interpreted": true
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "Tell the group if something doesn't work for me.",
+          "settings": {
+            "speak_up_for_me": true,
+            "source_quote": "Tell the group if something doesn't work for me"
+          }
+        }
       ],
       "changes": {
-        "QA-03": {"says": "I can't depart until November 25 now. That's absolutely non-negotiable.",
-                  "items": [{"key": "rule", "rule": {"category": "FLIGHT", "attribute": "departure_date", "operator": "gte", "value": "2026-11-25"}, "hardness": "HARD", "source_quote": "I can't depart until November 25 now"}]}
+        "QA-03": {
+          "says": "I can't depart until November 25 now. That's absolutely non-negotiable.",
+          "items": [
+            {
+              "key": "rule",
+              "rule": {
+                "category": "FLIGHT",
+                "attribute": "departure_date",
+                "operator": "gte",
+                "value": "2026-11-25"
+              },
+              "hardness": "HARD",
+              "source_quote": "I can't depart until November 25 now"
+            }
+          ]
+        }
       }
     },
     {
       "name": "Dana",
       "origin": "SFO",
       "replies": [
-        {"when": "open", "says": "I'm also flying from San Francisco International Airport (SFO). November 20–24 works for me.\n\nMy maximum total trip budget is $1,700.\n\nI'd prefer to keep my flights around $500 or less, but I have some flexibility.\n\nSince Alex and I are both flying from San Francisco, I'd love it if we could take the same flight. That's a preference, not a requirement.\n\nNonstop flights are nice, but I'm okay with one connection.\n\nAlso, I'm vegetarian. That's important for food planning later, but it shouldn't restrict which flight we choose unless a relevant meal requirement arises.",
-         "items": [
-           {"key": "origin_airport", "value": "SFO", "source_quote": "San Francisco International Airport (SFO)"},
-           {"key": "dates_ok", "value": true, "source_quote": "November 20–24 works for me"},
-           {"key": "trip_budget_total", "value": 170000, "hardness": "HARD", "source_quote": "My maximum total trip budget is $1,700"},
-           {"key": "flight_budget_total", "value": 50000, "hardness": "SOFT", "source_quote": "I'd prefer to keep my flights around $500 or less"},
-           {"key": "max_stops", "value": 0, "hardness": "SOFT", "source_quote": "Nonstop flights are nice, but I'm okay with one connection"},
-           {"key": "trip_note", "value": "Same flight as Alex if possible", "source_quote": "I'd love it if we could take the same flight"}
-         ]},
-        {"when": "settings", "says": "Just tell me privately, and check with me first.",
-         "settings": {"speak_up_for_me": false, "ask_me_first": true, "source_quote": "Just tell me privately, and check with me first"}}
+        {
+          "when": "open",
+          "says": "I'm also flying from San Francisco International Airport (SFO). November 20–24 works for me.\n\nMy maximum total trip budget is $1,700.\n\nI'd prefer to keep my flights around $500 or less, but I have some flexibility.\n\nSince Alex and I are both flying from San Francisco, I'd love it if we could take the same flight. That's a preference, not a requirement.\n\nNonstop flights are nice, but I'm okay with one connection.\n\nAlso, I'm vegetarian. That's important for food planning later, but it shouldn't restrict which flight we choose unless a relevant meal requirement arises.",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "SFO",
+              "source_quote": "San Francisco International Airport (SFO)"
+            },
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "November 20–24 works for me"
+            },
+            {
+              "key": "trip_budget_total",
+              "value": 170000,
+              "hardness": "HARD",
+              "source_quote": "My maximum total trip budget is $1,700"
+            },
+            {
+              "key": "flight_budget_total",
+              "value": 50000,
+              "hardness": "SOFT",
+              "source_quote": "I'd prefer to keep my flights around $500 or less"
+            },
+            {
+              "key": "max_stops",
+              "value": 0,
+              "hardness": "SOFT",
+              "source_quote": "Nonstop flights are nice, but I'm okay with one connection"
+            },
+            {
+              "key": "trip_note",
+              "value": "Same flight as Alex if possible",
+              "source_quote": "I'd love it if we could take the same flight"
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "Just tell me privately, and check with me first.",
+          "settings": {
+            "speak_up_for_me": false,
+            "ask_me_first": true,
+            "source_quote": "Just tell me privately, and check with me first"
+          }
+        }
       ]
     }
   ],
   "changes": {
-    "QA-02": {"who": "Alex", "says": "My situation has changed. My total trip budget is now $900, and that's a hard limit. Please find cheaper options if necessary.",
-              "items": [{"key": "trip_budget_total", "value": 90000, "hardness": "HARD", "source_quote": "My total trip budget is now $900, and that's a hard limit"}]}
+    "QA-02": {
+      "who": "Alex",
+      "says": "My situation has changed. My total trip budget is now $900, and that's a hard limit. Please find cheaper options if necessary.",
+      "items": [
+        {
+          "key": "trip_budget_total",
+          "value": 90000,
+          "hardness": "HARD",
+          "source_quote": "My total trip budget is now $900, and that's a hard limit"
+        }
+      ]
+    }
   }
 }

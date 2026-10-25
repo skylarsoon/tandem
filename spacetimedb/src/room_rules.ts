@@ -62,8 +62,10 @@ export function mirrorLegacy(
       updatedAt: ctx.timestamp,
     });
   }
-  for (const need of converted.needs) {
-    ctx.db.participantNeed.insert({ id: 0n, roomId, owner, ...need, legacyKey: key, updatedAt: ctx.timestamp });
+  // Only a firm need is stored as one; "if possible" is a preference the planner weighs.
+  for (const need of converted.needs.filter(x => x.kind === 'hard')) {
+    ctx.db.participantNeed.insert({ id: 0n, roomId, owner, category: need.category, attribute: need.attribute, needs: need.needs,
+      legacyKey: key, updatedAt: ctx.timestamp });
   }
   for (const fact of converted.facts) {
     ctx.db.searchFact.insert({ id: 0n, roomId, owner, fact: fact.fact, valueJson: JSON.stringify(fact.value), legacyKey: key, updatedAt: ctx.timestamp });

@@ -240,7 +240,9 @@ def test_qa_01_a_feasible_flight_plan_keeps_every_hard_limit(qa):
     chris = chosen["Chris"]
     assert chris["departure_date"] >= "2026-11-21" and chris["return_arrival_date"] <= "2026-11-24"
     assert chris["total_cents"] <= 60000 and not chris["flight_identity"].startswith(("HA27", "UA481", "AS1611", "AA77", "DL905", "HA31"))
-    assert chris["flight_identity"].startswith("AS1601"), "the cheapest itinerary that keeps all his limits"
+    # Among what keeps his limits, his own preferences decide (time efficiency first in his ranking):
+    # the nonstop that lands earliest on the 21st and takes least time, not the cheapest.
+    assert chris["flight_identity"].startswith("HA29"), chris["flight_identity"]
     for flight in chosen.values():
         assert flight["arrival_date"] <= "2026-11-24", "nothing lands after the trip ends"
     # Separate arrivals were allowed: Chris lands a day after the others without breaking the plan.
@@ -329,3 +331,25 @@ def test_qa_05_what_is_saved_matches_what_is_true_now(qa):
     agreed = {p["decision_id"]: {c["id"] for c in p["terms"]["selected"]} for p in proposals.values() if p["state"] == "AGREED"}
     assert agreed == {"flight": {c["id"] for c in proposals[flight_id]["terms"]["selected"]}}
     assert {c["owner"] for c in proposals[flight_id]["terms"]["selected"]} == set(NAMES), "one flight each, to its owner"
+
+
+def test_qa_04_bellas_nonstop_is_weighed_as_a_preference_and_she_is_asked_first(tmp_path):
+    backend, worker, research = make_room(tmp_path, variant="bella_pricey_nonstop")
+    onboard(backend, worker)
+    asked = []
+
+    def answer(name, question):
+        asked.append((name, question.kind, question.prompt))
+        return no_bag(name, question)
+    report = plan(backend, worker, answer=answer)
+    [(_, flights)] = live(report, "flight")
+    bella = picks(flights)["Bella"]
+    # A wish, not a requirement: her connecting flights were searched and weighed.
+    [route] = [r for r in research.requests[0]["routes"] if r["owner"] == "Bella"]
+    assert route["max_stops"] is None
+    # She ranked comfort first and price last: the $1,350 nonstop beats the $430 one-stop for her.
+    assert bella["stops"] == 0 and bella["flight_identity"].startswith(("HA1", "AA31"))
+    # It costs her far more than her cheapest fare, and she asked to be checked with first.
+    bella_asked = [a for a in asked if a[0] == "Bella" and a[1] == "CONSULTATION"]
+    assert bella_asked, asked
+    assert not any(a[0] != "Bella" and "Bella" in a[2] for a in asked), "nobody else hears about her choice"

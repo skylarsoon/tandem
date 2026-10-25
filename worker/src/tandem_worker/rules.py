@@ -24,7 +24,10 @@ from pydantic import Field
 
 from .contracts import ContractError, Record
 
-OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between")
+OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest")
+# A preference for the cheapest, shortest, earliest...: a ranking among the options found,
+# never a check on one option, so only ever soft.
+RANKINGS = ("lowest", "highest")
 ORDERED = {"money", "int", "number", "epoch", "time", "date"}
 TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -36,8 +39,8 @@ class Rule(Record):
     category: str | None = None   # with `attribute`: a rule on each candidate of that category
     attribute: str | None = None
     aggregate: str | None = None  # or a rule on a total (e.g. my_cost)
-    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between"]
-    value: Any
+    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest"]
+    value: Any = None
     kind: Literal["hard", "soft"] = "hard"
     importance: int | None = None  # soft rules only: 1-5, how much it matters to them
     tolerance: dict | None = None  # soft rules only: {"limit": …}, partial credit up to there
@@ -49,11 +52,13 @@ class Rule(Record):
 
 
 class Need(Record):
-    """A person's share of what a shared pick must hold (e.g. 1 bedroom of their own)."""
+    """A person's share of what a shared pick must hold (e.g. 1 bedroom of their own).
+    A soft one ("own room if possible") is a preference: weighed, never required."""
     owner: str
     category: str
     attribute: str
     needs: float = Field(gt=0)
+    kind: Literal["hard", "soft"] = "hard"
 
 
 class SearchFact(Record):
@@ -71,6 +76,14 @@ class RoomRules(Record):
     facts: tuple[SearchFact, ...] = ()
     # The trip's own dates (from the catalog's trip_bound marks): they bind every pick.
     bounds: tuple[Rule, ...] = ()
+    # Each person's own priority ranking (profile C03), most important first: how much
+    # their preferences matter (contracts/priorities.json). Private, like the rest.
+    ranking: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+
+    def soft(self, owner: str | None = None, category: str | None = None) -> list[Rule]:
+        """Preferences in force (optionally one owner's, on one category's candidates)."""
+        return [r for r in self.rules if r.kind == "soft" and r.state in ("active", "kept")
+                and (owner is None or r.owner == owner) and (category is None or r.category == category)]
 
     def binding(self, owner: str | None = None, category: str | None = None) -> list[Rule]:
         """Hard rules in force, active or kept (optionally one owner's, on one category's
@@ -81,6 +94,31 @@ class RoomRules(Record):
 
     def within_trip(self, start_date: str | None, end_date: str | None) -> "RoomRules":
         return self.model_copy(update={"bounds": trip_bound_rules(start_date, end_date)})
+
+
+@lru_cache(maxsize=1)
+def priorities() -> dict:
+    return json.loads((Path(__file__).parent / "priorities.json").read_text())
+
+
+def importance(ranking: tuple[str, ...], *, attribute: str | None = None, aggregate: str | None = None,
+               relation: str | None = None, group_rule: str | None = None, fairness: bool = False) -> int:
+    """How much one of a person's preferences matters, from their own ranking (priorities.json):
+    the importance of the best-ranked priority that covers it."""
+    table = priorities()
+    covering = [name for name, p in table["priorities"].items()
+                if (attribute and attribute in p.get("attributes", ())) or (aggregate and aggregate in p.get("aggregates", ()))
+                or (relation and relation in p.get("relations", ())) or (group_rule and group_rule in p.get("group_rules", ()))
+                or (fairness and p.get("fairness"))]
+    if not covering:
+        return table["unmapped"]
+    ranks = [ranking.index(name) for name in covering if name in ranking]
+    return table["by_rank"][min(ranks)] if ranks and min(ranks) < len(table["by_rank"]) else table["unranked"]
+
+
+def comparable(value: Any, kind: str) -> Any:
+    """A value of an attribute's type in comparable form (times as minutes, dates as days)."""
+    return _scalar(value, kind)
 
 
 def stage_decisions(snapshot) -> list[tuple[str, str]]:
@@ -258,6 +296,11 @@ def validate(rule: Rule) -> None:
         raise RuleError("a rule names one attribute or one aggregate")
     kind = attribute_type(rule)
     op = rule.operator
+    if op in RANKINGS:
+        if rule.kind != "soft" or kind not in ORDERED or rule.value is not None or rule.tolerance is not None:
+            raise RuleError(f"{op} is a preference on an ordered attribute, with no value")
+        _check_weighting(rule, kind)
+        return
     if kind in ("bool", "text") and op not in ("eq", "neq", "in", "not_in"):
         raise RuleError(f"{op} doesn't apply to {kind}")
     if op in ("in", "not_in"):
@@ -297,6 +340,8 @@ def evaluate(rule: Rule, facts: dict) -> str:
     if facts.get("category", rule.category) != rule.category:
         return "NOT_APPLICABLE"
     validate(rule)
+    if rule.operator in RANKINGS:
+        return "NOT_APPLICABLE"  # a ranking among options, not a check on one
     actual = facts.get(rule.attribute)
     if actual is None:
         return "UNKNOWN"
@@ -333,9 +378,8 @@ def from_legacy(owner: str, key: str, row: dict) -> list[Record]:
         return [SearchFact(owner=owner, fact=spec["fact"], value=value)]
     if spec["as"] == "need":
         # A need someone hedged ("own room if possible") is a preference, never a must.
-        if row.get("hardness", "HARD") != "HARD":
-            return []
-        return [Need(owner=owner, category=spec["category"], attribute=spec["attribute"], needs=spec["needs"])]
+        return [Need(owner=owner, category=spec["category"], attribute=spec["attribute"], needs=spec["needs"],
+                     kind="hard" if row.get("hardness", "HARD") == "HARD" else "soft")]
     if spec["as"] != "rule":
         return []
     target = {"aggregate": spec["aggregate"]} if "aggregate" in spec else {"category": spec["category"], "attribute": spec["attribute"]}

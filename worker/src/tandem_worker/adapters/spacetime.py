@@ -279,7 +279,7 @@ class SpacetimeBackend:
 
     def read_rules(self, claim):
         """Everyone's rules, needs and search facts, keyed by owner name."""
-        from ..rules import Need, RoomRules, Rule, SearchFact
+        from ..rules import Need, RoomRules, Rule, SearchFact, legacy
         ctx = self._context(claim)
         owners = {m["member_id"]: name for name, m in self._members(ctx).items()}
         rules = tuple(Rule.model_validate({**r["rule"], "owner": owners[r["member_id"]], "state": r["state"],
@@ -287,9 +287,17 @@ class SpacetimeBackend:
                       for r in ctx.get("rules", []) if r["member_id"] in owners)
         needs = tuple(Need(owner=owners[n["member_id"]], category=n["category"], attribute=n["attribute"], needs=n["needs"])
                       for n in ctx.get("needs", []) if n["member_id"] in owners)
+        # "Own room if possible": the database stores only firm needs; a hedged one is a preference.
+        from ..rules import from_legacy
+        wishes = tuple(x for c in ctx.get("constraints", []) if c["member_id"] in owners and c.get("hardness") == "SOFT"
+                       and c["key"] in legacy()["keys"] for x in from_legacy(owners[c["member_id"]], c["key"], c)
+                       if isinstance(x, Need))
         facts = tuple(SearchFact(owner=owners[f["member_id"]], fact=f["fact"], value=f["value"])
                       for f in ctx.get("search_facts", []) if f["member_id"] in owners)
-        return RoomRules(rules=rules, needs=needs, facts=facts)
+        # Each person's own priority ranking (profile), for how much their preferences matter.
+        ranking = {owners[m["member_id"]]: tuple((m.get("profile") or {}).get("priority_ranking") or ())
+                   for m in ctx["members"] if m["member_id"] in owners}
+        return RoomRules(rules=rules, needs=needs + wishes, facts=facts, ranking=ranking)
 
     # ---------- receipt-backed operations ----------
 

@@ -9,7 +9,7 @@ from datetime import date
 from pydantic import ValidationError
 
 from .contracts import TOPICS, IntakeContext, IntakeExtraction, IntakeItem, IntakeQuestion
-from .rules import Rule, RuleError, attribute_type, attributes, validate
+from .rules import RANKINGS, Rule, RuleError, attribute_type, attributes, validate
 
 MAX_QUESTIONS = 5
 MONEY_KEYS = {"flight_budget_total", "trip_budget_total", "no_budget_limit"}
@@ -89,11 +89,13 @@ def _check_rule(item: IntakeItem, said: str) -> str | None:
     number, time or word in its value appears in their words (a reading, e.g.
     "nonstop" as 0 connections, is allowed but shown as a reading)."""
     try:
-        rule = Rule.model_validate({**(item.rule or {}), "kind": "hard"})
+        rule = Rule.model_validate({**(item.rule or {}), "kind": "hard" if item.hardness == "HARD" else "soft"})
         validate(rule)
     except (RuleError, ValidationError):
         return "BAD_VALUE"
     kind, quote = attribute_type(rule), item.source_quote
+    if rule.operator in RANKINGS:
+        return None  # "as short as possible" names no number; the quote is the evidence
     for v in rule.value if isinstance(rule.value, list) else [rule.value]:
         if kind == "bool":
             continue
@@ -112,9 +114,12 @@ def _check_rule(item: IntakeItem, said: str) -> str | None:
 
 def soften(item: IntakeItem, said: str) -> IntakeItem:
     """Anything said with a hedge and no firm word ("nonstop would be nice") is kept
-    as a preference. Budgets have their own firmness check (budget_gap)."""
+    as a preference, and "as short as possible" always is one. Budgets have their own
+    firmness check (budget_gap)."""
     if item.key in MONEY_KEYS or item.hardness != "HARD":
         return item
+    if item.key == "rule" and (item.rule or {}).get("operator") in RANKINGS:
+        return item.model_copy(update={"hardness": "SOFT"})
     if mentions(item.source_quote, HEDGES) and not mentions(said, NEEDS):
         return item.model_copy(update={"hardness": "SOFT"})
     return item
@@ -281,7 +286,11 @@ def describe_rule(rule: Rule) -> str:
     catalog = attributes()
     spec = catalog["aggregates"][rule.aggregate] if rule.aggregate else catalog["categories"][rule.category][rule.attribute]
     show = money if spec["type"] == "money" else day if spec["type"] == "date" else str
-    if spec["type"] == "bool":
+    if rule.operator in RANKINGS:
+        timed = spec["type"] in ("epoch", "time", "date")
+        way = ("early" if timed else "low") if rule.operator == "lowest" else ("late" if timed else "high")
+        text = f"{spec['label']} {spec.get(rule.operator, f'as {way} as possible')}"
+    elif spec["type"] == "bool":
         must = "" if rule.kind == "soft" else "must "
         text = must + ("have " if rule.value else "not have ") + spec["label"]
     elif rule.operator == "between":
@@ -305,7 +314,8 @@ def money(cents: int) -> str:
 
 def describe(item: IntakeItem) -> str:
     text = _describe(item)
-    if item.hardness == "SOFT" and item.key not in BUDGET_KEYS:
+    ranking = item.key == "rule" and (item.rule or {}).get("operator") in RANKINGS  # already a wish
+    if item.hardness == "SOFT" and item.key not in BUDGET_KEYS and not ranking:
         return f"If possible: {text[0].lower()}{text[1:]}"  # a preference, weighed but never a must
     return text
 
@@ -338,6 +348,18 @@ def _describe(item: IntakeItem) -> str:
     return text or item.key
 
 
+def priorities_text(profile: dict) -> str:
+    """Their own priority ranking (profile question C03), in their words' order."""
+    from .profile_policy import catalog
+    ranked = (profile.get("C03") or {}).get("ranked") or []
+    question = next((q for q in catalog()["questions"] if q["id"] == "C03"), None)
+    labels = {o["id"]: o["label"].lower() for o in (question or {}).get("options", [])}
+    names = [labels[r] for r in ranked if r in labels]
+    if not names:
+        return ""
+    return names[0] + " first" + (", then " + ", ".join(names[1:]) if names[1:] else "")
+
+
 def summary_text(items: tuple[IntakeItem, ...], settings, ctx: IntakeContext, missing_money: bool,
                  suggested=(), settings_from_profile: bool = False) -> str:
     lines = ["Here's what I've got. Confirm, or tell me what to change:"]
@@ -356,6 +378,9 @@ def summary_text(items: tuple[IntakeItem, ...], settings, ctx: IntakeContext, mi
             + (" (that part from your profile)." if settings_from_profile else "."))
     for suggestion in suggested:
         lines.append(f"• {suggestion.text} (from your profile; for this trip too?)")
+    weighing = priorities_text(ctx.profile)
+    if weighing:
+        lines.append(f"• When options trade off, I'll weigh them your way: {weighing} (from your profile).")
     if missing_money:
         lines.append("• Still needed: a budget, or say there's no limit. I won't plan without it.")
     lines.append("Anything you didn't mention, I'll ask about only if a plan depends on it.")
