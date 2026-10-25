@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { connect } from "../lib/client";
 import { PlanningConversation, TripOverview } from "../components/planning-room";
+import { DestinationSlideshow } from "../components/destination-slideshow";
 import { scoped } from "../lib/planning";
 import type { Row } from "../lib/state";
 
@@ -74,6 +75,6 @@ function Dashboard({ client }: { client: Client }) {
       {room ? <TripOverview room={room} tables={tables} connected={ready} /> : <div className="trip-placeholder"><p className="eyebrow">ROOM TO EXPLORE</p><h1>A plan starts with a conversation.</h1><p>Select a trip, or create one and tell your agent what you have in mind.</p></div>}
       <p className="connection"><span className={`dot ${ready ? "online" : ""}`} />{ready ? "Connected" : "Synchronizing your trip…"}</p>
     </aside>
-    {room ? <PlanningConversation key={String(room.id)} room={room} tables={tables} reducers={client.connection.reducers} connected={ready} /> : <section className="conversation-panel welcome-panel" aria-label="Trip conversation"><div><p className="eyebrow">LESS ORGANIZING. MORE GOING.</p><h2>Where should we begin?</h2><p>A short drive, a long weekend, a place you’ve always wanted to see. Start a trip on the left and make room for the possibilities.</p></div></section>}
+    {room ? <PlanningConversation key={String(room.id)} room={room} tables={tables} reducers={client.connection.reducers} connected={ready} /> : <DestinationSlideshow />}
   </div>;
 }

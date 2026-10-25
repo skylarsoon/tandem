@@ -502,14 +502,28 @@ legend {
   gap: 6px;
   margin-left: 6px;
 }
-.rank li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 0;
-}
-.rank button {
-  padding: 4px 9px;
+.priority-editor { max-width: 720px; margin-top: 24px; }
+.priority-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; }
+.priority-heading > span { font: 10px var(--font-detail); color: #6b7f78; }
+.priority-list { display: flex; flex-direction: column; gap: 10px; list-style: none; padding: 0; margin: 16px 0 24px; }
+.priority-card { display: flex; align-items: center; gap: 12px; padding: 15px; background: #f4f7f0; border: 1px solid #cbd9c6; border-radius: 12px; }
+.priority-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 4px; }
+.priority-copy strong { font-size: 14px; font-weight: 600; }
+.priority-copy > span { font-size: 12px; color: #62736b; line-height: 1.5; }
+.priority-number { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; background: #214c40; color: white; border-radius: 50%; font: 11px var(--font-detail); }
+.priority-card .priority-handle { padding: 0; flex-shrink: 0; width: 28px; height: 40px; font-size: 24px; border-color: transparent; background: transparent; color: #71866c; cursor: grab; touch-action: none; user-select: none; }
+.priority-card .priority-handle:active { cursor: grabbing; }
+.priority-controls { display: flex; gap: 4px; flex-shrink: 0; }
+.priority-controls button { width: 30px; height: 32px; padding: 0; background: transparent; font-size: 16px; }
+.priority-card.is-dragging { border-style: dashed; opacity: .6; }
+.priority-card.is-drop-target { outline: 2px solid #718d52; outline-offset: 2px; background: #e7efdf; }
+.priority-confirm { margin-top: 22px; }
+@media (max-width: 480px) {
+  .priority-card { padding: 12px 10px; gap: 8px; flex-wrap: wrap; }
+  .priority-copy strong { font-size: 13px; }
+  .priority-copy > span { font-size: 11px; }
+  .priority-controls { margin-left: auto; }
+  .priority-list .priority-copy { flex-basis: calc(100% - 80px); }
 }
 label.check {
   display: flex;
@@ -628,10 +642,35 @@ label.check input {
 .reply-context { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 11px; padding-bottom: 12px; }
 .reply-context span { overflow-wrap: anywhere; }
 .reply-context button { flex-shrink: 0; font-size: 10px; }
-.welcome-panel { justify-content: center; padding: 60px; background: #f8f9f2; }
-.welcome-panel > div { max-width: 430px; }
-.welcome-panel h2 { font-size: 42px; letter-spacing: -1.6px; }
-.welcome-panel p { color: #74806b; }
+.welcome-panel { gap: 22px; padding: clamp(24px, 3.5vw, 48px); background: #f8f9f2; overflow-y: auto; }
+.welcome-copy { max-width: 610px; }
+.welcome-copy .eyebrow { margin: 0 0 12px; font-size: 10px; }
+.welcome-copy h2 { font-size: clamp(30px, 3.1vw, 44px); letter-spacing: -1.6px; line-height: 1.15; margin-bottom: 14px; }
+.welcome-copy > p:last-child { color: #74806b; font-size: 13px; margin: 0; max-width: 530px; }
+.destination-carousel { position: relative; isolation: isolate; flex: 1 0 280px; min-height: 280px; border-radius: 16px; overflow: hidden; background: #294e44; color: #fff; }
+.destination-slides, .destination-slide { position: absolute; inset: 0; }
+.destination-slide { opacity: 0; transition: opacity 900ms ease; pointer-events: none; }
+.destination-slide.is-active { opacity: 1; z-index: 1; }
+.destination-slide::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, #0a292c25 0%, transparent 30%, #102c29b3 75%, #102c29eb 100%); }
+.destination-slide img { display: block; height: 100%; width: 100%; object-fit: cover; object-position: center 45%; }
+.destination-caption { position: absolute; z-index: 1; bottom: 80px; left: 28px; right: 28px; }
+.destination-caption .eyebrow { color: #fff; font-size: 10px; margin: 0 0 8px; letter-spacing: 2.4px; }
+.destination-caption h3 { font-size: clamp(28px, 3vw, 42px); line-height: 1.15; letter-spacing: -1px; margin: 0 0 8px; }
+.destination-caption > p:last-child { font-size: 12px; color: #f1f4e9; margin: 0; }
+.destination-stamp { position: absolute; z-index: 2; top: 22px; left: 28px; font: 9px var(--font-detail); letter-spacing: 1.5px; background: #173d35b3; border: 1px solid #ffffff40; padding: 9px 12px; border-radius: 30px; }
+.destination-toolbar { position: absolute; z-index: 2; bottom: 20px; left: 24px; right: 24px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.destination-pagination, .destination-actions { display: flex; align-items: center; gap: 5px; }
+.destination-carousel button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; color: white; border: 1px solid #ffffff60; border-radius: 50%; background: #173d3533; font-size: 17px; }
+.destination-carousel button:hover { background: #ffffff30; }
+.destination-carousel button:focus-visible { outline-color: #fff; }
+.destination-pagination button { width: 28px; border: 0; background: transparent; }
+.destination-pagination button span { width: 6px; height: 6px; border-radius: 8px; background: #ffffff70; transition: width 300ms ease, background 300ms ease; }
+.destination-pagination button[aria-current="true"] span { width: 24px; background: #fff; }
+.destination-count { font: 9px var(--font-detail); color: #e6eddf; margin-right: 9px; white-space: nowrap; }
+.welcome-footnote { margin: -6px 0 0; font-size: 11px; color: #74806b; text-align: center; }
+@media (prefers-reduced-motion: reduce) {
+  .destination-slide, .destination-pagination button span { transition: none; }
+}
 .trip-placeholder { padding: 25px 0; }
 .trip-placeholder h1 { font-size: 28px; line-height: 1.25; }
 .trip-placeholder p:not(.eyebrow) { font-size: 12px; color: #74806b; }
@@ -652,8 +691,13 @@ button:focus-visible, a:focus-visible, summary:focus-visible, select:focus-visib
   .composer-wrap { padding: 12px; }
   .composer-bottom small { max-width: 130px; line-height: 1.5; }
   .chat-item { max-width: 100%; padding: 15px; }
-  .welcome-panel { padding: 30px; min-height: 350px; }
-  .welcome-panel h2 { font-size: 32px; }
+  .welcome-panel { padding: 26px 20px; height: auto; min-height: 550px; gap: 24px; }
+  .welcome-copy h2 { font-size: 32px; }
+  .destination-carousel { flex-basis: 310px; }
+  .destination-caption { left: 20px; right: 20px; }
+  .destination-stamp { left: 20px; }
+  .destination-toolbar { left: 16px; right: 16px; }
+  .destination-count { display: none; }
   .app-header { margin-bottom: 14px; }
 }
 .overview-sections > summary { display: none; }

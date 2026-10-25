@@ -1,13 +1,13 @@
 "use client";
 import { useState, useSyncExternalStore } from "react";
 import type { connect } from "../lib/client";
+import { RankedPriorities } from "./ranked-priorities";
 import {
   AVATARS,
   answersFrom,
   catalog,
   core,
   describe,
-  move,
   question,
   ready,
   toggle,
@@ -233,7 +233,7 @@ function QuestionEditor({ q, answer, disabled, primary, onSave, onSkip, onClear,
     <form onSubmit={(e) => { e.preventDefault(); onSave(draft); }}>
       <h3>{q.prompt}</h3>
       {q.helper && <p className="hint">{q.helper}</p>}
-      <Field q={q} value={draft} onChange={setDraft} />
+      <Field q={q} value={draft} onChange={setDraft} disabled={disabled} />
       <div className="profile-actions">
         {onBack && <button type="button" onClick={onBack}>Back</button>}
         {!q.required && <button type="button" disabled={disabled} onClick={() => onSkip()}>Skip for now</button>}
@@ -267,7 +267,7 @@ function Strength({ value, onChange }: { value?: string; onChange: (s: string) =
 }
 
 /** The input for one question, by its catalog input type. */
-function Field({ q, value, onChange }: { q: Question; value: any; onChange: (v: any) => void }) {
+function Field({ q, value, onChange, disabled }: { q: Question; value: any; onChange: (v: any) => void; disabled: boolean }) {
   const options = q.options ?? [];
   switch (q.input) {
     case "text":
@@ -328,36 +328,8 @@ function Field({ q, value, onChange }: { q: Question; value: any; onChange: (v: 
         </>
       );
     }
-    case "rank": {
-      const v = value ?? { ranked: [] };
-      const ranked: string[] = v.ranked;
-      return (
-        <>
-          <p className="hint">Pick up to {q.max}, then put them in order.</p>
-          <Chips options={options} picked={ranked}
-            onToggle={(id) => onChange({ ranked: toggle(options, ranked, id, q.max), confirmed: false })} />
-          {ranked.length > 0 && (
-            <ol className="rank">
-              {ranked.map((id, i) => (
-                <li key={id}>
-                  {options.find((o) => o.id === id)?.label}
-                  <button type="button" aria-label="Move up" disabled={i === 0}
-                    onClick={() => onChange({ ranked: move(ranked, id, -1), confirmed: false })}>↑</button>
-                  <button type="button" aria-label="Move down" disabled={i === ranked.length - 1}
-                    onClick={() => onChange({ ranked: move(ranked, id, 1), confirmed: false })}>↓</button>
-                </li>
-              ))}
-            </ol>
-          )}
-          {ranked.length > 0 && (
-            <label className="check">
-              <input type="checkbox" checked={!!v.confirmed} onChange={(e) => onChange({ ...v, confirmed: e.target.checked })} />
-              This order is right
-            </label>
-          )}
-        </>
-      );
-    }
+    case "rank":
+      return <RankedPriorities q={q} value={value} onChange={onChange} disabled={disabled} />;
     case "groups": {
       const v = value ?? {};
       return (
