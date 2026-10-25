@@ -5,6 +5,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import Field, SecretStr, ValidationError, model_validator
@@ -39,6 +40,8 @@ class LiveConfig(Record):
     limits: LiveLimits = Field(default_factory=LiveLimits)
     # Shared parts of the trip, searched once for the group (see trip_actors).
     trip: TripSearches | None = None
+    # Who chooses the plan: TripSolver (minimax_v1) or the multi-selection optimizer.
+    solver: Literal["minimax_v1", "cumulative_fairness_v1"] = "minimax_v1"
 
     @model_validator(mode="after")
     def validate_owners(self):

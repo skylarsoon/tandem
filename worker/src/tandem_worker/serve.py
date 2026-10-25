@@ -12,6 +12,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
+from typing import Literal
 from pathlib import Path
 
 from pydantic import Field
@@ -24,6 +25,7 @@ from .budget import ProviderBudget
 from .config import LiveLimits
 from .contracts import ContractError, Record, Snapshot, digest
 from .live import CheckedResearch, Providers, trip_gateways
+from .optimizer_bridge import make_solver
 from .ports import SystemClock
 
 
@@ -31,6 +33,8 @@ class ServeConfig(Record):
     limits: LiveLimits = Field(default_factory=LiveLimits)
     # How the group-dinner search is phrased; everything else comes from the room.
     dinner_query: str = "restaurant for large groups"
+    # Who chooses the plan: TripSolver (minimax_v1) or the multi-selection optimizer.
+    solver: Literal["minimax_v1", "cumulative_fairness_v1"] = "minimax_v1"
 
 
 def _airport(code: str) -> dict:
@@ -135,7 +139,8 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
         settings.stdb_worker_token.get_secret_value(), clock=clock, limits=limits,
         owner_name=lambda member: member["display_name"])
     worker = Worker(backend, providers.model, providers.research, directory / "checkpoints.sqlite", clock=clock,
-                    limits=limits, worker_id=worker_id or "serve-" + uuid.uuid4().hex[:8])
+                    limits=limits, worker_id=worker_id or "serve-" + uuid.uuid4().hex[:8],
+                    solver=make_solver(config.solver, limits.solver_seconds))
     results, handled = [], 0
 
     def run(job):

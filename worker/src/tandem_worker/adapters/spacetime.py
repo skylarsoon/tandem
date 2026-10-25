@@ -185,7 +185,9 @@ class SpacetimeBackend:
             destination=settings.get("destination"), destination_airport=settings.get("destination_airport"),
             start_date=settings.get("start_date"), end_date=settings.get("end_date"),
             commitments=tuple(Commitment(decision_id=c["decision_id"], scope=c["scope"], refs=tuple(c["selected_candidate_refs"]))
-                              for c in ctx.get("commitments", [])))
+                              for c in ctx.get("commitments", [])),
+            compromise_history={self.owner_name(m): float(ctx.get("compromise_history", {}).get(str(m["member_id"]), 0.0))
+                                for m in ctx["members"] if m["active"]})
 
     def _claim(self, job: dict, worker_id: str) -> Claim:
         # snapshot_ref = digest(Snapshot), exactly what FlightValidator stamps on its report.

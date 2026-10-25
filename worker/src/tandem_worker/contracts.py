@@ -89,6 +89,8 @@ class Snapshot(Record):
     destination: str | None = None
     # Agreed decisions: what later planning builds on and must not silently drop.
     commitments: tuple[Commitment, ...] = ()
+    # Each traveller's cumulative approved compromise in this room (H_i, from the ledger).
+    compromise_history: dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def valid_members(self):

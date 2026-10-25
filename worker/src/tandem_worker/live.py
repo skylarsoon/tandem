@@ -358,7 +358,9 @@ def run_live(config, settings, directory, *, room_id=None, clock=None, claude_cl
         validate_app_room(config, context)
         providers.preflight()
 
+    from .optimizer_bridge import make_solver
     worker = Worker(backend, providers.model, providers.research, directory / "checkpoints.sqlite", clock=clock, limits=limits,
+                    solver=make_solver(config.solver, limits.solver_seconds),
                     worker_id="live-worker-" + uuid.uuid4().hex[:8], before_run=before_run)
     result = worker.run_one(str(job["id"]))
     return {"mode": "LIVE_PROVIDERS", "room_id": room_id, "result": result, "report": _room_report(backend, room_id),

@@ -12,11 +12,11 @@ from tandem_worker.runner import Worker
 PEOPLE = ("p1", "p2", "p3", "p4")
 
 
-def make_worker(room, tmp_path, scenario, model=None):
+def make_worker(room, tmp_path, scenario, model=None, solver=None):
     clock = SystemClock()
     research = FixtureResearch(clock, scenario)
     worker = Worker(room.backend, model or ScriptedModel(scenario), research, tmp_path / "checkpoints.sqlite",
-                    clock=clock, limits=room.backend.limits)
+                    clock=clock, limits=room.backend.limits, solver=solver)
     return worker, research
 
 
@@ -256,3 +256,16 @@ def test_progress_is_room_safe_and_activity_resets_after_pause(stdb_room, tmp_pa
     assert any(e["phase"] == "PAUSED" for e in progress)
     assert "PRIVATE_CANARY" not in json.dumps(progress) and "owner" not in json.dumps(progress)
     assert all(a["activity"] == "IDLE" for a in shared_view(room, "room_agent_activity"))
+
+
+def test_the_optimizer_plans_a_whole_trip_the_database_accepts(stdb_room, tmp_path):
+    from tandem_worker.optimizer_bridge import POLICY, TandemOptimizerBridge
+    room = stdb_room("trip-happy")
+    worker, _ = make_worker(room, tmp_path, "trip-happy", solver=TandemOptimizerBridge())
+    assert worker.run_one(room.plan_job())["outcome"] == "AWAITING_REVIEW", "published past the module's own checks"
+    [proposal] = shared_view(room, "room_proposals")
+    terms = json.loads(proposal["terms_json"])
+    assert sorted(c["category"] for c in terms["selected"]) == ["FLIGHT"] * 4 + ["STAY", "TRANSFER"]
+    assert (proposal["scope"], proposal["decision_id"]) == ("COMPLETE_PLAN", "trip")
+    assert impact_of(room, "p4")["share_cents"] == 33000
+    assert POLICY == "cumulative_fairness_v1"
