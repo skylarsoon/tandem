@@ -83,7 +83,7 @@ All take `jobId` + `attempt` and run the checks in §2 unless noted. "Key" = `re
 | `ask_owner` | reducer | `jobId`, `attempt`, `requestKey`, `memberId`, `kind`, `actionJson` (`{"action_ref": "<draft>"}`), `prompt`, `answerSchemaJson`, `threadId?` | Private versioned question (v1). Kinds: `MISSING_FACT`, `PARTICIPATION_CONFIRMATION`, `OBJECTION_DISCLOSURE`, `CONCESSION_CONSULTATION`, `BROADER_EXPLORATION`. `threadId` closes that thread with `WAITING_FOR_OWNER`. Context lists the question under its `request_key`. |
 | `park_job` | reducer | `jobId`, `attempt`, `requestKey`, `graphThreadRef`, `questionIds[]` | `WAITING_FOR_INPUT`, lease released, `graph_thread_ref` stored, open threads closed (`NEEDS_OWNER_INPUT`). If every listed question is already answered, the job goes straight back to `PENDING`. |
 | `schedule_resume` | (built in) | | No call needed: `answer_question` and `park_job` requeue the job once all its questions are answered. Resume with a new `claim_job`; `graph_thread_ref` comes back in the claim. |
-| `publish_proposal` | procedure | `jobId`, `attempt`, `requestKey`, `stage`, `termsJson`, `sharedSummaryJson`, `validationJson`, `evidenceRefs[]`, `affectedMemberIds[]` (empty = all active), `impacts[{member_id, impact_json}]`, `selectedCandidateRefs[]` | See "Publication" below. Returns `proposal_id`, `version`, `terms_digest`; retrying the same key returns the same proposal. Stages: `UNDERSTAND`, `GOALS_DATES`, `TRAVEL`, `STAY_EXPERIENCES`, `COMPLETE_PLAN`. |
+| `publish_proposal` | procedure | `jobId`, `attempt`, `requestKey`, `stage`, `decisionId`, `scope`, `termsJson`, `sharedSummaryJson`, `validationJson`, `evidenceRefs[]`, `affectedMemberIds[]` (empty = all active), `impacts[{member_id, impact_json}]`, `burdens[{member_id, burden_micros}]` (may be empty), `selectedCandidateRefs[]` | See "Publication" below. Returns `proposal_id`, `version`, `terms_digest`; retrying the same key returns the same proposal. Stages: `UNDERSTAND`, `GOALS_DATES`, `TRAVEL`, `STAY_EXPERIENCES`, `COMPLETE_PLAN`. |
 | `finish_job` | reducer | `jobId`, `attempt`, `requestKey`, `outcome`, `outcomeJson` | Terminal `FINISHED` (e.g. `NO_FEASIBLE_CANDIDATE`, `OWNER_DECLINED`); closes threads. |
 | `fail_job` | reducer | `jobId`, `attempt`, `requestKey`, `retryable`, `code`, `detail` | Retryable → `PENDING`, otherwise `FAILED`; closes threads. Can't touch a `SUCCEEDED` job. |
 
@@ -96,22 +96,38 @@ All take `jobId` + `attempt` and run the checks in §2 unless noted. "Key" = `re
 - grants that are still valid (with `action_ref`)
 - the job's threads and messages, sorted by id
 - candidates with the revisions they were recorded under
-- open proposals
+- open proposals, each with its `decision_id`, `scope` and `selected_candidate_refs`
+- `commitments`: one entry per agreed decision (`decision_id`, `scope`, `stage`, `proposal_id`, `version`, `terms_digest`, `selected_candidate_refs`). This is what the group already agreed, and what later decisions build on. See "Decisions" below.
+- `compromise_history`: `{"<member_id>": H_i}` for every active member, the sum of their ACTIVE approved compromises in this room (0..n, `0` if none). This is the optimizer's `compromise_history` as is. See §6b.
+
+**Decisions.** Every proposal is a version of one **decision** (`decisionId`, e.g. `flights`, `stay`, `transfer`, `activity_snorkeling`, `trip`; 1–128 of `a-z 0-9 _ : . -`). Publishing supersedes only earlier versions of **the same decision**, whether they're pending or agreed. Other decisions in the stage, pending or agreed, are untouched, so snorkeling and hiking can both be agreed. The `stage` only groups decisions for the UI. Its milestone is derived from all of them: `IN_REVIEW` while any is awaiting review, `AGREED` once all live ones are agreed, `REOPENED` when none is live.
+
+An **agreed** decision is a **commitment**. It stays agreed when other decisions are published or inputs change, and it's listed in the job context. When a partial decision (`FLIGHT_BUNDLE`, `SINGLE_SHARED_BOOKING` or `ACTIVITY_DECISION`) becomes agreed, the module queues the next PLAN job, unless one is already open, so the worker can plan the next part on top of it. A pending proposal still becomes stale when any input changes.
 
 **Publication.** Everything happens in one transaction:
-1. If `selectedCandidateRefs` is non-empty, the trip is re-checked (policy `minimax_v1`). A trip is one `FLIGHT` per active member plus exactly one of each shared part the room's `components` setting lists (`STAY`, `TRANSFER`), whose cost is split equally.
-   - **Every candidate's `facts_json`:** `category`, `total_cents`, `observed_at` and `valid_until` (epoch seconds), and `cost_basis` `COMPLETE_FLIGHT_TOTAL` / `COMPLETE_STAY_TOTAL` / `COMPLETE_TRANSFER_TOTAL` with no `missing_critical_fields`. An observed price with unknown taxes or fees can't be published.
+1. The proposal is re-checked for its **`scope`**. A buggy worker can't publish something that breaks a confirmed hard limit or contradicts a commitment:
+
+   | `scope` | `selectedCandidateRefs` | Checked |
+   |---|---|---|
+   | `FLIGHT_BUNDLE` | one `FLIGHT` per active member | each flight against its owner's limits (below); arrivals within `arrival_overlap_seconds`; only one agreed flight decision per room |
+   | `SINGLE_SHARED_BOOKING` | exactly one `STAY` or `TRANSFER` | the room's `components` include it; `capacity` fits everyone; only one agreed decision per category |
+   | `ACTIVITY_DECISION` | one `ACTIVITY` / `DINNER` (include), or none (skip) | `capacity` fits everyone if known; not already agreed as another decision; doesn't overlap an agreed activity when both carry `start_epoch` / `end_epoch` |
+   | `COMPLETE_PLAN` | flights + exactly one of each shared part in `components` | the whole trip on its own (today's worker publishes this, as decision `trip`) |
+   | `GENERAL_AGREEMENT` | none | nothing to check (goals, dates) |
+
+   - **Every candidate's `facts_json`:** `category`, `total_cents`, `observed_at` and `valid_until` (epoch seconds), and `cost_basis` `COMPLETE_FLIGHT_TOTAL` / `COMPLETE_STAY_TOTAL` / `COMPLETE_TRANSFER_TOTAL` with no `missing_critical_fields`. Activities and dinners use `ESTIMATE_PER_PERSON` (a per-person `total_cents`). An observed price with unknown taxes or fees can't be published.
    - **Flights** also carry `owner_member_id`, `arrival_epoch` and `baggage_included`. **Shared items** carry `capacity` (guests or seats), which must fit every active member.
-   - **Hard limits:** each HARD `flight_budget_total`; each HARD `trip_budget_total` against own flight + equal share (compared as `n × flight + shared ≤ n × cap`, exact in cents); baggage where `baggage_required` is true; arrivals within `arrival_overlap_seconds`; every traveller's preferences confirmed; prices not expired.
+   - **Hard limits on flights:** each HARD `flight_budget_total`; baggage where `baggage_required` is true; `arrival_window`; `max_stops`; every traveller's preferences confirmed; prices not expired.
+   - **Whole-trip budgets** (each HARD `trip_budget_total`): own flight + per-person activities + an equal share of shared bookings, compared as `n × own + shared ≤ n × cap` (exact in cents). It's checked for the proposal alone (`INVALID_PROPOSAL`), then together with every **other** decision's commitment (`CONFLICTS_WITH_COMMITMENT`). A `COMPLETE_PLAN` is checked on its own, and an agreed one isn't added to its parts.
    - Room *preferences* that owners can set aside by consent (`own_bedroom`, `stay_min_rating`) are applied by the worker with consultation grants, not here.
-   - Failures return `INVALID_PROPOSAL` / `INVALID_COVERAGE` / `INVALID_EVIDENCE_REF`.
+   - Failures return `INVALID_PROPOSAL` / `INVALID_COVERAGE` / `INVALID_EVIDENCE_REF` / `CONFLICTS_WITH_COMMITMENT` (revise the earlier decision deliberately instead) / `INVALID_ARGUMENT` (unknown scope or bad `decisionId`).
 2. **What the worker publishes:**
    - `terms_json` = `{"scope": "TRIP" | "FLIGHTS_ONLY", "policy": "minimax_v1", "selected": [candidate…]}`.
    - `shared_summary_json` = `{"scope", "travellers", "text", "group", "suggestions"}`. `text` is a room-safe paragraph (total, arrival window, what landing together costs, how many pay extra, stay, transfer, equal share, room-needs premium, activity/dinner ideas). `group` is the same as numbers. `suggestions` are activity and dinner ideas with *estimated* per-person prices, never part of what people approve.
    - Each `impact_json` is private to its owner: `{owner, candidate, price_cents, flight_cents, share_cents, cheapest_alone_cents, extra_cents, reason: NONE | ARRIVAL_WINDOW | SHARED_CHOICE, text}`.
-2. The stage's previous proposal is superseded.
+2. Earlier pending or agreed versions of the same decision are superseded (their consents become `STALE`, their compromise `SUPERSEDED`). The version number counts per decision.
 3. Immutable terms are stored with `terms_digest = sha256(termsJson bytes)`. **Send canonical JSON.**
-4. Private impacts and `PENDING` consents are created, reminders scheduled, and the milestone set to `IN_REVIEW`.
+4. Burdens are stored with the proposal (see §6b), then private impacts and `PENDING` consents are created, reminders scheduled, and the stage milestone recomputed.
 5. Threads close (`RESOLVED`) and the job becomes `SUCCEEDED`.
 
 **Other worker writes** (same checks):
@@ -144,6 +160,10 @@ Job statuses: `PENDING` → `CLAIMED` → `WAITING_FOR_INPUT` / `SUCCEEDED` / `F
 | `answer_question` | `questionId`, `version`, `answerJson` | See §6. Wrong owner → `NOT_FOUND`; not open or wrong version → `QUESTION_SUPERSEDED`. |
 | `respond_to_proposal` | `proposalId`, `version`, `termsDigest`, `response`, `note?` | `ACCEPT`, `NOT_COMFORTABLE`, `ASK_MY_AGENT`, `SUGGEST_ALTERNATIVE`, `DECIDE_LATER`. Rejected with `STALE_SNAPSHOT` if the version, digest or room revisions changed. Agreement is recomputed in the same transaction: **every affected member must have ACCEPTED these exact terms**. Non-accept responses message your agent. |
 | `withdraw_consent` | `proposalId`, `note?` | Reopens an AGREED proposal and its milestone. |
+| `set_trip_description` | `roomId`, `description` | Organizer only. Their own words about the trip; their agent proposes a structured brief (`room_trip_brief`, state PROPOSED). |
+| `confirm_trip_brief` | `roomId`, `revision` | Organizer only. Writes destination, airport, dates and components into the room settings, then starts everyone's onboarding (and anyone who joins later). Re-confirming a changed brief reopens only the affected topics. |
+| `confirm_origin` | `roomId`, `patchId` | The one-tap "Flying from SFO, right?". Confirms only an `origin_airport` patch, so searches can start early. |
+| `confirm_intake` | `roomId`, `acceptedPatchIds[]`, `speakUpForMe?`, `askMeFirst?`, `giveMeTime?`, `remindersOptedIn?` | Confirms the onboarding summary in one go. Accepted PENDING patches become constraints, the rest are rejected, settings are confirmed, and the room replans once. Needs `origin_airport` and a budget or `no_budget_limit` (`INTAKE_INCOMPLETE`) and confirmed settings (`PREFERENCES_UNCONFIRMED`). |
 
 **Presence** is automatic: an SDK connection marks you online, and closing your last tab marks you offline. HTTP calls don't count.
 
@@ -196,9 +216,101 @@ Checks, in one transaction (nothing is written if any fail):
 
 ---
 
+## 6a. Onboarding (conversational intake)
+
+Instead of a form, each traveller's agent asks a few questions in their private chat (`my_private_messages`):
+1. **The organizer** describes the trip (`set_trip_description`). Their agent proposes a brief; they confirm it (`confirm_trip_brief`).
+2. **Everyone's agent** opens with one trip-aware question ("Hi Dave! Honolulu, Feb 12–16 with Alice, Bob and Carol. Where would you fly from, and is there anything that's a must-have or a deal-breaker?"). It then asks about at most two open essentials per message: origin and dates, money, and how the agent should act. Usually 2–4 questions, never more than 5 (enforced).
+3. **What the agent heard** becomes `constraint_patches`. Each one quotes the person's exact words (`patch_json.source_quote`, checked against their message), so nothing unsaid is recorded. The origin is confirmed right away with `confirm_origin`; everything else is confirmed once, through the summary and `confirm_intake`.
+4. **Everything else** (rooming, a checked bag, landing times, connections) is captured only if they mention it. Otherwise it's asked **just in time**, when a real plan depends on it: a `MISSING_FACT` question whose `action_json.nudge` holds the constraint a yes or a no records. Answer with `{"answer": true, "constraint": nudge.yes}`. The waiting job resumes and re-plans with it.
+5. **If someone's own requirement blocks the plan** (own room, minimum rating, arrival times, stops), only they are asked whether to set it aside for this trip. Same nudge shape: a yes records the relaxed value, a no records `kept_<key>` so they're never asked again.
+6. **Planning in an onboarded room** searches from each person's confirmed airport and the brief. It waits (`WAITING_FOR_INTAKE`) until everyone is onboarded, and `publish_proposal` refuses with `INTAKE_INCOMPLETE` until then. The airport transfer is searched after flights are chosen, for the group's latest landing.
+
+New constraint keys: `origin_airport` (IATA), `arrival_window` (`{"earliest": "HH:MM", "latest": "HH:MM"}`, local at the destination), `max_stops`, `no_budget_limit`, `trip_note` (private, not used in planning yet), `kept_<key>`.
+
+---
+
+## 6d. Rules: one language for what people need
+
+Design: `docs/superpowers/specs/2026-10-24-generic-rules-design.md`. What people need is stored and checked as data. No module or worker code names a particular limit.
+
+**The catalogs**, in `contracts/`. Edit them there, then run `scripts/sync-catalogs.py`, which copies them to the module, the web app and the worker.
+- `attributes.json`: what candidates of each category carry, with types (money, int, number, bool, time, epoch, text), plus totals such as `my_cost`.
+- `decisions.json`: who picks each category (`one_per_person` / `one_for_group`), who pays (`each` / `split` / `per_person`), and group rules such as "land within the room's window".
+- `legacy_keys.json`: how the 12 old named limits become rules, needs and search facts.
+
+**Rules and evaluation**
+- **A rule:** `{category, attribute | aggregate, operator, value, kind}`. Operators are `eq, neq, lt, lte, gt, gte, in, not_in, between`; a `between` on times may wrap midnight.
+- **Outcomes:** evaluation answers `SATISFIED / VIOLATED / UNKNOWN / NOT_APPLICABLE`. A missing fact is `UNKNOWN`, which publication refuses.
+- **One meaning:** `spacetimedb/src/rules.ts` and `worker/.../rules.py` both pass `contracts/rule_cases.json`, and they agree with the optimizer's own evaluator.
+
+**Tables** (private): `participant_rule`, `participant_need`, `search_fact`.
+- Every confirmed named limit is mirrored into them; confirming it again replaces what it produced.
+- A `SOFT` limit is a preference and isn't enforced, unless `enforce_soft` is set, as it is for bags.
+- A flexible budget is firm at the top of its authorized range.
+- A cleared value (set aside) produces nothing.
+
+**Calls**
+- `add_rule(roomId, ruleJson, sourceQuote?)`: owner; the rule is checked against the catalog (`INVALID_RULE`).
+- `remove_rule(ruleId)`.
+- `set_rule_state(ruleId, active|set_aside|kept)`.
+- A constraint patch may carry `{"rule": {...}, "source_quote"}` instead of a named key. It's validated when proposed and applied on confirmation. Any money rule covers onboarding's money topic.
+
+**Publication** checks, with the shared evaluator:
+- each traveller's rules on their own pick, and everyone's rules on shared picks;
+- what shared picks must hold: explicit needs, plus attributes a room setting shares (bedrooms by `people_per_bedroom`);
+- `my_cost` limits.
+
+**Worker access**
+- The job context carries `rules`, `needs` and `search_facts`; `my_rules` shows your own.
+- The worker reads them through `read_rules` and never checkpoints them.
+- The shortlist and the generic compiler (`compiler.py`) use them.
+- **Choosing the plan** is Elena's multi-selection optimizer by default (`"solver": "cumulative_fairness_v1"`; `"minimax_v1"` selects TripSolver). Its fairness is set in `decisions.json`: each person's burden is what they pay over the cheapest plan open to them, as a share of it, reaching 1 at double. It's scored as `5 × worst (with history H_i) + 3 × total + 1 × relative cost`. The chosen plan's burdens are sent with `publish_proposal` and recorded in the ledger once everyone agrees.
+- `tandem-worker optimizer-report` writes `docs/optimizer/scenarios.md`: every scenario step by step, with the optimizer checked against an independent recount of its own scoring, and compared with `TripSolver`.
+
+## 6c. Profile onboarding (persistent, across rooms)
+
+"Let your agent get to know you": a short core flow (9 questions), then optional sections. All questions, options and limits live in **`contracts/profile_questions.json`** (version 1, 46 questions). It's the single source: run `scripts/sync-catalogs.py` after editing it, and it copies the catalog to the module (`spacetimedb/src/profile_catalog.ts`), the web app (`web/lib/profile_catalog.ts`) and the worker. A test fails if a copy is stale. The web page is `/profile`.
+
+| Call | Who | Arguments | What it does |
+|---|---|---|---|
+| `save_profile_answer` | owner | `questionId`, `valueJson` | Checked against the catalog by input type: valid choices, `max`, exclusive choices ("None", "No preference") alone, rankings need `confirmed: true`, "own room" needs `REQUIRED`/`PREFERRED`, airports as IATA. Shapes are in `profile_rules.ts`. |
+| `skip_profile_question` | owner | `questionId` | Stored as `SKIPPED` ("not now"). It's never read as flexible or unrestricted. `C01` (name) can't be skipped. |
+| `clear_profile_answer` | owner | `questionId` | Back to "not shared yet" (no row). |
+| `request_profile_summary` | owner | none | Queues a `PROFILE` job (no room). It needs a name (C01). An older pending request is cancelled. |
+| `confirm_profile_summary` | owner | `profileRevision` | "Yes, that's me", for that exact summary. It's refused (`STALE_SNAPSHOT`) if the answers changed since. |
+| `correct_profile_summary` | owner | `correction` (≤1000) | "Not quite": the person's words go to their agent for a new summary. This is context only, never a requirement. |
+| `load_profile_context` | worker | `jobId`, `attempt` | That one person's answers and calibration state. |
+| `propose_profile_summary` | worker | `jobId`, `attempt`, `requestKey`, `summary` (≤1200) | Sets the calibration to `PROPOSED` and finishes the job. It's refused if the answers changed after the job started. |
+
+**Views:** `my_profile_answers` (your rows: `question_id, key, status, value_json`) and `my_profile_calibration` (`state` `PENDING`/`PROPOSED`/`CONFIRMED`, `summary`, `correction`, `profile_revision`). The existing `my_profile` keeps the display name, avatar, ranking and self-description in step with C01, A01, C03 and F03.
+
+**Rules:**
+- **Three distinct "no answer" states:** a missing row is unknown; `SKIPPED` is "not now"; an explicit "None" / "No preference" is an answer.
+- **Needs (N01–N05) are private,** like every answer. Agents share only the minimum planning requirement.
+
+**In a room:**
+- **The agent's context:** an onboarding job's `subject.profile` carries that person's answered profile questions.
+- **Suggestions, not assumptions:** their agent *suggests* from it (usual airport A06 → "Flying from SEA like usual?"; "I need my own room" T06; "usually a checked bag" T04; and C09 as the default for "check with me first"). Each suggestion is a constraint patch with `source_profile: "<question id>"`. The module checks the question was really answered, and the patch only applies once the person confirms it for that room.
+- **One direction only:** a room answer never changes the profile.
+
+## 6b. Compromise ledger (fairness across decisions)
+
+The optimizer scores, per person and decision, how much they'd give up: a **burden** from 0 to 1. Their running total across approved decisions, **H_i**, goes into the next optimization so the person who gave up most gets priority next. The ledger records H_i from human approval only:
+
+1. **At publish:** the worker sends `burdens[{member_id, burden_micros}]` with the proposal. `burden_micros` is the burden in millionths (`round(b × 1_000_000)`, 0..1,000,000) so sums are exact. The decision is the proposal's `decisionId`, which is the optimizer's `task_id`. Each member must be one of the proposal's reviewers and may appear only once. The burdens are frozen in `proposal_burden`, and **nothing counts yet**.
+2. **When every reviewer accepts** (the proposal becomes `AGREED`), the module copies them into `compromise_entry` as `ACTIVE`, in the same transaction. There is one entry per (proposal, member), so a retried publish (same `requestKey`) or a repeated approval can't count twice.
+3. **A new version of the decision replaces it:** publishing the next version supersedes the earlier proposal, and its entries become `SUPERSEDED` at the same moment. Both versions never count together. Other decisions are untouched.
+4. **A withdrawn approval** (`withdraw_consent`, AGREED → AWAITING_REVIEW) marks that proposal's entries `REVOKED`. If everyone accepts again, the same entries become `ACTIVE` again; nothing is duplicated.
+5. **Who sees it:** the worker gets `compromise_history` in the job context, and each person sees their own entries in `my_compromises`. There is no room-wide view, because burdens are derived from private limits.
+
+The optimizer never writes this table; only agreement does.
+
+---
+
 ## 7. Views (what each caller can read)
 
-All 22 views are per-caller and update live.
+All 26 views are per-caller and update live.
 
 | View | Contents |
 |---|---|
@@ -207,12 +319,16 @@ All 22 views are per-caller and update live.
 | `room_messages` | Live Negotiation chat: ROOM-audience utterances with agent ids, thread, type and refs. No payload JSON. |
 | `my_agent_messages` | OWNER_PRIVATE utterances addressed to you (My Agent) |
 | `room_threads`, `room_events` (room-wide plus your private events), `room_candidates`, `room_milestones` | Shared progress |
-| `room_proposals` | Terms, digest, summary, state, `reviewer_count`, `is_reviewer`. No validation JSON. |
+| `room_proposals` | `decision_id`, `scope`, stage, terms, digest, summary, state, `reviewer_count`, `is_reviewer`. No validation JSON. |
 | `my_proposal_impacts`, `my_consents` (`decide_later_available` is always true) | Your allocation and your own response |
+| `my_compromises` | Your approved compromises: `decision_id`, `proposal_id`, `proposal_version`, `stage`, `burden_micros`, `state` (`ACTIVE` / `SUPERSEDED` / `REVOKED`) |
 | `room_consent_counts` | `required` / `accepted` / `declined` / `pending` per proposal. **Counts only, never who.** |
 | `room_presence` | `membership_id`, `online`, `last_seen` |
 | `room_agent_activity` | `agent_id`, `activity`, `thread_id` |
 | `worker_pending_jobs` | `PENDING` jobs; empty unless the caller is an allowlisted worker |
+| `room_trip_brief` | The organizer's description, the proposed/confirmed brief (`brief_json`: destination, airport, dates, components, vibe), `unclear_json`, state, revision |
+| `my_intake` | Your onboarding: state ASKING / SUMMARY / CONFIRMED, coverage of origin, dates, money, settings, and questions asked (max 5) |
+| `room_intake_progress` | `ready` / `total`. **Counts only, never who or what they said.** |
 
 ---
 
@@ -243,8 +359,22 @@ All 22 views are per-caller and update live.
 - `room_id` limits `eligible_jobs()` to one room and scopes claim keys.
 - `notify_owner()` is `reply_to_owner` (an AGENT row in that owner's `my_private_messages`). `room_event()` is `emit_event` with no member (a ROOM row in `room_events`).
 
+**Shortlist before the solver** (`tandem_worker/shortlist.py`). The optimizer tries every combination of one flight per traveller, so it sees at most `Limits.shortlist_size` flights each (default 5), cut from everything found so far, reused and new alike, on every solve:
+1. **Removed first:** duplicates, expired offers, malformed ones (no price or arrival) and fares that break the owner's confirmed hard limits, judged exactly as the solver judges them (`flight_violation`).
+2. **Kept, in order:**
+   - a locked flight, i.e. one from another decision the group already agreed;
+   - the cheapest;
+   - the one nearest the group's closest common landing window, so a combination that lands together survives if any exists;
+   - then the most distinct by arrival time and price.
+
+   Fewer valid flights than the limit are all kept. Nothing is invented or edited, and the result is the same for any input order.
+3. **Nothing disappears silently:**
+   - a traveller with no usable flight gets their precise reason (cap, bag, landing time, stops) and a targeted search, instead of a plan built around them;
+   - an agreed flight that can't be kept ends the job as `LOCKED_CANDIDATE_UNAVAILABLE`.
+4. **A shortlist proves nothing about what it left out.** If no combination works while untried valid flights remain, the shortlist is redone with those flights, up to `Limits.shortlist_passes` (default 3) times, before searching again. `NO_FEASIBLE_CANDIDATE` therefore means "none among the options checked", and the room event says how many.
+
 **What people see when no plan fits** (`job.outcome = NO_FEASIBLE_CANDIDATE`):
-- **Room:** one `NO_FEASIBLE_PLAN` event. `safe_payload_json` has `text`, `blocked_travellers` (counts by cause: `HARD_LIMIT`, `TRIP_LIMIT`, `BAGGAGE_UNAVAILABLE`, `NO_CANDIDATES`), `blocked_requirements`, and for an arrival clash `closest_spread_seconds` / `required_seconds`. It never names anyone or states a limit.
+- **Room:** one `NO_FEASIBLE_PLAN` event. `safe_payload_json` has `text`, `blocked_travellers` (counts by cause: `HARD_LIMIT`, `TRIP_LIMIT`, `BAGGAGE_UNAVAILABLE`, `NO_CANDIDATES`), `blocked_requirements`, for an arrival clash `closest_spread_seconds` / `required_seconds`, and `flights_checked` / `flights_found` (how many flights the solver was shown out of how many valid ones were found). It never names anyone or states a limit.
 - **Each blocked traveller:** a private note with their own numbers, e.g. "the cheapest trip found for you is $630.00 … above your $600.00 trip limit".
 - **Room requirements:** when someone's own-room request or minimum rating is what blocks the plan (or pushes another traveller over their limit), only that person's agent asks them first, as a `CONCESSION_CONSULTATION` with `action_ref` `relax-bedrooms-r<input_revision>` / `relax-rating-r<…>`. A grant re-plans with the requirement set aside; a refusal ends in the private notes above.
 

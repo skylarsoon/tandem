@@ -139,16 +139,19 @@ class Room:
         self.client.call(worker, "submit_agent_message", **args)
         return args
 
-    def publish(self, worker: Identity, job_id: int, terms: dict | None = None, request_key: str | None = None) -> dict:
+    def publish(self, worker: Identity, job_id: int, terms: dict | None = None, request_key: str | None = None,
+                burdens: dict[str, float] | None = None, decision_id: str = "travel", stage: str = "TRAVEL") -> dict:
         terms = terms or {"flights": {"alice": "UA1", "bob": "UA2", "carol": "AA3", "dave": "DL4"}}
         return self.client.procedure(
             worker, "publish_proposal",
             job_id=job_id, attempt=self.leases[job_id], request_key=request_key or key("publish"),
-            stage="TRAVEL", terms_json=json.dumps(terms, sort_keys=True),
+            stage=stage, decision_id=decision_id, scope="GENERAL_AGREEMENT", terms_json=json.dumps(terms, sort_keys=True),
             shared_summary_json=json.dumps({"summary": "Everyone lands within two hours"}),
             validation_json=json.dumps({"hard_constraints": "PASS"}),
             evidence_refs=[], affected_member_ids=[], selected_candidate_refs=[],
             impacts=[{"member_id": self.member_ids[n], "impact_json": json.dumps({"cost_cents": 45000})} for n in PEOPLE],
+            burdens=[{"member_id": self.member_ids[n], "burden_micros": round(b * 1_000_000)}
+                     for n, b in (burdens or {}).items()],
         )
 
 

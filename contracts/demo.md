@@ -217,9 +217,9 @@ The client never polls, and the UI never shows a half-applied transaction.
 ```
 Browsers (Next.js) ── subscribe to per-caller views ──▶ ┌──────────────────────────────┐
          └────────── call reducers (human actions) ───▶ │  SpacetimeDB module (TS)      │
-                                                        │  29 private tables            │
-Dispatcher (Node) ── subscribes to worker_pending_jobs ─│  31 reducers · 5 procedures   │
-         │ POST /wake                                   │  22 views · 2 scheduled tasks │
+                                                        │  35 private tables            │
+Dispatcher (Node) ── subscribes to worker_pending_jobs ─│  38 reducers · 5 procedures   │
+         │ POST /wake                                   │  26 views · 2 scheduled tasks │
          ▼                                              └──────────────────────────────┘
 Python worker (LangGraph) ── HTTP: procedures + reducers via SpacetimeBackend adapter ──▲
 ```
@@ -441,7 +441,7 @@ To show Skylar's real worker (scripted AI, fixture flights) planning against the
 |---|---|
 | Transactional reducers | Every write: constraint changes, publication, consent |
 | Procedures with return values | `claim_job`, `load_execution_context`, `publish_proposal`, `check_lease`, `begin_operation` |
-| Per-caller views over private tables | 22 views; nobody's browser receives another person's private data |
+| Per-caller views over private tables | 26 views; nobody's browser receives another person's private data |
 | Real-time subscriptions | All screens, plus the dispatcher waking the worker |
 | Scheduled reducers | Lease expiry (crash recovery) and review reminders |
 | Server-side validation in transactions | Consent, permission gates, publish-time flight checks, wording fingerprint |

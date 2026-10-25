@@ -12,6 +12,8 @@ dependencies = [
   "langgraph-checkpoint-sqlite>=3,<4",
   "pydantic>=2.10,<3",
   "ortools>=9.12,<10",
+  "airportsdata>=20260905",
+  "tandem-optimizer",
 ]
 
 [project.optional-dependencies]
@@ -22,8 +24,14 @@ test = ["pytest>=8,<10", "pytest-socket>=0.7,<1", "python-dotenv>=1,<2"]
 [project.scripts]
 tandem-worker = "tandem_worker.cli:main"
 
+[tool.uv.sources]
+tandem-optimizer = { path = "../optimizer", editable = true }
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+tandem_worker = ["personas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

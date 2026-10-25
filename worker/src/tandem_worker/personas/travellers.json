@@ -1,0 +1,547 @@
+{
+  "trip": {
+    "organizer": "sam",
+    "description": "Six of us are finally doing Honolulu, Feb 12 to 16 2027! Chill beach trip: one place we can all stay together, a ride from the airport, and at least one good group dinner. Flying in from all over.",
+    "brief": {
+      "destination": "Honolulu",
+      "destination_airport": "HNL",
+      "start_date": "2027-02-12",
+      "end_date": "2027-02-16",
+      "components": [
+        "FLIGHT",
+        "STAY",
+        "TRANSFER"
+      ],
+      "group_size": 6,
+      "vibe": "chill beach trip"
+    }
+  },
+  "travellers": [
+    {
+      "name": "maya",
+      "backstory": "ER nurse in Seattle. Coming straight off three night shifts, exhausted. Her car broke down last month so money is tight. Hates group drama and would rather be told privately when something doesn't work.",
+      "style": "Warm, a bit rambling, says 'honestly' a lot. Doesn't volunteer money details until asked.",
+      "truth": {
+        "origin_airport": "SEA",
+        "trip_budget_total": {
+          "value": 90000,
+          "hardness": "SOFT",
+          "max": 100000
+        },
+        "arrival_window": {
+          "earliest": "07:00",
+          "latest": "22:00"
+        },
+        "speak_up_for_me": false,
+        "ask_me_first": true
+      },
+      "replies": [
+        {
+          "when": "open",
+          "says": "Hey! Coming from Seattle. Honestly the only thing — I'm coming straight off three night shifts so please no red-eye, I need to land at a human hour.",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "SEA",
+              "source_quote": "Coming from Seattle",
+              "interpreted": true
+            },
+            {
+              "key": "arrival_window",
+              "value": {
+                "earliest": "07:00",
+                "latest": "22:00"
+              },
+              "source_quote": "please no red-eye",
+              "interpreted": true
+            }
+          ]
+        },
+        {
+          "when": "money",
+          "says": "Money's a bit tight after my car broke down. Around $900 for everything, I could stretch to $1,000 if it means not landing at 2am.",
+          "items": [
+            {
+              "key": "trip_budget_total",
+              "value": 90000,
+              "hardness": "SOFT",
+              "authorized_range": {
+                "max": 100000
+              },
+              "private_rationale": "car broke down",
+              "source_quote": "Around $900 for everything, I could stretch to $1,000"
+            }
+          ]
+        },
+        {
+          "when": "dates",
+          "says": "Feb 12-16 is perfect, I already got those days off.",
+          "items": [
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "Feb 12-16 is perfect"
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "Just tell me privately if something's off, I hate group drama. And yes please check with me before agreeing to spend more.",
+          "settings": {
+            "speak_up_for_me": false,
+            "ask_me_first": true,
+            "source_quote": "Just tell me privately if something's off"
+          }
+        }
+      ]
+    },
+    {
+      "name": "jordan",
+      "backstory": "Recently laid off, hasn't told the group. Defers to everyone to avoid seeming difficult, but genuinely cannot spend more than $600 on the whole trip.",
+      "style": "Short, casual, lowercase. Says 'whatever works' first; only gives a number when asked directly a second time.",
+      "truth": {
+        "origin_airport": "LAX",
+        "trip_budget_total": {
+          "value": 60000,
+          "hardness": "HARD"
+        },
+        "speak_up_for_me": true,
+        "ask_me_first": false
+      },
+      "replies": [
+        {
+          "when": "open",
+          "says": "LA! i'm down for whatever honestly",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "LAX",
+              "source_quote": "LA!",
+              "interpreted": true
+            }
+          ]
+        },
+        {
+          "when": "money",
+          "says": "whatever works for the group is fine",
+          "unclear": [
+            {
+              "topic": "money",
+              "reason": "It stays between us: is there an amount you'd rather not go above, even roughly?"
+            }
+          ]
+        },
+        {
+          "when": "money",
+          "says": "ok real talk i just got laid off. i can't go above $600 total. like actually can't",
+          "items": [
+            {
+              "key": "trip_budget_total",
+              "value": 60000,
+              "hardness": "HARD",
+              "private_rationale": "just got laid off",
+              "source_quote": "i can't go above $600 total"
+            }
+          ]
+        },
+        {
+          "when": "dates",
+          "says": "dates are fine",
+          "items": [
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "dates are fine"
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "you can speak up for me, i'm not great at it. don't need to check every little thing",
+          "settings": {
+            "speak_up_for_me": true,
+            "ask_me_first": false,
+            "source_quote": "you can speak up for me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "priya",
+      "backstory": "Light sleeper who uses a CPAP machine; needs her own room but doesn't want to explain why. Careful with flight costs, relaxed about the rest.",
+      "style": "Polite, precise, a little apologetic.",
+      "truth": {
+        "origin_airport": "SFO",
+        "own_bedroom": true,
+        "flight_budget_total": {
+          "value": 50000,
+          "hardness": "HARD"
+        },
+        "speak_up_for_me": true,
+        "ask_me_first": true
+      },
+      "replies": [
+        {
+          "when": "open",
+          "says": "Flying out of SFO. I'll need my own room — non-negotiable, sorry!",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "SFO",
+              "source_quote": "Flying out of SFO"
+            },
+            {
+              "key": "own_bedroom",
+              "value": true,
+              "source_quote": "I'll need my own room"
+            }
+          ]
+        },
+        {
+          "when": "money",
+          "says": "$500 for the flight max, the rest I'm flexible on.",
+          "items": [
+            {
+              "key": "flight_budget_total",
+              "value": 50000,
+              "hardness": "HARD",
+              "source_quote": "$500 for the flight max"
+            }
+          ]
+        },
+        {
+          "when": "dates",
+          "says": "Yes, those dates work for me.",
+          "items": [
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "those dates work for me"
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "Ask me first please. And it's fine to say something in the group if a plan doesn't work for me.",
+          "settings": {
+            "speak_up_for_me": true,
+            "ask_me_first": true,
+            "source_quote": "Ask me first please"
+          }
+        }
+      ]
+    },
+    {
+      "name": "sam",
+      "backstory": "Organized the trip. Comfortable financially. Has a bad back and hates connections; would pay more to fly nonstop.",
+      "style": "Upbeat, uses emoji, decisive.",
+      "truth": {
+        "origin_airport": "JFK",
+        "no_budget_limit": true,
+        "max_stops": 0,
+        "speak_up_for_me": true,
+        "ask_me_first": false
+      },
+      "replies": [
+        {
+          "when": "open",
+          "says": "JFK. Money's not really an issue for me, but I'd rather not do layovers — nonstop if possible 🙏",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "JFK",
+              "source_quote": "JFK"
+            },
+            {
+              "key": "no_budget_limit",
+              "value": true,
+              "source_quote": "Money's not really an issue for me"
+            },
+            {
+              "key": "max_stops",
+              "value": 0,
+              "source_quote": "nonstop if possible",
+              "interpreted": true
+            }
+          ]
+        },
+        {
+          "when": "dates",
+          "says": "I picked the dates so yes 😄",
+          "items": [
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "I picked the dates so yes"
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "Speak up for me, and don't bother asking me about small stuff.",
+          "settings": {
+            "speak_up_for_me": true,
+            "ask_me_first": false,
+            "source_quote": "Speak up for me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "luis",
+      "backstory": "Surfer from San Diego, bringing his board. Splits money carefully between flight and the rest.",
+      "style": "Laid back, emoji, gives numbers readily.",
+      "truth": {
+        "origin_airport": "SAN",
+        "baggage_required": true,
+        "flight_budget_total": {
+          "value": 45000,
+          "hardness": "HARD"
+        },
+        "trip_budget_total": {
+          "value": 110000,
+          "hardness": "HARD"
+        },
+        "speak_up_for_me": true,
+        "ask_me_first": true
+      },
+      "replies": [
+        {
+          "when": "open",
+          "says": "San Diego, and I'm bringing my board so I need a checked bag for sure 🏄",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "SAN",
+              "source_quote": "San Diego",
+              "interpreted": true
+            },
+            {
+              "key": "baggage_required",
+              "value": true,
+              "source_quote": "I need a checked bag for sure"
+            }
+          ]
+        },
+        {
+          "when": "money",
+          "says": "Flights under $450, and the whole trip $1,100 tops",
+          "items": [
+            {
+              "key": "flight_budget_total",
+              "value": 45000,
+              "hardness": "HARD",
+              "source_quote": "Flights under $450"
+            },
+            {
+              "key": "trip_budget_total",
+              "value": 110000,
+              "hardness": "HARD",
+              "source_quote": "the whole trip $1,100 tops"
+            }
+          ]
+        },
+        {
+          "when": "dates",
+          "says": "dates work 🤙",
+          "items": [
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "dates work"
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "eh just ask me first if it costs more. speak up whenever",
+          "settings": {
+            "speak_up_for_me": true,
+            "ask_me_first": true,
+            "source_quote": "ask me first if it costs more"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dana",
+      "backstory": "Single parent in Chicago; has to be home by Sunday afternoon for her kid's recital. Firm budget.",
+      "style": "Brisk and organized.",
+      "truth": {
+        "origin_airport": "ORD",
+        "trip_budget_total": {
+          "value": 80000,
+          "hardness": "HARD"
+        },
+        "trip_note": "Home by Sunday afternoon",
+        "speak_up_for_me": false,
+        "ask_me_first": true
+      },
+      "replies": [
+        {
+          "when": "open",
+          "says": "Chicago here, flying from O'Hare. I have to be home by Sunday afternoon for my kid's recital.",
+          "items": [
+            {
+              "key": "origin_airport",
+              "value": "ORD",
+              "source_quote": "flying from O'Hare"
+            },
+            {
+              "key": "trip_note",
+              "value": "Home by Sunday afternoon",
+              "source_quote": "I have to be home by Sunday afternoon"
+            }
+          ]
+        },
+        {
+          "when": "money",
+          "says": "$800 all in, and I can't do more than that.",
+          "items": [
+            {
+              "key": "trip_budget_total",
+              "value": 80000,
+              "hardness": "HARD",
+              "source_quote": "$800 all in, and I can't do more"
+            }
+          ]
+        },
+        {
+          "when": "dates",
+          "says": "Leaving on the 12th works.",
+          "items": [
+            {
+              "key": "dates_ok",
+              "value": true,
+              "source_quote": "Leaving on the 12th works"
+            }
+          ]
+        },
+        {
+          "when": "settings",
+          "says": "Tell only me if there's a problem please. Check with me before spending more.",
+          "settings": {
+            "speak_up_for_me": false,
+            "ask_me_first": true,
+            "source_quote": "Tell only me if there's a problem"
+          }
+        }
+      ]
+    }
+  ],
+  "fixture_offers": {
+    "_comment": "Synthetic fares for tests: arrival is local time at the destination. Never labelled live.",
+    "flights": {
+      "SEA": [
+        [
+          "redeye",
+          29000,
+          "01:10",
+          0,
+          true
+        ],
+        [
+          "evening",
+          38000,
+          "21:00",
+          0,
+          true
+        ]
+      ],
+      "LAX": [
+        [
+          "evening",
+          26000,
+          "20:30",
+          0,
+          true
+        ]
+      ],
+      "SFO": [
+        [
+          "evening",
+          30000,
+          "20:45",
+          0,
+          true
+        ]
+      ],
+      "JFK": [
+        [
+          "one-stop",
+          52000,
+          "21:15",
+          1,
+          true
+        ],
+        [
+          "nonstop",
+          69000,
+          "21:50",
+          0,
+          false
+        ]
+      ],
+      "SAN": [
+        [
+          "evening",
+          33000,
+          "21:20",
+          0,
+          true
+        ]
+      ],
+      "ORD": [
+        [
+          "one-stop",
+          46000,
+          "22:10",
+          1,
+          true
+        ]
+      ]
+    },
+    "stays": [
+      [
+        "Waikiki 4-bedroom house",
+        240000,
+        8,
+        4,
+        4.8
+      ],
+      [
+        "Downtown 3-bedroom condo",
+        180000,
+        6,
+        3,
+        4.5
+      ]
+    ],
+    "transfers": [
+      [
+        "Airport van",
+        15000,
+        8
+      ],
+      [
+        "Sedan",
+        6000,
+        3
+      ]
+    ],
+    "ideas": [
+      [
+        "ACTIVITY",
+        "Hanauma Bay snorkel",
+        6500,
+        4.7
+      ],
+      [
+        "DINNER",
+        "Family-style luau",
+        9500,
+        4.6
+      ]
+    ]
+  }
+}

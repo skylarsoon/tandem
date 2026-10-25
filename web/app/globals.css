@@ -418,3 +418,124 @@ legend {
 .eyebrow {
   font-weight: 500;
 }
+
+/* Profile onboarding */
+.profile .hint {
+  color: #6b7f78;
+  font-size: 13px;
+}
+.profile-progress {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 18px;
+}
+.profile-progress span {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: #e1e7df;
+}
+.profile-progress span.on {
+  background: #214c40;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+.chips button small {
+  display: block;
+  font-size: 11px;
+  opacity: 0.75;
+}
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.profile-actions .primary {
+  background: #214c40;
+  color: white;
+}
+.profile-section summary,
+.profile-group summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.profile-section summary h2,
+.profile-group summary h3 {
+  display: inline;
+  margin: 0;
+}
+.profile-question,
+.profile-row {
+  border-top: 1px solid #e6ebe3;
+  padding: 16px 0;
+}
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.profile-prompt {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.profile-item {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) auto minmax(160px, 2fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin: 8px 0;
+}
+.profile-item input {
+  margin-top: 0;
+}
+.strength {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 6px;
+}
+.rank li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.rank button {
+  padding: 4px 9px;
+}
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+label.check input {
+  width: auto;
+  margin: 0;
+}
+.profile-calibration {
+  background: #f4f7f1;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin: 12px 0;
+}
+.profile-calibration blockquote {
+  margin: 8px 0;
+  font-size: 15px;
+  line-height: 1.6;
+}
+@media (max-width: 640px) {
+  .profile-item {
+    grid-template-columns: 1fr;
+  }
+  .profile-row {
+    flex-direction: column;
+  }
+}

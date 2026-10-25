@@ -7,8 +7,8 @@ from pydantic import ValidationError
 
 from ..contracts import Act, ContractError, Decision, Impact, Message, Payload, Question, ValidationMetadata, VoiceDraft, digest
 from ..explain import consultation_prompt
-from ..solver import RELAXABLE, relaxed
 from ..progress import activity
+from ..solver import RELAXABLE
 from ..policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
 
 
@@ -26,9 +26,43 @@ class PersonalState(TypedDict, total=False):
     outgoing_thread_id: str
 
 
-def question_for(claim, owner, kind, action_ref, prompt=""):
+def question_for(claim, owner, kind, action_ref, prompt="", nudge=None):
     return Question(id="question-" + digest([claim.snapshot_ref, owner, kind, action_ref])[:24],
-        owner=owner, kind=kind, action_ref=action_ref, snapshot_ref=claim.snapshot_ref, prompt=prompt)
+        owner=owner, kind=kind, action_ref=action_ref, snapshot_ref=claim.snapshot_ref, prompt=prompt, nudge=nudge)
+
+
+def _patch(key, value):
+    return {"key": key, "value": value, "hardness": "HARD", "unit": ""}
+
+
+def nudges(snapshot, brief, candidate, shared):
+    """Just-in-time questions: something the owner never said that this plan
+    depends on. Each states what a yes or a no will record; nothing is assumed.
+    Only in onboarded rooms, where silence means "not asked yet"."""
+    if not snapshot.get("onboarding"):
+        return []
+    asked, n = set(brief.answered), len(snapshot["members"])
+    found = []
+    stay = next((c for c in shared if c["category"] == "STAY"), None)
+    if stay and "own_bedroom" not in asked and stay.get("bedrooms") is not None and stay["bedrooms"] < n:
+        rooms = stay["bedrooms"]
+        found.append(("rooming", f"The best-value place for the group{', ' + stay['title'] if stay.get('title') else ''}, "
+                      f"has {rooms} bedroom{'s' if rooms != 1 else ''} for {n} of you. OK to share a room?",
+                      _patch("own_bedroom", False), _patch("own_bedroom", True)))
+    if candidate.get("baggage_included") is False and "baggage_required" not in asked:
+        found.append(("bag", f"Your best-value fare (${candidate['total_cents'] / 100:,.2f}) doesn't include a checked bag. "
+                      "Do you need one?", _patch("baggage_required", True), _patch("baggage_required", False)))
+    local = candidate.get("arrival_local")
+    if local and (local >= "23:00" or local < "06:00") and "arrival_window" not in asked:
+        found.append(("arrival", f"Your best-value flight lands at {local} local time. Is that OK? If not, I'll only "
+                      "consider flights landing between 06:00 and 23:00.",
+                      _patch("arrival_window", {"earliest": "00:00", "latest": "23:59"}),
+                      _patch("arrival_window", {"earliest": "06:00", "latest": "23:00"})))
+    stops = candidate.get("stops")
+    if stops is not None and stops >= 2 and "max_stops" not in asked:
+        found.append(("stops", f"Your best-value flight has {stops} connections. Is that OK? If not, I'll look for at "
+                      "most one.", _patch("max_stops", 3), _patch("max_stops", 1)))
+    return found
 
 
 def owner_prompt(kind, payload, act, impact, window_seconds):
@@ -59,17 +93,17 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         task = state["task"]
         backend.check(claim)
         activity(backend, claim, task["owner"], "THINKING")
-        original = backend.read_brief(claim, task["owner"])
-        # Requirements the owner agreed to set aside for this trip no longer bind.
-        snapshot_revision = task["snapshot"]["input_revision"]
-        [brief] = relaxed([original], snapshot_revision, lambda owner, ref: backend.has_permission(claim, owner, "CONSULTATION", ref))
+        # Requirements the owner set aside are their own recorded answers, already in the brief.
+        original = brief = backend.read_brief(claim, task["owner"])
         context = {"owner": brief.owner, "hard_cap_cents": brief.hard_cap_cents,
             "private_reason": brief.private_reason, "preferences": brief.preferences.model_dump(mode="json"),
             "baggage_required": brief.baggage_required, "candidate": task["candidate"],
             "trip_cap_cents": brief.trip_cap_cents, "own_bedroom": brief.own_bedroom, "stay_min_rating": brief.stay_min_rating,
             "shared": task.get("shared", []), "share_cents": task.get("share_cents", 0),
             "owner_accepted_this_plan_cost": backend.has_permission(claim, original.owner, "CONSULTATION", task["draft_ref"]),
-            "set_aside_by_owner": [field for field, _ in RELAXABLE.values() if getattr(brief, field) != getattr(original, field)],
+            # Requirements the owner set aside for this trip after being asked.
+            "set_aside_by_owner": [field for field, value in RELAXABLE.values()
+                                   if field in brief.answered and getattr(brief, field) == value and f"kept_{field}" not in brief.answered],
             "sender": task["sender"], "inbound_type": task["inbound_type"],
             "inbound_payload": task["inbound_payload"], "inbound_evidence": task["inbound_evidence"],
             "permitted_recipients": task["permitted_recipients"], "impact": impact_of(task["owner"]),

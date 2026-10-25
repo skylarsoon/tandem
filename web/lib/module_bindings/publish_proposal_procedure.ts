@@ -12,6 +12,7 @@ import {
 
 import {
   ImpactInput,
+  BurdenInput,
 } from "./types";
 
 export const params = {
@@ -19,6 +20,8 @@ export const params = {
   attempt: __t.u32(),
   requestKey: __t.string(),
   stage: __t.string(),
+  decisionId: __t.string(),
+  scope: __t.string(),
   termsJson: __t.string(),
   sharedSummaryJson: __t.string(),
   validationJson: __t.string(),
@@ -26,6 +29,9 @@ export const params = {
   affectedMemberIds: __t.array(__t.u64()),
   get impacts() {
     return __t.array(ImpactInput);
+  },
+  get burdens() {
+    return __t.array(BurdenInput);
   },
   selectedCandidateRefs: __t.array(__t.string()),
 };

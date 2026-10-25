@@ -9,10 +9,12 @@ import {
   invalidateRoom,
   nonEmpty,
   parseJson,
+  validateRoomSettings,
   requireHuman,
   requireRoom,
 } from './guards';
 import { applyParticipationPreferences } from './effects';
+import { startIntake } from './onboarding';
 
 const DEFAULT_REMINDER_DELAY_SECONDS = 600;
 const DEFAULT_ROOM_SETTINGS = JSON.stringify({ arrival_overlap_seconds: 7200 });
@@ -138,8 +140,10 @@ export const joinRoom = spacetimedb.reducer(
     } else {
       addMember(ctx, roomId, displayName, 'PARTICIPANT');
     }
-    invalidateRoom(ctx, roomId, { membership: true }, 'member joined');
+    const r = invalidateRoom(ctx, roomId, { membership: true }, 'member joined');
     emitEvent(ctx, roomId, 'MEMBER_JOINED', { display_name: displayName });
+    // Joining a trip whose brief is confirmed starts this traveller's onboarding.
+    startIntake(ctx, r, findMembership(ctx, roomId, ctx.sender)!);
   }
 );
 
@@ -184,28 +188,7 @@ export const setRoomSettings = spacetimedb.reducer(
     requireHuman(ctx);
     const r = requireRoom(ctx, roomId);
     if (!r.organizer.isEqual(ctx.sender)) fail('NOT_AUTHORIZED', 'only the organizer can change room settings');
-    const settings = parseJson(settingsJson, 'settingsJson');
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
-      fail('INVALID_ARGUMENT', 'settingsJson must be an object');
-    }
-    const overlap = (settings as Record<string, unknown>).arrival_overlap_seconds;
-    if (overlap !== undefined && (typeof overlap !== 'number' || !Number.isInteger(overlap) || overlap < 0)) {
-      fail('INVALID_ARGUMENT', 'arrival_overlap_seconds must be a non-negative integer');
-    }
-    const components = (settings as Record<string, unknown>).components;
-    if (
-      components !== undefined &&
-      (!Array.isArray(components) ||
-        !components.includes('FLIGHT') ||
-        new Set(components).size !== components.length ||
-        components.some(c => !['FLIGHT', 'STAY', 'TRANSFER'].includes(c as string)))
-    ) {
-      fail('INVALID_ARGUMENT', 'components must list FLIGHT and optionally STAY and TRANSFER, once each');
-    }
-    const perRoom = (settings as Record<string, unknown>).people_per_bedroom;
-    if (perRoom !== undefined && (typeof perRoom !== 'number' || !Number.isInteger(perRoom) || perRoom < 1 || perRoom > 8)) {
-      fail('INVALID_ARGUMENT', 'people_per_bedroom must be an integer from 1 to 8');
-    }
+    const settings = validateRoomSettings(parseJson(settingsJson, 'settingsJson'));
     ctx.db.room.id.update({ ...r, settingsJson });
     invalidateRoom(ctx, roomId, { input: true }, 'room settings changed');
     emitEvent(ctx, roomId, 'ROOM_SETTINGS_UPDATED', settings);

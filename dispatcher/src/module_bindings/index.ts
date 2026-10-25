@@ -34,13 +34,20 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AddRuleReducer from "./add_rule_reducer";
 import AddWorkerReducer from "./add_worker_reducer";
 import AnswerQuestionReducer from "./answer_question_reducer";
 import AskOwnerReducer from "./ask_owner_reducer";
+import ClearProfileAnswerReducer from "./clear_profile_answer_reducer";
 import CloseThreadsReducer from "./close_threads_reducer";
 import CompleteOperationReducer from "./complete_operation_reducer";
 import ConfirmConstraintPatchReducer from "./confirm_constraint_patch_reducer";
+import ConfirmIntakeReducer from "./confirm_intake_reducer";
+import ConfirmOriginReducer from "./confirm_origin_reducer";
 import ConfirmParticipationPreferencesReducer from "./confirm_participation_preferences_reducer";
+import ConfirmProfileSummaryReducer from "./confirm_profile_summary_reducer";
+import ConfirmTripBriefReducer from "./confirm_trip_brief_reducer";
+import CorrectProfileSummaryReducer from "./correct_profile_summary_reducer";
 import CreateRoomReducer from "./create_room_reducer";
 import EmitEventReducer from "./emit_event_reducer";
 import FailJobReducer from "./fail_job_reducer";
@@ -49,50 +56,68 @@ import JoinRoomReducer from "./join_room_reducer";
 import ParkJobReducer from "./park_job_reducer";
 import ProposeConstraintPatchReducer from "./propose_constraint_patch_reducer";
 import ProposeParticipationPreferencesReducer from "./propose_participation_preferences_reducer";
+import ProposeProfileSummaryReducer from "./propose_profile_summary_reducer";
+import ProposeTripBriefReducer from "./propose_trip_brief_reducer";
 import RecordCandidatesReducer from "./record_candidates_reducer";
 import RecordMessageProcessedReducer from "./record_message_processed_reducer";
 import RejectConstraintPatchReducer from "./reject_constraint_patch_reducer";
+import RemoveRuleReducer from "./remove_rule_reducer";
 import RenewLeaseReducer from "./renew_lease_reducer";
 import ReplyToOwnerReducer from "./reply_to_owner_reducer";
+import RequestProfileSummaryReducer from "./request_profile_summary_reducer";
 import RespondToProposalReducer from "./respond_to_proposal_reducer";
+import SaveProfileAnswerReducer from "./save_profile_answer_reducer";
 import SetAgentActivityReducer from "./set_agent_activity_reducer";
 import SetConstraintReducer from "./set_constraint_reducer";
 import SetReminderDelayReducer from "./set_reminder_delay_reducer";
 import SetRoomSettingsReducer from "./set_room_settings_reducer";
+import SetRuleStateReducer from "./set_rule_state_reducer";
+import SetTripDescriptionReducer from "./set_trip_description_reducer";
+import SkipProfileQuestionReducer from "./skip_profile_question_reducer";
 import SubmitAgentMessageReducer from "./submit_agent_message_reducer";
 import SubmitPrivateMessageReducer from "./submit_private_message_reducer";
+import UpdateIntakeReducer from "./update_intake_reducer";
 import UpsertProfileReducer from "./upsert_profile_reducer";
 import WithdrawConsentReducer from "./withdraw_consent_reducer";
+import WithdrawConstraintPatchesReducer from "./withdraw_constraint_patches_reducer";
 
 // Import all procedure arg schemas
 import * as BeginOperationProcedure from "./begin_operation_procedure";
 import * as CheckLeaseProcedure from "./check_lease_procedure";
 import * as ClaimJobProcedure from "./claim_job_procedure";
 import * as LoadExecutionContextProcedure from "./load_execution_context_procedure";
+import * as LoadProfileContextProcedure from "./load_profile_context_procedure";
 import * as PublishProposalProcedure from "./publish_proposal_procedure";
 
 // Import all table schema definitions
 import MyAgentMessagesRow from "./my_agent_messages_table";
+import MyCompromisesRow from "./my_compromises_table";
 import MyConsentsRow from "./my_consents_table";
 import MyConstraintPatchesRow from "./my_constraint_patches_table";
 import MyConstraintsRow from "./my_constraints_table";
+import MyIntakeRow from "./my_intake_table";
 import MyParticipationPreferencesRow from "./my_participation_preferences_table";
 import MyPrivateMessagesRow from "./my_private_messages_table";
 import MyProfileRow from "./my_profile_table";
+import MyProfileAnswersRow from "./my_profile_answers_table";
+import MyProfileCalibrationRow from "./my_profile_calibration_table";
 import MyProposalImpactsRow from "./my_proposal_impacts_table";
 import MyQuestionsRow from "./my_questions_table";
 import MyRoomsRow from "./my_rooms_table";
+import MyRulesRow from "./my_rules_table";
 import RoomAgentActivityRow from "./room_agent_activity_table";
 import RoomAgentsRow from "./room_agents_table";
 import RoomCandidatesRow from "./room_candidates_table";
 import RoomConsentCountsRow from "./room_consent_counts_table";
 import RoomEventsRow from "./room_events_table";
+import RoomIntakeProgressRow from "./room_intake_progress_table";
 import RoomMembersRow from "./room_members_table";
 import RoomMessagesRow from "./room_messages_table";
 import RoomMilestonesRow from "./room_milestones_table";
 import RoomPresenceRow from "./room_presence_table";
 import RoomProposalsRow from "./room_proposals_table";
 import RoomThreadsRow from "./room_threads_table";
+import RoomTripBriefRow from "./room_trip_brief_table";
 import WorkerPendingJobsRow from "./worker_pending_jobs_table";
 
 /** Type-only namespace exports for generated type groups. */
@@ -106,6 +131,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyAgentMessagesRow),
+  myCompromises: __table({
+    name: 'my_compromises',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyCompromisesRow),
   myConsents: __table({
     name: 'my_consents',
     indexes: [
@@ -127,6 +159,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyConstraintsRow),
+  myIntake: __table({
+    name: 'my_intake',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyIntakeRow),
   myParticipationPreferences: __table({
     name: 'my_participation_preferences',
     indexes: [
@@ -148,6 +187,20 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyProfileRow),
+  myProfileAnswers: __table({
+    name: 'my_profile_answers',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyProfileAnswersRow),
+  myProfileCalibration: __table({
+    name: 'my_profile_calibration',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyProfileCalibrationRow),
   myProposalImpacts: __table({
     name: 'my_proposal_impacts',
     indexes: [
@@ -169,6 +222,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyRoomsRow),
+  myRules: __table({
+    name: 'my_rules',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyRulesRow),
   roomAgentActivity: __table({
     name: 'room_agent_activity',
     indexes: [
@@ -204,6 +264,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, RoomEventsRow),
+  roomIntakeProgress: __table({
+    name: 'room_intake_progress',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, RoomIntakeProgressRow),
   roomMembers: __table({
     name: 'room_members',
     indexes: [
@@ -246,6 +313,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, RoomThreadsRow),
+  roomTripBrief: __table({
+    name: 'room_trip_brief',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, RoomTripBriefRow),
   workerPendingJobs: __table({
     name: 'worker_pending_jobs',
     indexes: [
@@ -257,13 +331,20 @@ const tablesSchema = __schema({
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("add_rule", AddRuleReducer),
   __reducerSchema("add_worker", AddWorkerReducer),
   __reducerSchema("answer_question", AnswerQuestionReducer),
   __reducerSchema("ask_owner", AskOwnerReducer),
+  __reducerSchema("clear_profile_answer", ClearProfileAnswerReducer),
   __reducerSchema("close_threads", CloseThreadsReducer),
   __reducerSchema("complete_operation", CompleteOperationReducer),
   __reducerSchema("confirm_constraint_patch", ConfirmConstraintPatchReducer),
+  __reducerSchema("confirm_intake", ConfirmIntakeReducer),
+  __reducerSchema("confirm_origin", ConfirmOriginReducer),
   __reducerSchema("confirm_participation_preferences", ConfirmParticipationPreferencesReducer),
+  __reducerSchema("confirm_profile_summary", ConfirmProfileSummaryReducer),
+  __reducerSchema("confirm_trip_brief", ConfirmTripBriefReducer),
+  __reducerSchema("correct_profile_summary", CorrectProfileSummaryReducer),
   __reducerSchema("create_room", CreateRoomReducer),
   __reducerSchema("emit_event", EmitEventReducer),
   __reducerSchema("fail_job", FailJobReducer),
@@ -272,20 +353,30 @@ const reducersSchema = __reducers(
   __reducerSchema("park_job", ParkJobReducer),
   __reducerSchema("propose_constraint_patch", ProposeConstraintPatchReducer),
   __reducerSchema("propose_participation_preferences", ProposeParticipationPreferencesReducer),
+  __reducerSchema("propose_profile_summary", ProposeProfileSummaryReducer),
+  __reducerSchema("propose_trip_brief", ProposeTripBriefReducer),
   __reducerSchema("record_candidates", RecordCandidatesReducer),
   __reducerSchema("record_message_processed", RecordMessageProcessedReducer),
   __reducerSchema("reject_constraint_patch", RejectConstraintPatchReducer),
+  __reducerSchema("remove_rule", RemoveRuleReducer),
   __reducerSchema("renew_lease", RenewLeaseReducer),
   __reducerSchema("reply_to_owner", ReplyToOwnerReducer),
+  __reducerSchema("request_profile_summary", RequestProfileSummaryReducer),
   __reducerSchema("respond_to_proposal", RespondToProposalReducer),
+  __reducerSchema("save_profile_answer", SaveProfileAnswerReducer),
   __reducerSchema("set_agent_activity", SetAgentActivityReducer),
   __reducerSchema("set_constraint", SetConstraintReducer),
   __reducerSchema("set_reminder_delay", SetReminderDelayReducer),
   __reducerSchema("set_room_settings", SetRoomSettingsReducer),
+  __reducerSchema("set_rule_state", SetRuleStateReducer),
+  __reducerSchema("set_trip_description", SetTripDescriptionReducer),
+  __reducerSchema("skip_profile_question", SkipProfileQuestionReducer),
   __reducerSchema("submit_agent_message", SubmitAgentMessageReducer),
   __reducerSchema("submit_private_message", SubmitPrivateMessageReducer),
+  __reducerSchema("update_intake", UpdateIntakeReducer),
   __reducerSchema("upsert_profile", UpsertProfileReducer),
   __reducerSchema("withdraw_consent", WithdrawConsentReducer),
+  __reducerSchema("withdraw_constraint_patches", WithdrawConstraintPatchesReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
@@ -294,6 +385,7 @@ const proceduresSchema = __procedures(
   __procedureSchema("check_lease", CheckLeaseProcedure.params, CheckLeaseProcedure.returnType),
   __procedureSchema("claim_job", ClaimJobProcedure.params, ClaimJobProcedure.returnType),
   __procedureSchema("load_execution_context", LoadExecutionContextProcedure.params, LoadExecutionContextProcedure.returnType),
+  __procedureSchema("load_profile_context", LoadProfileContextProcedure.params, LoadProfileContextProcedure.returnType),
   __procedureSchema("publish_proposal", PublishProposalProcedure.params, PublishProposalProcedure.returnType),
 );
 

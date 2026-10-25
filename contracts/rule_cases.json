@@ -1,0 +1,633 @@
+{
+ "version": 1,
+ "about": "Shared cases: worker/src/tandem_worker/rules.py and spacetimedb/src/rules.ts must both give these answers.",
+ "cases": [
+  {
+   "name": "stops lte 0, nonstop",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "stops",
+    "operator": "lte",
+    "value": 0
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "stops": 0
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "stops lte 0, one stop",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "stops",
+    "operator": "lte",
+    "value": 0
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "stops": 1
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "missing fact is unknown, never fine",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "stops",
+    "operator": "lte",
+    "value": 0
+   },
+   "facts": {
+    "category": "FLIGHT"
+   },
+   "expect": "UNKNOWN"
+  },
+  {
+   "name": "null fact is unknown",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "stops",
+    "operator": "lte",
+    "value": 0
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "stops": null
+   },
+   "expect": "UNKNOWN"
+  },
+  {
+   "name": "another category doesn't apply",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "stops",
+    "operator": "lte",
+    "value": 0
+   },
+   "facts": {
+    "category": "STAY",
+    "bedrooms": 3
+   },
+   "expect": "NOT_APPLICABLE"
+  },
+  {
+   "name": "fare at the cap",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 50000
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 50000
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "fare over the cap",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 50000
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 50001
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "lt is strict",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lt",
+    "value": 50000
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 50000
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "gt is strict",
+   "rule": {
+    "category": "STAY",
+    "attribute": "rating",
+    "operator": "gt",
+    "value": 4.5
+   },
+   "facts": {
+    "category": "STAY",
+    "rating": 4.5
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "rating gte",
+   "rule": {
+    "category": "STAY",
+    "attribute": "rating",
+    "operator": "gte",
+    "value": 4.5
+   },
+   "facts": {
+    "category": "STAY",
+    "rating": 4.6
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "checked bag required, included",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "baggage_included",
+    "operator": "eq",
+    "value": true
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "baggage_included": true
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "checked bag required, not included",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "baggage_included",
+    "operator": "eq",
+    "value": true
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "baggage_included": false
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "checked bag unknown",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "baggage_included",
+    "operator": "eq",
+    "value": true
+   },
+   "facts": {
+    "category": "FLIGHT"
+   },
+   "expect": "UNKNOWN"
+  },
+  {
+   "name": "neq",
+   "rule": {
+    "category": "STAY",
+    "attribute": "bedrooms",
+    "operator": "neq",
+    "value": 1
+   },
+   "facts": {
+    "category": "STAY",
+    "bedrooms": 2
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "in",
+   "rule": {
+    "category": "STAY",
+    "attribute": "bedrooms",
+    "operator": "in",
+    "value": [
+     2,
+     3
+    ]
+   },
+   "facts": {
+    "category": "STAY",
+    "bedrooms": 3
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "not_in",
+   "rule": {
+    "category": "STAY",
+    "attribute": "bedrooms",
+    "operator": "not_in",
+    "value": [
+     2,
+     3
+    ]
+   },
+   "facts": {
+    "category": "STAY",
+    "bedrooms": 3
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "landing window, inside",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "arrival_local",
+    "operator": "between",
+    "value": [
+     "07:00",
+     "22:00"
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "arrival_local": "21:59"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "landing window, edges count",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "arrival_local",
+    "operator": "between",
+    "value": [
+     "07:00",
+     "22:00"
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "arrival_local": "22:00"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "landing window, outside",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "arrival_local",
+    "operator": "between",
+    "value": [
+     "07:00",
+     "22:00"
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "arrival_local": "23:30"
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "window past midnight, late",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "arrival_local",
+    "operator": "between",
+    "value": [
+     "22:00",
+     "02:00"
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "arrival_local": "23:30"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "window past midnight, early",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "arrival_local",
+    "operator": "between",
+    "value": [
+     "22:00",
+     "02:00"
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "arrival_local": "01:00"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "window past midnight, midday",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "arrival_local",
+    "operator": "between",
+    "value": [
+     "22:00",
+     "02:00"
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "arrival_local": "12:00"
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "time compared as time",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "arrival_local",
+    "operator": "lte",
+    "value": "09:30"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "arrival_local": "09:05"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "between numbers",
+   "rule": {
+    "category": "STAY",
+    "attribute": "total_cents",
+    "operator": "between",
+    "value": [
+     100000,
+     200000
+    ]
+   },
+   "facts": {
+    "category": "STAY",
+    "total_cents": 150000
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "unknown attribute is an invalid rule",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "pool",
+    "operator": "eq",
+    "value": true
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "pool": true
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "unknown category is an invalid rule",
+   "rule": {
+    "category": "YACHT",
+    "attribute": "stops",
+    "operator": "lte",
+    "value": 0
+   },
+   "facts": {
+    "category": "YACHT",
+    "stops": 0
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "ordering a yes/no is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "baggage_included",
+    "operator": "lt",
+    "value": true
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "baggage_included": false
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "money must be whole cents",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 499.5
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 400
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a time must be HH:MM",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "arrival_local",
+    "operator": "lte",
+    "value": "9am"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "arrival_local": "08:00"
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "between needs two ends",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "stops",
+    "operator": "between",
+    "value": [
+     0
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "stops": 0
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "only times may wrap",
+   "rule": {
+    "category": "STAY",
+    "attribute": "rating",
+    "operator": "between",
+    "value": [
+     5,
+     4
+    ]
+   },
+   "facts": {
+    "category": "STAY",
+    "rating": 4.5
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "in needs a list",
+   "rule": {
+    "category": "STAY",
+    "attribute": "bedrooms",
+    "operator": "in",
+    "value": []
+   },
+   "facts": {
+    "category": "STAY",
+    "bedrooms": 2
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a value of the wrong type",
+   "rule": {
+    "category": "STAY",
+    "attribute": "bedrooms",
+    "operator": "gte",
+    "value": "two"
+   },
+   "facts": {
+    "category": "STAY",
+    "bedrooms": 2
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a total isn't checked per candidate",
+   "rule": {
+    "aggregate": "my_cost",
+    "operator": "lte",
+    "value": 80000
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 100
+   },
+   "expect": "INVALID_RULE"
+  }
+ ],
+ "legacy_cases": [
+  {
+   "key": "flight_budget_total",
+   "row": {
+    "value": 50000,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "flight_budget_total",
+   "row": {
+    "value": 45000,
+    "hardness": "SOFT",
+    "authorized_range": {
+     "max": 50000
+    }
+   }
+  },
+  {
+   "key": "trip_budget_total",
+   "row": {
+    "value": 80000,
+    "hardness": "SOFT"
+   }
+  },
+  {
+   "key": "baggage_required",
+   "row": {
+    "value": true,
+    "hardness": "SOFT"
+   }
+  },
+  {
+   "key": "baggage_required",
+   "row": {
+    "value": false,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "arrival_window",
+   "row": {
+    "value": {
+     "earliest": "07:00"
+    },
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "arrival_window",
+   "row": {
+    "value": {
+     "earliest": "22:00",
+     "latest": "02:00"
+    },
+    "hardness": "SOFT"
+   }
+  },
+  {
+   "key": "max_stops",
+   "row": {
+    "value": 0,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "stay_min_rating",
+   "row": {
+    "value": 4.5,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "stay_min_rating",
+   "row": {
+    "value": null,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "own_bedroom",
+   "row": {
+    "value": true,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "own_bedroom",
+   "row": {
+    "value": false,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "origin_airport",
+   "row": {
+    "value": "SFO",
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "no_budget_limit",
+   "row": {
+    "value": true,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "trip_note",
+   "row": {
+    "value": "home by Sunday",
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "kept_own_bedroom",
+   "row": {
+    "value": true,
+    "hardness": "HARD"
+   }
+  }
+ ]
+}

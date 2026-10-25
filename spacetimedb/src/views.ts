@@ -11,6 +11,8 @@ import spacetimedb, {
   participantConstraint,
   participationPreferences,
   privateMessage,
+  tripBrief,
+  intake,
   profile,
   question,
   room,
@@ -58,6 +60,8 @@ const ProposalRow = t.row('ProposalRow', {
   id: t.u64().primaryKey(),
   roomId: t.u64(),
   stage: t.string(),
+  decisionId: t.string(),
+  scope: t.string(),
   version: t.u32(),
   termsJson: t.string(),
   termsDigest: t.string(),
@@ -94,6 +98,18 @@ const ImpactRow = t.row('ImpactRow', {
   proposalId: t.u64(),
   roomId: t.u64(),
   impactJson: t.string(),
+});
+
+const CompromiseRow = t.row('CompromiseRow', {
+  id: t.u64().primaryKey(),
+  roomId: t.u64(),
+  decisionId: t.string(),
+  proposalId: t.u64(),
+  proposalVersion: t.u32(),
+  stage: t.string(),
+  burdenMicros: t.u32(),
+  state: t.string(),
+  updatedAt: t.timestamp(),
 });
 
 const PresenceRow = t.row('PresenceRow', {
@@ -241,6 +257,9 @@ export const roomProposals = spacetimedb.view({ name: 'room_proposals', public: 
       id: p.id,
       roomId: p.roomId,
       stage: p.stage,
+      // Proposals from before decisions existed count as one decision per stage.
+      decisionId: ctx.db.proposalDecision.proposalId.find(p.id)?.decisionId ?? p.stage,
+      scope: ctx.db.proposalDecision.proposalId.find(p.id)?.scope ?? 'LEGACY',
       version: p.version,
       termsJson: p.termsJson,
       termsDigest: p.termsDigest,
@@ -260,6 +279,47 @@ export const myProposalImpacts = spacetimedb.view({ name: 'my_proposal_impacts',
     proposalId: i.proposalId,
     roomId: i.roomId,
     impactJson: i.impactJson,
+  }))
+);
+
+const RuleRow = t.row('RuleRow', {
+  id: t.u64().primaryKey(),
+  roomId: t.u64(),
+  ruleJson: t.string(),
+  kind: t.string(),
+  state: t.string(),
+  sourceQuote: t.string(),
+  legacyKey: t.option(t.string()),
+  updatedAt: t.timestamp(),
+});
+
+// Your own rules in every room, in the generic language.
+export const myRules = spacetimedb.view({ name: 'my_rules', public: true }, t.array(RuleRow), ctx =>
+  [...ctx.db.participantRule.byOwner.filter(ctx.sender)].map(r => ({
+    id: r.id,
+    roomId: r.roomId,
+    ruleJson: r.ruleJson,
+    kind: r.kind,
+    state: r.state,
+    sourceQuote: r.sourceQuote,
+    legacyKey: r.legacyKey,
+    updatedAt: r.updatedAt,
+  }))
+);
+
+// Your own approved compromises, never anyone else's: burdens come from
+// private limits, so the ledger has no room-wide view.
+export const myCompromises = spacetimedb.view({ name: 'my_compromises', public: true }, t.array(CompromiseRow), ctx =>
+  [...ctx.db.compromiseEntry.byOwner.filter(ctx.sender)].map(e => ({
+    id: e.id,
+    roomId: e.roomId,
+    decisionId: e.decisionId,
+    proposalId: e.proposalId,
+    proposalVersion: e.proposalVersion,
+    stage: e.stage,
+    burdenMicros: e.burdenMicros,
+    state: e.state,
+    updatedAt: e.updatedAt,
   }))
 );
 
@@ -344,4 +404,39 @@ export const roomAgentActivity = spacetimedb.view(
 // Only allowlisted worker/dispatcher identities see anything here.
 export const workerPendingJobs = spacetimedb.view({ name: 'worker_pending_jobs', public: true }, t.array(job.rowType), ctx =>
   ctx.db.worker.identity.find(ctx.sender) ? [...ctx.db.job.byStatus.filter('PENDING')] : []
+);
+
+// ---------- Onboarding ----------
+
+export const roomTripBrief = spacetimedb.view({ name: 'room_trip_brief', public: true }, t.array(tripBrief.rowType), ctx =>
+  myRoomIds(ctx.db, ctx.sender).flatMap(roomId => {
+    const b = ctx.db.tripBrief.roomId.find(roomId);
+    return b ? [b] : [];
+  })
+);
+
+export const myIntake = spacetimedb.view({ name: 'my_intake', public: true }, t.array(intake.rowType), ctx => [
+  ...ctx.db.intake.byOwner.filter(ctx.sender),
+]);
+
+// Neutral progress for the room: how many are ready, never who or what they said.
+const IntakeProgressRow = t.row('IntakeProgressRow', {
+  roomId: t.u64().primaryKey(),
+  ready: t.u32(),
+  total: t.u32(),
+});
+
+export const roomIntakeProgress = spacetimedb.view(
+  { name: 'room_intake_progress', public: true },
+  t.array(IntakeProgressRow),
+  ctx =>
+    myRoomIds(ctx.db, ctx.sender).flatMap(roomId => {
+      const b = ctx.db.tripBrief.roomId.find(roomId);
+      if (!b || b.state !== 'CONFIRMED') return [];
+      const active = [...ctx.db.membership.byRoomMember.filter(roomId)].filter(m => m.active);
+      const ready = [...ctx.db.intake.byRoom.filter(roomId)].filter(
+        i => i.state === 'CONFIRMED' && active.some(m => m.member.isEqual(i.owner))
+      ).length;
+      return [{ roomId, ready, total: active.length }];
+    })
 );

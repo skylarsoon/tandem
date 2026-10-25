@@ -114,6 +114,19 @@ export const answerQuestion = spacetimedb.reducer(
     }
 
     if (q.kind === 'MISSING_FACT' && answer.constraint !== undefined) {
+      const nudge = (JSON.parse(q.actionJson) as { nudge?: { yes?: unknown; no?: unknown } }).nudge;
+      if (nudge) {
+        // A just-in-time question the waiting job asked: the answer must be one of the
+        // two it offered. It's recorded now and the job resumes and re-plans with it,
+        // so several people's answers don't cancel each other's questions.
+        const picked = canonical(answer.constraint);
+        if (picked !== canonical(nudge.yes) && picked !== canonical(nudge.no)) {
+          fail('INVALID_ARGUMENT', 'answer must be one of the offered choices');
+        }
+        upsertConstraint(ctx, q.roomId, constraintFromPatch(JSON.stringify(answer.constraint)), false);
+        resumeJobIfReady(ctx, q.jobId);
+        return;
+      }
       upsertConstraint(ctx, q.roomId, constraintFromPatch(JSON.stringify(answer.constraint)));
       return;
     }

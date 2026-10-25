@@ -194,3 +194,17 @@ def test_room_needs_premium_compares_only_with_approvable_stays():
     result = trip(briefs, FLIGHTS + [unpriced, stay("three-bed", 120000, bedrooms=3), stay("two-bed", 100000, bedrooms=2)]
                   + [transfer("van", 8000)])
     assert result.group.stay == "three-bed" and result.group.stay_premium_cents == 20000, "vs the $1,000 two-bed, not $500"
+
+
+def test_arrival_window_and_stops_limit_flights_and_say_what_relaxing_costs():
+    early = flight("a", "a-redeye", 20000, 9).model_copy(update={"arrival_local": "01:10", "stops": 0})
+    day = flight("a", "a-day", 26000, 10).model_copy(update={"arrival_local": "14:00", "stops": 1})
+    nonstop = flight("a", "a-nonstop", 31000, 10.5).model_copy(update={"arrival_local": "14:30", "stops": 0})
+    window = brief("a", 50000).model_copy(update={"arrival_window": {"earliest": "06:00", "latest": "23:00"}})
+    assert solve("a", [window], [early, day, nonstop]).selected == ("a-day",)
+    both = window.model_copy(update={"max_stops": 0})
+    assert solve("a", [both], [early, day, nonstop]).selected == ("a-nonstop",)
+    [conflict] = solve("a", [both], [early, day]).conflicts
+    assert (conflict.code, conflict.requirement, conflict.cheapest_cents) == ("TOO_MANY_STOPS", "STOPS", 26000)
+    [conflict] = solve("a", [window], [early]).conflicts
+    assert (conflict.code, conflict.cheapest_cents) == ("ARRIVAL_TIME", 20000)

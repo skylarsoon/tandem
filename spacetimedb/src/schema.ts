@@ -94,6 +94,50 @@ const profile = table(
   }
 );
 
+// Persistent profile onboarding (contracts/profile_questions.json): one row per
+// answered or skipped question. No row means unknown; SKIPPED is "not now";
+// explicit "none" / "no preference" are answers. Private to the owner.
+const profileAnswer = table(
+  {
+    name: 'profile_answer',
+    indexes: [{ accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] }],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    owner: t.identity(),
+    questionId: t.string(),
+    key: t.string(),
+    status: t.string(),
+    valueJson: t.string(),
+    catalogVersion: t.u32(),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// The agent's "Does this sound like you?" summary of the profile, which the
+// owner confirms or corrects. Corrections are context, never requirements.
+const profileCalibration = table(
+  { name: 'profile_calibration' },
+  {
+    owner: t.identity().primaryKey(),
+    state: t.string(),
+    summary: t.option(t.string()),
+    correction: t.option(t.string()),
+    profileRevision: t.u64(),
+    jobId: t.option(t.u64()),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// Whose profile a PROFILE job summarizes (profile jobs belong to no room).
+const profileJob = table(
+  { name: 'profile_job' },
+  {
+    jobId: t.u64().primaryKey(),
+    owner: t.identity(),
+  }
+);
+
 const participationPreferences = table(
   { name: 'participation_preferences' },
   {
@@ -172,6 +216,63 @@ const participantConstraint = table(
   }
 );
 
+// What people need, in the generic rule language (rules.ts): one row per rule,
+// need or search fact. Rows mirrored from an old named limit carry its key, so
+// confirming that limit again replaces them. Private to the owner and the worker.
+const participantRule = table(
+  {
+    name: 'participant_rule',
+    indexes: [
+      { accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] },
+      { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    owner: t.identity(),
+    ruleJson: t.string(),
+    kind: t.string(),
+    state: t.string(),
+    sourceQuote: t.string(),
+    legacyKey: t.option(t.string()),
+    updatedAt: t.timestamp(),
+  }
+);
+
+const participantNeed = table(
+  {
+    name: 'participant_need',
+    indexes: [{ accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] }],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    owner: t.identity(),
+    category: t.string(),
+    attribute: t.string(),
+    needs: t.f64(),
+    legacyKey: t.option(t.string()),
+    updatedAt: t.timestamp(),
+  }
+);
+
+const searchFact = table(
+  {
+    name: 'search_fact',
+    indexes: [{ accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] }],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    owner: t.identity(),
+    fact: t.string(),
+    valueJson: t.string(),
+    legacyKey: t.option(t.string()),
+    updatedAt: t.timestamp(),
+  }
+);
+
 const constraintPatch = table(
   {
     name: 'constraint_patch',
@@ -202,6 +303,60 @@ const privateMessage = table(
     body: t.string(),
     jobId: t.option(t.u64()),
     createdAt: t.timestamp(),
+  }
+);
+
+// ---------- Onboarding ----------
+
+// The organizer's own words about the trip, the structured brief their agent
+// proposes from them (destination, dates, what to plan), and its state
+// DRAFT → PROPOSED → CONFIRMED. A confirmed brief is shared room context.
+const tripBrief = table(
+  { name: 'trip_brief' },
+  {
+    roomId: t.u64().primaryKey(),
+    description: t.string(),
+    briefJson: t.string(),
+    unclearJson: t.string(),
+    state: t.string(),
+    revision: t.u64(),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// One traveller's onboarding conversation for one trip. coverageJson maps each
+// essential topic to OPEN | ANSWERED | UNCLEAR | SKIPPED.
+// State: ASKING → SUMMARY → CONFIRMED (a new message in SUMMARY goes back to ASKING).
+const intake = table(
+  {
+    name: 'intake',
+    indexes: [
+      { accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] },
+      { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    owner: t.identity(),
+    memberId: t.u64(),
+    state: t.string(),
+    coverageJson: t.string(),
+    questionCount: t.u32(),
+    briefRevision: t.u64(),
+    createdAt: t.timestamp(),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// Whose conversation an INTAKE job serves (purpose BRIEF or INTAKE). INTERPRET
+// jobs find their owner through private_message.jobId instead.
+const jobSubject = table(
+  { name: 'job_subject' },
+  {
+    jobId: t.u64().primaryKey(),
+    memberId: t.u64(),
+    purpose: t.string(),
   }
 );
 
@@ -520,6 +675,71 @@ const consent = table(
   }
 );
 
+// Which decision a proposal is a version of (e.g. "flights", "stay",
+// "activity_snorkeling"), what kind of decision it is (its scope, which picks
+// the validation), and the candidates it selects. One row per proposal. A new
+// proposal supersedes only earlier versions of the same decision, so separate
+// decisions in one stage are agreed independently.
+const proposalDecision = table(
+  {
+    name: 'proposal_decision',
+    indexes: [{ accessor: 'byRoomDecision', algorithm: 'btree', columns: ['roomId', 'decisionId'] }],
+  },
+  {
+    proposalId: t.u64().primaryKey(),
+    roomId: t.u64(),
+    decisionId: t.string(),
+    scope: t.string(),
+    selectedRefs: t.array(t.string()),
+  }
+);
+
+// What each person would give up if a proposal is agreed (0..1), as the
+// optimizer scored it at publish. Immutable; the ledger copies it on agreement.
+const proposalBurden = table(
+  {
+    name: 'proposal_burden',
+    indexes: [{ accessor: 'byProposal', algorithm: 'btree', columns: ['proposalId'] }],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    proposalId: t.u64(),
+    roomId: t.u64(),
+    memberId: t.u64(),
+    // Millionths of the 0..1 compromise burden: exact integers, exact sums.
+    burdenMicros: t.u32(),
+  }
+);
+
+// Approved compromise, per person and decision. ACTIVE exactly while its
+// proposal is AGREED: a new version of the decision supersedes it, a withdrawn
+// approval revokes it. The sum of a member's ACTIVE entries is their
+// cumulative burden H_i for the optimizer.
+const compromiseEntry = table(
+  {
+    name: 'compromise_entry',
+    indexes: [
+      { accessor: 'byProposal', algorithm: 'btree', columns: ['proposalId'] },
+      { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    memberId: t.u64(),
+    owner: t.identity(),
+    decisionId: t.string(),
+    proposalId: t.u64(),
+    proposalVersion: t.u32(),
+    termsDigest: t.string(),
+    stage: t.string(),
+    burdenMicros: t.u32(),
+    state: t.string(),
+    createdAt: t.timestamp(),
+    updatedAt: t.timestamp(),
+  }
+);
+
 const milestone = table(
   {
     name: 'milestone',
@@ -542,13 +762,22 @@ const spacetimedb = schema({
   membership,
   agent,
   profile,
+  profileAnswer,
+  profileCalibration,
+  profileJob,
   participationPreferences,
   presence,
   agentStatus,
   reviewReminder,
   participantConstraint,
+  participantRule,
+  participantNeed,
+  searchFact,
   constraintPatch,
   privateMessage,
+  tripBrief,
+  intake,
+  jobSubject,
   question,
   actionGrant,
   job,
@@ -564,11 +793,15 @@ const spacetimedb = schema({
   proposal,
   participantImpact,
   consent,
+  proposalDecision,
+  proposalBurden,
+  compromiseEntry,
   milestone,
 });
 export default spacetimedb;
 
 export {
+  profileCalibration,
   room,
   membership,
   agent,
@@ -577,6 +810,8 @@ export {
   participantConstraint,
   constraintPatch,
   privateMessage,
+  tripBrief,
+  intake,
   question,
   job,
   conversationThread,

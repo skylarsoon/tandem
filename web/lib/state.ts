@@ -1,5 +1,11 @@
 export type Row = Record<string, any>;
-export const baseTables = ["my_rooms"];
+// Yours, whatever room is open: the room list and your persistent profile.
+export const baseTables = [
+  "my_rooms",
+  "my_profile",
+  "my_profile_answers",
+  "my_profile_calibration",
+];
 export const roomTables = [
   "room_members",
   "room_agents",
@@ -160,7 +166,7 @@ export class RoomSession {
         .onError(() => {
           if (epoch === this.epoch) this.error("Room list subscription failed");
         })
-        .subscribe("SELECT * FROM my_rooms"),
+        .subscribe(baseTables.map((t) => `SELECT * FROM ${t}`)),
     );
     this.subscribeRoom();
   }

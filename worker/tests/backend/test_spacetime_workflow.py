@@ -12,11 +12,11 @@ from tandem_worker.runner import Worker
 PEOPLE = ("p1", "p2", "p3", "p4")
 
 
-def make_worker(room, tmp_path, scenario, model=None):
+def make_worker(room, tmp_path, scenario, model=None, solver=None):
     clock = SystemClock()
     research = FixtureResearch(clock, scenario)
     worker = Worker(room.backend, model or ScriptedModel(scenario), research, tmp_path / "checkpoints.sqlite",
-                    clock=clock, limits=room.backend.limits)
+                    clock=clock, limits=room.backend.limits, solver=solver)
     return worker, research
 
 
@@ -202,7 +202,7 @@ def test_room_request_clash_is_negotiated_on_spacetimedb(stdb_room, tmp_path):
     assert worker.run_one(room.plan_job())["outcome"] == "WAITING_FOR_INPUT"
     for owner in ("p1", "p2"):
         [question] = room.view(owner, "my_questions")
-        assert question["kind"] == "CONCESSION_CONSULTATION" and question["prompt"].startswith("Your own-room request")
+        assert question["kind"] == "MISSING_FACT" and question["prompt"].startswith("Your own-room request")
     result = None
     for _ in range(4):
         for owner in ("p1", "p2"):
@@ -230,6 +230,20 @@ def test_trip_budget_from_the_database_blocks_privately(stdb_room, tmp_path):
     assert "600" not in event["safe_payload_json"] and json.loads(event["safe_payload_json"])["blocked_travellers"] == {"TRIP_LIMIT": 1}
 
 
+def test_optimizer_burdens_reach_the_ledger_only_after_everyone_agrees(stdb_room, tmp_path):
+    room = stdb_room("happy")
+    worker, _ = make_worker(room, tmp_path, "happy")  # the default chooser: the multi-selection optimizer
+    assert worker.run_one(room.plan_job())["outcome"] == "AWAITING_REVIEW"
+    assert room.view("p2", "my_compromises") == [], "a published suggestion records nothing"
+
+    proposal = shared_view(room, "room_proposals")[0]
+    for owner in PEOPLE:
+        room.backend.http.call(room.tokens[owner], "respond_to_proposal", proposal_id=proposal["id"],
+                               version=proposal["version"], terms_digest=proposal["terms_digest"], response="ACCEPT", note=None)
+    for owner in PEOPLE:  # everyone flies their cheapest here, so each records a zero burden
+        [entry] = room.view(owner, "my_compromises")
+        assert (entry["decision_id"], entry["burden_micros"], entry["state"]) == ("trip", 0, "ACTIVE")
+
 def test_progress_is_room_safe_and_activity_resets_after_pause(stdb_room, tmp_path):
     room = stdb_room("clarification-restart")
     worker, _ = make_worker(room, tmp_path, "clarification-restart")
@@ -239,3 +253,16 @@ def test_progress_is_room_safe_and_activity_resets_after_pause(stdb_room, tmp_pa
     assert any(e["phase"] == "PAUSED" for e in progress)
     assert "PRIVATE_CANARY" not in json.dumps(progress) and "owner" not in json.dumps(progress)
     assert all(a["activity"] == "IDLE" for a in shared_view(room, "room_agent_activity"))
+
+
+def test_the_optimizer_plans_a_whole_trip_the_database_accepts(stdb_room, tmp_path):
+    from tandem_worker.optimizer_bridge import POLICY, TandemOptimizerBridge
+    room = stdb_room("trip-happy")
+    worker, _ = make_worker(room, tmp_path, "trip-happy", solver=TandemOptimizerBridge())
+    assert worker.run_one(room.plan_job())["outcome"] == "AWAITING_REVIEW", "published past the module's own checks"
+    [proposal] = shared_view(room, "room_proposals")
+    terms = json.loads(proposal["terms_json"])
+    assert sorted(c["category"] for c in terms["selected"]) == ["FLIGHT"] * 4 + ["STAY", "TRANSFER"]
+    assert (proposal["scope"], proposal["decision_id"]) == ("COMPLETE_PLAN", "trip")
+    assert impact_of(room, "p4")["share_cents"] == 33000
+    assert POLICY == "cumulative_fairness_v1"

@@ -94,6 +94,54 @@ The fix came from reading the fine print. Google states its fares already includ
 
 **Live data takes different paths.** Two runs with the same config went different ways. In one, Airbnb's top results had no three-bedroom place, so Alice was asked privately whether she'd share. In the other, a three-bedroom place appeared and nobody was asked. Our tests cover each branch with fixtures, so the live behaviour isn't luck.
 
+## Onboarding without a form
+
+**Forms feel like paperwork; chat invites guessing.** We wanted onboarding to feel like talking to someone who's paying attention: one trip-aware opener ("Honolulu, Feb 12–16 with Alice, Bob and Carol. Where would you fly from, and is there anything that's a must-have or a deal-breaker?"), then only what's still missing. But a chatty agent will happily turn "I'm flexible" into a rule. So everything the agent records must quote the person's exact words, and the database checks the quote against their message. A number has to appear in what they said. A budget without "for everything" or "for the flight" becomes a question, not a guess. Nothing becomes a limit until they confirm it.
+
+**Ask now, or ask later?** Asking about rooming, bags and landing times up front made onboarding long. Never asking meant silently assuming. We split it: onboarding covers only what planning can't start without (where you fly from, money, how your agent should act). The rest is asked *just in time*, when a real plan depends on it ("The best-value place has 3 bedrooms for 6 of you. OK to share a room?"). The answer is recorded as the person's own limit.
+
+**Our first live simulation caught four real bugs.** We had Claude play six people with private backstories (a nurse off night shifts, a friend who just got laid off and says "whatever works", someone with a CPAP who won't say why they need their own room) against the real worker:
+- **Drifting questions.** The agent's own questions wandered into small talk about beach vibes and used every question allowed. Questions now use our wording for exactly the open essentials, which also halved the number of model calls.
+- **A dropped budget.** "Around $900, could stretch to $1,000" was thrown away because the quoted span didn't contain the $1,000. The person repeated it four times in a loop.
+- **A preference recorded as a rule.** "A few bedrooms would be nice, but I'm flexible" became "needs own room".
+- **Internal notes sent to people.** The agent once sent its own note ("Maya did not say whether the dates work; ask her") to Maya herself.
+
+Each is now a regression test. The rerun took 155 seconds instead of about 9 minutes: 2–4 questions per person, nothing assumed, nothing leaked.
+
+**A permission that expired too soon.** When someone agreed to share a room so a friend's budget would work, we stored it as a grant tied to the current planning revision. The next person's answer bumped the revision, the grant silently expired, and she was asked again. Setting a requirement aside is really a change to your own requirements, so it's now recorded as your constraint ("kept" if you say no), and you're asked once per trip.
+
+**One answer cancelled everyone else's questions.** Just-in-time answers restarted planning, which cancelled the other open questions, so five people were asked in five rounds. Answers to the waiting job's own questions are now recorded without a restart. The job resumes once everyone has answered and re-plans with all of it.
+
+**Real names broke agent replies.** With test names like `p1`, a thread's participant list happened to be in sorted order. With "dana" and "jordan", which sort before "mediator", it wasn't, so every reply was rejected. Participant lists are now compared as sets.
+
+**Fairness that remembers, without trusting the optimizer.** The optimizer wanted a running total of what each person has given up across decisions, so whoever compromised on flights gets priority on the stay. The risk was counting a burden that nobody actually approved, or counting it twice. So the optimizer doesn't write the ledger. It hands its scores to the database along with the plan, and the database moves them into the ledger itself, in the same transaction where the last person's "yes" makes the plan agreed.
+- A retry can't count twice.
+- A withdrawn "yes" takes the burden back out.
+- A new version of a decision replaces the old one's burden instead of adding to it.
+
+Burdens are stored as millionths, not floats, so a person's total stays exact however many decisions it adds up.
+
+**One agreement per stage wasn't enough.** Publishing a plan replaced every earlier plan in the same stage, so agreeing on hiking would have silently cancelled the snorkeling everyone had already approved. Each proposal is now a version of one named decision, and only versions of the same decision replace each other. Agreed decisions become commitments, and the database checks every new proposal against them:
+- a stay that fits a budget on its own but breaks it on top of the agreed flights is refused as a conflict, not as a bad plan;
+- so is an activity that overlaps one already agreed.
+
+Agreeing one part also queues planning of the next.
+
+**Too many flights to try every combination.** The fairness optimizer tries every combination of one flight per traveller: five people with twenty flights each is 3.2 million plans. So a shortlist cuts each person to five meaningfully different flights:
+- the cheapest;
+- the one that lands closest to everyone else's;
+- the most distinct alternatives by time and price.
+
+The risk was a heuristic quietly turning into a verdict. "No plan among these five" isn't "no plan exists", so an infeasible shortlist is redone with flights it hadn't tried before Tandem searches again, and the "no plan" message counts how many options it checked. Someone with no usable flight at all is told why, privately, instead of being planned around.
+
+**Every new limit meant code in six places.** "Max one stop" was a named key that the database, the solver, the shortlist, the explanations, onboarding and the optimizer's adapter each interpreted in their own code. Now a limit is data: a category, an attribute, an operator and a value, stored with the person's own words. The database and the worker each have one evaluator, and both must give identical answers on a shared test file. A test fails if the compiler that feeds the optimizer ever names a category, and on its first run it caught two room settings we'd hard-coded.
+
+**Cheapest isn't fair.** Making the optimizer's steps visible showed something the tests had missed. With fairness switched off, it saved the group $10 by making one person pay $90 extra, where the old solver spreads $50 across two people.
+
+Our first idea for measuring compromise (extra cost as a share of your budget) wouldn't have fixed it: $90 against a $500 budget is too small to outweigh the price. What works is measuring the extra against **your own cheapest option**. c paying $190 instead of $100 is a 0.9 burden, and a and b paying $150 instead of $100 is 0.5 each. With that, the optimizer's own formula (5 × the worst, 3 × the total, then cost) shares the compromise. It now agrees with the old solver on every scenario, so it became the default, and each plan's burdens go to the fairness ledger once everyone agrees.
+
+**Adding an argument broke every caller at once.** SpacetimeDB rejects a call that is missing an argument ("missing reducer argument `burdens`"), so adding one to `publish_proposal` broke the simulator, the worker and the tests together. Every caller is now updated in the same commit, and the module and the worker have to be deployed together.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

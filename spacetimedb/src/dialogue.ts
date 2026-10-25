@@ -30,6 +30,7 @@ import {
   withReceipt,
 } from './guards';
 import { constraintFromPatch } from './effects';
+import { checkRule } from './room_rules';
 
 const ThreadOpen = t.object('ThreadOpen', {
   topicRef: t.string(),
@@ -441,7 +442,35 @@ export const proposeConstraintPatch = spacetimedb.reducer(
     withReceipt(ctx, 'propose_constraint_patch', args.requestKey, args, () => {
       const j = requireLease(ctx, args.jobId, args.attempt);
       const m = requireMembershipById(ctx, j.roomId, args.memberId);
-      constraintFromPatch(args.patchJson);
+      const proposed = JSON.parse(args.patchJson) as { rule?: unknown };
+      if (proposed && typeof proposed === 'object' && proposed.rule !== undefined) checkRule(proposed.rule);
+      else constraintFromPatch(args.patchJson);
+      // A patch that quotes the owner must quote them exactly, from their own message.
+      const quote = (JSON.parse(args.patchJson) as { source_quote?: unknown }).source_quote;
+      if (quote !== undefined) {
+        const source = args.sourceMessageId === undefined ? undefined : ctx.db.privateMessage.id.find(args.sourceMessageId);
+        if (
+          typeof quote !== 'string' ||
+          quote.trim().length === 0 ||
+          !source ||
+          source.roomId !== j.roomId ||
+          !source.owner.isEqual(m.member) ||
+          source.sender !== 'HUMAN' ||
+          !source.body.includes(quote)
+        ) {
+          fail('INVALID_EVIDENCE_REF', 'source_quote must be the owner\'s exact words from the cited message');
+        }
+      }
+      // A suggestion from the owner's profile cites the question they answered there;
+      // like every patch it only applies once they confirm it for this room.
+      const fromProfile = (JSON.parse(args.patchJson) as { source_profile?: unknown }).source_profile;
+      if (fromProfile !== undefined) {
+        let answered = false;
+        for (const a of ctx.db.profileAnswer.byOwner.filter(m.member)) {
+          if (a.questionId === fromProfile && a.status === 'ANSWERED') answered = true;
+        }
+        if (!answered) fail('INVALID_EVIDENCE_REF', 'source_profile must be a question the owner answered in their profile');
+      }
       ctx.db.constraintPatch.insert({
         id: 0n,
         roomId: j.roomId,

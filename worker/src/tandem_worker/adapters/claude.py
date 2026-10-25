@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from pydantic import ValidationError
 
-from ..contracts import ContractError, Decision, VoiceDraft
+from ..contracts import BriefDraft, ContractError, Decision, IntakeExtraction, IntakeQuestion, ProfileSummary, VoiceDraft
 
 
 def error_code(error):
@@ -142,3 +142,57 @@ class ClaudeModel:
         return self._structured(context, VoiceDraft,
             "Phrase this agent's typed act. Select canonical fact sentences exactly as supplied; preserve text and references. "
             "You may order them and select the allowed connector. Do not add claims, urgency or free prose.", "voice")
+
+    # ---------- onboarding ----------
+
+    def extract(self, context):
+        return self._structured(context, IntakeExtraction,
+            "You read a traveller's private onboarding chat with their own trip agent. Extract ONLY what they explicitly "
+            "said; never infer from tone. Each item needs the source_message_id of a HUMAN message and a source_quote "
+            "copied character-for-character from it (a short span). Money is in US cents ($700 -> 70000). Use "
+            "trip_budget_total only if they said it covers everything (all in, total, whole trip); flight_budget_total only "
+            "if they said flight/fare/ticket. HARD for firm words (max, under, no more than, can't go above); SOFT for "
+            "around/about/-ish/flexible; if they named a higher amount they could stretch to anywhere in that message, put "
+            "it in authorized_range {\"max\": cents}. If what a budget covers or how firm it is wasn't said, make no money "
+            "item: add an unclear entry for topic money instead. origin_airport is the IATA code of the airport they named; for a city with "
+            "several airports use its main one and set interpreted=true. dates_ok only if they said the dates work (or "
+            "don't). arrival_window values are 24-hour \"HH:MM\" strings at the destination (7am -> \"07:00\", 10pm -> "
+            "\"22:00\"); include it whenever they say when they'd like to land; for phrases like 'no red-eyes' choose a "
+            "window and set interpreted=true. max_stops 0 for nonstop or 'no layovers' (interpreted=true). own_bedroom, "
+            "baggage_required and stay_min_rating only if stated. Any other firm limit on something listed in `checkable` "
+            "(what each category's options carry, with types) becomes key \"rule\" with rule {category, attribute, operator "
+            "(eq, neq, lt, lte, gt, gte, in, not_in, between), value} in that attribute's units (money in cents, times "
+            "\"HH:MM\"); a limit on their whole-trip cost uses {aggregate: \"my_cost\", operator, value}. Anything "
+            "important that isn't checkable (e.g. 'home by Sunday') becomes a trip_note. private_rationale is the reason they gave for a limit, if any. settings: "
+            "speak_up_for_me true if they want the group told when a plan breaks their limits, false if only them; "
+            "ask_me_first true if they want to be checked with before paying more; include the quote. Unknown stays absent. "
+            "unclear is ONLY for something they said that is ambiguous, never for topics they haven't mentioned; its reason "
+            "is the exact question to ask them, addressed to them as 'you', ending with '?'.",
+            "extract")
+
+    def ask(self, context):
+        return self._structured(context, IntakeQuestion,
+            "You are this traveller's own trip agent, chatting privately. Write ONE short, warm question (at most two "
+            "sentences, ending with '?') about the topics in ask_about, building on what they already said. If "
+            "why_unclear gives a reason, ask exactly that. Never suggest amounts or answers, never repeat numbers they "
+            "didn't say, never mention other travellers' details. Set topics to the ask_about topics you covered.",
+            "ask")
+
+    def brief(self, context):
+        return self._structured(context, BriefDraft,
+            "Turn the organizer's trip description (and follow-ups) into a trip brief, only from what they said. Fill "
+            "brief only if the destination, its main airport's IATA code, and the start and end dates are all clear; "
+            "dates are YYYY-MM-DD, using the next future occurrence after `today` when no year is given. components "
+            "always include FLIGHT; add STAY if they want a place to stay, TRANSFER if they want an airport pickup or "
+            "say plan everything. group_size only if stated. vibe: a few of their own words. If anything required is "
+            "missing, leave brief empty and put one short question per gap in unclear.",
+            "brief")
+
+    def profile_summary(self, context):
+        return self._structured(context, ProfileSummary,
+            "Write the short summary a person's own planning agent shows them after they answer profile questions, "
+            "so they can check it sounds like them. Use ONLY the given facts: never add traits, needs, habits or "
+            "preferences they didn't give. Only items marked REQUIRED are musts; everything else is a preference. "
+            "State firm needs plainly and never guess why. If a correction is given, follow it where it differs from "
+            "the facts. Second person, warm and plain, 3 to 5 sentences, under 900 characters, no question at the end.",
+            "profile_summary")

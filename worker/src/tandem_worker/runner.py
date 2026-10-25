@@ -10,9 +10,12 @@ from langgraph.types import Command
 
 from .contracts import ContractError, Limits
 from .graphs.coordinator import build_coordinator
+from .graphs.profile import run_profile
+from .graphs.intake import run_intake
 from .ports import SystemClock
 from .progress import activity, report
-from .solver import FlightSolver, FlightValidator
+from .optimizer_bridge import TandemOptimizerBridge
+from .solver import FlightValidator
 
 _locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
@@ -42,7 +45,8 @@ class Worker:
         self.backend, self.model, self.research = backend, model, research
         self.checkpoint_path = str(checkpoint_path)
         self.clock, self.limits = clock or SystemClock(), limits or Limits()
-        self.solver = solver or FlightSolver(self.limits.solver_seconds)
+        # Elena's multi-selection optimizer chooses; TripSolver remains a solver= option.
+        self.solver = solver or TandemOptimizerBridge()
         self.validator = validator or FlightValidator()
         self.worker_id = worker_id
         self.before_run = before_run
@@ -78,6 +82,14 @@ class Worker:
         try:
             if self.before_run is not None:
                 self.before_run(claim)
+            if claim.kind == "PROFILE":
+                # The summary proposal itself completes the job.
+                return {"outcome": run_profile(LeaseGuard(self.backend, lost), claim, self.model)}
+            if claim.kind != "PLAN":
+                # Onboarding is one short pass per message; no graph checkpoint needed.
+                outcome = run_intake(LeaseGuard(self.backend, lost), claim, self.model)
+                self.backend.finish_job(claim, outcome)
+                return {"outcome": outcome}
             with SqliteSaver.from_conn_string(self.checkpoint_path) as saver:
                 graph = build_coordinator(LeaseGuard(self.backend, lost), claim, self.model, self.research, self.solver,
                     self.validator, self.clock, self.limits, saver)

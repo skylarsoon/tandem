@@ -1,129 +1,85 @@
+"""SolverPort bridge to the multi-selection optimizer (optimizer/multi_solver.py).
 
-"""Initial SolverPort bridge for the Tandem optimizer.
+The request comes from the generic compiler (compiler.py): decisions, rules and
+needs as data, nothing trip-specific here. Preparing "no plan" explanations and
+presenting the chosen plan (each person's private impact, the room-safe
+summary) are still TripSolver's, so they read the same whichever chooses.
 
-This stage uses injected execution context and history.
-It does not write to SpacetimeDB or approve proposals.
+Fairness (contracts/decisions.json): each person's burden is what they pay over
+the cheapest plan open to them, as a share of it. The optimizer weighs the worst
+running burden (with each person's history H_i from the ledger), the total, then
+cost; the chosen plan's burdens go to the ledger when it's published.
+This module neither writes to SpacetimeDB nor approves.
 """
+from __future__ import annotations
 
-from copy import deepcopy
+from optimizer.constraint_evaluator import ConstraintValidationError
+from optimizer.multi_solver import MAX_COMBINATIONS, optimize_multi
 
-from optimizer.multi_adapter import adapt_multi_execution_context
-from optimizer.multi_solver import optimize_multi
-
-from .contracts import (
-    SolverResult,
-    GroupSummary,
-    Impact,
-    ContractError,
-)
+from .briefs import rules_from_brief
+from .compiler import compile_request
+from .contracts import Conflict, ContractError, SolverResult
+from .rules import Need, RoomRules, Rule, SearchFact
+from .solver import TripSolver
 
 POLICY = "cumulative_fairness_v1"
 
 
-class TandemOptimizerBridge:
-    def __init__(self, context_loader, history_loader, now=None):
-        self.context_loader = context_loader
-        self.history_loader = history_loader
-        self.now = now
+def room_rules_from(briefs) -> RoomRules:
+    items = [x for b in briefs for x in rules_from_brief(b)]
+    return RoomRules(rules=tuple(x for x in items if isinstance(x, Rule)), needs=tuple(x for x in items if isinstance(x, Need)),
+                     facts=tuple(x for x in items if isinstance(x, SearchFact)))
 
-    def solve(self, snapshot, briefs, candidates):
-        # 1. Get the real backend context and compromise history.
-        context = deepcopy(self.context_loader(snapshot))
-        history = self.history_loader(snapshot)
 
-        # 2. Make sure the context belongs to this job.
-        job = context["job"]
-        if (
-            str(job["room_id"]) != snapshot.room_id
-            or job["input_revision"] != snapshot.input_revision
-            or job["membership_revision"] != snapshot.membership_revision
-        ):
-            raise ContractError("STALE_SNAPSHOT")
+class TandemOptimizerBridge(TripSolver):
+    policy = POLICY
 
-        # 3. Respect the candidate list passed by the worker.
-        # This also allows Ronit's shortlist to work independently.
-        refs = {c.id for c in candidates}
-        if not refs or len(refs) != len(candidates):
-            raise ContractError("INVALID_CANDIDATES")
+    def __init__(self, context_loader=None, history_loader=None, now=None, max_combinations=MAX_COMBINATIONS):
+        super().__init__()
+        self.context_loader, self.history_loader, self.now = context_loader, history_loader, now
+        self.max_combinations = max_combinations
+        self.last_request: dict | None = None  # what the optimizer was asked, for inspection
+        self.last_response: dict | None = None
 
-        context["candidates"] = [
-            row for row in context["candidates"]
-            if row["candidate_ref"] in refs
-        ]
+    def solve(self, snapshot, briefs, candidates, rules: RoomRules | None = None):
+        if self.context_loader is not None:
+            job = self.context_loader(snapshot)["job"]
+            if (str(job["room_id"]) != snapshot.room_id or job["input_revision"] != snapshot.input_revision
+                    or job["membership_revision"] != snapshot.membership_revision):
+                raise ContractError("STALE_SNAPSHOT")
+        history = dict(self.history_loader(snapshot)) if self.history_loader else dict(snapshot.compromise_history)
+        options = self.prepare(snapshot, briefs, candidates)  # "no plan" explained as people know it
+        if isinstance(options, SolverResult):
+            return options
+        compiled = compile_request(snapshot, rules or room_rules_from(briefs), candidates, history,
+                                   max_combinations=self.max_combinations)
+        if compiled.empty:
+            return SolverResult(status="INFEASIBLE", policy_version=self.policy, conflicts=tuple(
+                Conflict(code="NO_CANDIDATES", owner=g.owner) for g in compiled.empty))
+        self.last_request = compiled.request
+        try:
+            response = optimize_multi(compiled.request, cost_attribute="price_cents", max_combinations=self.max_combinations)
+        except ConstraintValidationError as error:
+            raise ContractError("OPTIMIZER_INPUT_INVALID") from error
+        self.last_response = response
+        if response["status"] == "INFEASIBLE":
+            return self.no_combination(options)
+        if response["status"] != "FEASIBLE":
+            # NEEDS_DATA / NEEDS_REVIEW is missing evidence, not proven infeasibility.
+            return SolverResult(status="UNKNOWN", policy_version=self.policy)
+        picked = dict(zip((g.id for g in compiled.groups), response["proposals"][0]["candidate_ids"]))
+        by_id = {c.id: c for g in compiled.groups for c in g.options}
+        flight_of = {g.owner: by_id[picked[g.id]] for g in compiled.groups if g.owner is not None}
+        shared_of = {g.category: by_id[picked[g.id]] for g in compiled.groups if g.owner is None}
+        plan = self.finish(options, "OPTIMAL", flight_of, shared_of)  # exhaustive over every combination
+        burdens = {p["participant_id"]: round(p["new_compromise_burden"], 6) for p in response["proposals"][0]["per_person"]}
+        return plan.model_copy(update={"burdens": burdens})
 
-        if len(context["candidates"]) != len(refs):
-            raise ContractError("INVALID_CANDIDATES")
 
-        # 4. Translate backend data into optimizer input.
-        adapted = adapt_multi_execution_context(
-            context,
-            task_id="group_flights",
-            compromise_history=history,
-            now_epoch=self.now,
-        )
-
-        # 5. Run your actual fairness-aware optimizer.
-        result = optimize_multi(adapted.request)
-
-        # 6. Translate into Skylar's existing return type.
-        if result["status"] != "FEASIBLE":
-            if result["status"] == "INFEASIBLE":
-                return SolverResult(
-                    status="INFEASIBLE",
-                    policy_version=POLICY,
-                )
-
-            # NEEDS_DATA / NEEDS_REVIEW must not be
-            # misrepresented as hard infeasibility.
-            return SolverResult(
-                status="UNKNOWN",
-                policy_version=POLICY,
-            )
-
-        best = result["proposals"][0]
-        selected = tuple(best["candidate_ids"])
-
-        # Monetary impact fields are expressed in cents,
-        # never in normalized fairness burden.
-        by_id = {c.id: c for c in candidates}
-        chosen = [by_id[cid] for cid in selected]
-
-        impacts = []
-        for c in chosen:
-            own_options = [
-                option.total_cents
-                for option in candidates
-                if option.owner == c.owner
-                and option.total_cents is not None
-            ]
-            cheapest = min(own_options)
-            impacts.append(
-                Impact(
-                    owner=c.owner,
-                    candidate=c.id,
-                    price_cents=c.total_cents,
-                    cheapest_alone_cents=cheapest,
-                    extra_cents=max(0, c.total_cents - cheapest),
-                    flight_cents=c.total_cents,
-                )
-            )
-
-        arrivals = [c.arrival_epoch for c in chosen]
-        extras = [i.extra_cents for i in impacts]
-
-        group = GroupSummary(
-            total_cents=sum(c.total_cents for c in chosen),
-            earliest_arrival=min(arrivals),
-            latest_arrival=max(arrivals),
-            arrival_window_seconds=snapshot.arrival_overlap_seconds,
-            travellers_paying_extra=sum(x > 0 for x in extras),
-            max_extra_cents=max(extras, default=0),
-        )
-
-        return SolverResult(
-            status="OPTIMAL",
-            selected=selected,
-            policy_version=POLICY,
-            impacts=tuple(impacts),
-            group=group,
-        )
+def make_solver(policy: str, time_limit: float = 5):
+    """The chooser a worker runs: TripSolver (minimax_v1) or the optimizer."""
+    if policy == POLICY:
+        return TandemOptimizerBridge()
+    if policy == "minimax_v1":
+        return TripSolver(time_limit)
+    raise ContractError("UNKNOWN_SOLVER_POLICY")

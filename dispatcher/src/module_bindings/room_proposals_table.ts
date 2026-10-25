@@ -14,6 +14,8 @@ export default __t.row({
   id: __t.u64().primaryKey(),
   roomId: __t.u64().name("room_id"),
   stage: __t.string(),
+  decisionId: __t.string().name("decision_id"),
+  scope: __t.string(),
   version: __t.u32(),
   termsJson: __t.string().name("terms_json"),
   termsDigest: __t.string().name("terms_digest"),

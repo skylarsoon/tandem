@@ -19,7 +19,7 @@ from .apify import ApprovedFlightSearch
 ACTOR_ID = "ulPbFXCmcjxx3iPnp"
 ACTOR_BUILD = "0.0.141"
 BUILD_ID = "eByt1QXZwUhbeMtQr"
-NORMALIZER_VERSION = "memo23-0.0.141-v3"
+NORMALIZER_VERSION = "memo23-0.0.141-v4"
 
 
 class MemoFilters(Record):
@@ -219,6 +219,8 @@ def _candidate(row, search: MemoSearch, run, price, *, complete, freshness_secon
     return Candidate(id=candidate_id, owner=search.owner, total_cents=price,
         arrival_epoch=arrived, departure_epoch=departed, departure_timezone=search.origin_timezone,
         arrival_timezone=search.destination_timezone, observed_at=run["observed_at"],
+        arrival_local=datetime.fromtimestamp(arrived, ZoneInfo(search.destination_timezone)).strftime("%H:%M"),
+        stops=row["stops"] if type(row.get("stops")) is int and row["stops"] >= 0 else None,
         valid_until=run["observed_at"] + freshness_seconds, source_url=url, run_ref=run["run_id"],
         actor_id=ACTOR_ID, actor_build=run["build"], dataset_ref=run["dataset_id"], flight_identity=identity,
         mode="APIFY_OBSERVED",

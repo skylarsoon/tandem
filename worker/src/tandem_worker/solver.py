@@ -45,6 +45,41 @@ def closest_spread(options_by_owner):
     return best
 
 
+def minutes(hhmm):
+    hours, mins = hhmm.split(":")
+    return int(hours) * 60 + int(mins)
+
+
+def lands_in_window(candidate, window) -> bool:
+    """Is the local arrival inside {earliest, latest}? A window may wrap midnight."""
+    if not window:
+        return True
+    if candidate.arrival_local is None:
+        return False
+    at = minutes(candidate.arrival_local)
+    start, end = minutes(window.get("earliest") or "00:00"), minutes(window.get("latest") or "23:59")
+    return start <= at <= end if start <= end else at >= start or at <= end
+
+
+def stops_ok(candidate, max_stops) -> bool:
+    return max_stops is None or (candidate.stops is not None and candidate.stops <= max_stops)
+
+
+def flight_violation(candidate, brief) -> str | None:
+    """Which of the owner's confirmed hard limits a priced flight is known to
+    break, if any. Unknown baggage isn't a violation: the owner's agent can
+    object and ask for evidence. The solver and the shortlist share this."""
+    if candidate.total_cents > brief.hard_cap_cents:
+        return "OVER_FLIGHT_LIMIT"
+    if brief.baggage_required and candidate.baggage_included is False:
+        return "NO_BAG"
+    if not lands_in_window(candidate, brief.arrival_window):
+        return "ARRIVAL_TIME"
+    if not stops_ok(candidate, brief.max_stops):
+        return "TOO_MANY_STOPS"
+    return None
+
+
 def bedrooms_needed(briefs, per_room=2):
     """Own-room travellers get one each; everyone else shares `per_room` to a
     room (the room's people_per_bedroom setting)."""
@@ -63,20 +98,44 @@ def stay_filters(briefs, relax=(), per_room=2):
             ("RATING", lambda c: rating is None or (c.rating is not None and c.rating >= rating))]
 
 
+class TripOptions:
+    """Everything a trip choice is made from, after the per-person and shared
+    requirements have removed what can't be used."""
+    def __init__(self, snapshot, briefs, candidates):
+        self.members = list(snapshot.members)
+        self.room_id, self.revision = snapshot.room_id, snapshot.input_revision
+        self.n, self.window = len(self.members), snapshot.arrival_overlap_seconds
+        self.briefs, self.by_owner = briefs, {b.owner: b for b in briefs}
+        self.priced = [c for c in candidates if c.total_cents is not None]
+        self.flights = self.shared = self.alone = None
+
+
 class TripSolver:
+    """minimax_v1 with CP-SAT. The stages (prepare, choose, finish) are shared
+    with other choosers, so every plan and every "no plan" is explained alike."""
+    policy = POLICY
+
     def __init__(self, time_limit=5):
         self.time_limit = time_limit
 
-    def solve(self, snapshot, briefs, candidates):
-        members = list(snapshot.members)
-        n, window = len(members), snapshot.arrival_overlap_seconds
-        by_owner = {b.owner: b for b in briefs}
-        priced = [c for c in candidates if c.total_cents is not None]
-        # Known to break a hard requirement → not an option. Unknown baggage stays
-        # selectable so the owner's agent can object and request evidence.
-        flights = {o: [c for c in priced if c.category == "FLIGHT" and c.owner == o and c.total_cents <= by_owner[o].hard_cap_cents
-                       and not (by_owner[o].baggage_required and c.baggage_included is False)] for o in members}
-        conflicts = [self._owner_conflict(o, by_owner[o], candidates) for o in members if not flights[o]]
+    def solve(self, snapshot, briefs, candidates, rules=None):
+        options = self.prepare(snapshot, briefs, candidates)
+        if isinstance(options, SolverResult):
+            return options
+        chosen = self.choose(options)
+        if isinstance(chosen, SolverResult):
+            return chosen
+        status, flight_of, shared_of = chosen
+        return self.finish(options, status, flight_of, shared_of)
+
+    def prepare(self, snapshot, briefs, candidates):
+        """Usable options per traveller and shared part, or why there are none."""
+        o = TripOptions(snapshot, briefs, candidates)
+        members, n, by_owner, priced = o.members, o.n, o.by_owner, o.priced
+        # Known to break a hard requirement → not an option.
+        flights = {m: [c for c in priced if c.category == "FLIGHT" and c.owner == m and flight_violation(c, by_owner[m]) is None]
+                   for m in members}
+        conflicts = [self.owner_conflict(m, by_owner[m], candidates) for m in members if not flights[m]]
 
         shared, shared_conflicts = {}, []
         if "STAY" in snapshot.components:
@@ -97,71 +156,84 @@ class TripSolver:
                 shared_conflicts.append(Conflict(code="TRANSFER_UNAVAILABLE"))
         conflicts += shared_conflicts
         if conflicts:
-            return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(conflicts))
+            return SolverResult(status="INFEASIBLE", policy_version=self.policy, conflicts=tuple(conflicts))
 
         # Cheapest trip each traveller could have on their own, scaled by n.
         min_shared = sum(min(c.total_cents for c in options) for options in shared.values())
-        alone = {o: n * min(c.total_cents for c in flights[o]) + min_shared for o in members}
-        over = [o for o in members if by_owner[o].trip_cap_cents is not None and alone[o] > n * by_owner[o].trip_cap_cents]
+        alone = {m: n * min(c.total_cents for c in flights[m]) + min_shared for m in members}
+        over = [m for m in members if by_owner[m].trip_cap_cents is not None and alone[m] > n * by_owner[m].trip_cap_cents]
         if over:
             cause = self._requirement_cause(over, by_owner, briefs, flights, shared, priced, n, snapshot.people_per_bedroom)
-            return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
-                Conflict(code="TRIP_LIMIT", owner=o, cheapest_cents=-(-alone[o] // n),
-                         trip_cap_cents=by_owner[o].trip_cap_cents, requirement=cause) for o in over))
+            return SolverResult(status="INFEASIBLE", policy_version=self.policy, conflicts=tuple(
+                Conflict(code="TRIP_LIMIT", owner=m, cheapest_cents=-(-alone[m] // n),
+                         trip_cap_cents=by_owner[m].trip_cap_cents, requirement=cause) for m in over))
+        o.flights, o.shared, o.alone = flights, shared, alone
+        return o
 
+    def no_combination(self, o):
+        """Every part has options, but no combination meets the arrival window and
+        everyone's whole-trip limit together: say which."""
+        spread = closest_spread(o.flights)
+        if spread is not None and spread > o.window:
+            conflict = Conflict(code="ARRIVAL_WINDOW", closest_spread_seconds=spread, required_seconds=o.window)
+        else:
+            # Each limit alone can be met, but not together with the arrival window.
+            conflict = Conflict(code="TRIP_LIMIT", closest_spread_seconds=spread, required_seconds=o.window)
+        return SolverResult(status="INFEASIBLE", policy_version=self.policy, conflicts=(conflict,))
+
+    def choose(self, o):
+        """Smallest worst burden first, then the cheapest total (CP-SAT)."""
+        members, n, window, by_owner, flights, shared, alone = o.members, o.n, o.window, o.by_owner, o.flights, o.shared, o.alone
         model = cp_model.CpModel()
-        picks = {o: {c.id: model.new_bool_var(c.id) for c in flights[o]} for o in members}
+        picks = {m: {c.id: model.new_bool_var(c.id) for c in flights[m]} for m in members}
         shared_picks = {k: {c.id: model.new_bool_var(c.id) for c in options} for k, options in shared.items()}
         by_id = {c.id: c for options in [*flights.values(), *shared.values()] for c in options}
         for choice in [*picks.values(), *shared_picks.values()]:
             model.add_exactly_one(choice.values())
         shared_cost = sum(by_id[i].total_cents * v for choice in shared_picks.values() for i, v in choice.items())
         arrival, burden = {}, {}
-        for o in members:
-            arrival[o] = sum(by_id[i].arrival_epoch * v for i, v in picks[o].items())
-            scaled = sum(n * by_id[i].total_cents * v for i, v in picks[o].items()) + shared_cost
-            burden[o] = scaled - alone[o]
-            if by_owner[o].trip_cap_cents is not None:
-                model.add(scaled <= n * by_owner[o].trip_cap_cents)
+        for m in members:
+            arrival[m] = sum(by_id[i].arrival_epoch * v for i, v in picks[m].items())
+            scaled = sum(n * by_id[i].total_cents * v for i, v in picks[m].items()) + shared_cost
+            burden[m] = scaled - alone[m]
+            if by_owner[m].trip_cap_cents is not None:
+                model.add(scaled <= n * by_owner[m].trip_cap_cents)
         for i, a in enumerate(members):
             for b in members[i + 1:]:
                 model.add(arrival[a] - arrival[b] <= window)
                 model.add(arrival[b] - arrival[a] <= window)
-        most = max(n * max(c.total_cents for c in flights[o]) + sum(max(c.total_cents for c in s) for s in shared.values()) - alone[o]
-                   for o in members)
+        most = max(n * max(c.total_cents for c in flights[m]) + sum(max(c.total_cents for c in s) for s in shared.values()) - alone[m]
+                   for m in members)
         worst = model.new_int_var(0, max(most, 0), "worst_burden")
-        for o in members:
-            model.add(worst >= burden[o])
+        for m in members:
+            model.add(worst >= burden[m])
 
         model.minimize(worst)
         status, solver = self._run(model)
         if status == "INFEASIBLE":
-            spread = closest_spread(flights)
-            if spread is not None and spread > window:
-                conflict = Conflict(code="ARRIVAL_WINDOW", closest_spread_seconds=spread, required_seconds=window)
-            else:
-                # Each limit alone can be met, but not together with the arrival window.
-                conflict = Conflict(code="TRIP_LIMIT", closest_spread_seconds=spread, required_seconds=window)
-            return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=(conflict,))
+            return self.no_combination(o)
         if status not in {"OPTIMAL", "FEASIBLE"}:
-            return SolverResult(status=status, policy_version=POLICY)
+            return SolverResult(status=status, policy_version=self.policy)
         model.add(worst <= solver.value(worst))
         model.minimize(sum(by_id[i].total_cents * v for choice in [*picks.values(), *shared_picks.values()] for i, v in choice.items()))
         second, solver = self._run(model)
         if second not in {"OPTIMAL", "FEASIBLE"}:
-            return SolverResult(status=second, policy_version=POLICY)
+            return SolverResult(status=second, policy_version=self.policy)
         # A best-found (not proven optimal) stage makes the whole result FEASIBLE.
         overall = "OPTIMAL" if status == second == "OPTIMAL" else "FEASIBLE"
 
         def chosen(choice):
             return by_id[next(i for i, v in choice.items() if solver.value(v))]
-        flight_of = {o: chosen(picks[o]) for o in members}
-        shared_of = {k: chosen(choice) for k, choice in shared_picks.items()}
+        return overall, {m: chosen(picks[m]) for m in members}, {k: chosen(choice) for k, choice in shared_picks.items()}
+
+    def finish(self, o, status, flight_of, shared_of):
+        """The chosen plan with each traveller's private impact and the room-safe summary."""
         shared_total = sum(c.total_cents for c in shared_of.values())
-        impacts = tuple(self._impact(o, n, flight_of, shared_total, alone, flights, shared, window) for o in members)
-        return SolverResult(status=overall, policy_version=POLICY,
-            selected=tuple(flight_of[o].id for o in members) + tuple(shared_of[k].id for k in ("STAY", "TRANSFER") if k in shared_of),
-            impacts=impacts, group=self._summary(n, flight_of, shared_of, alone, flights, shared, impacts, window, briefs, priced))
+        impacts = tuple(self._impact(m, o.n, flight_of, shared_total, o.alone, o.flights, o.shared, o.window) for m in o.members)
+        return SolverResult(status=status, policy_version=self.policy,
+            selected=tuple(flight_of[m].id for m in o.members) + tuple(shared_of[k].id for k in ("STAY", "TRANSFER") if k in shared_of),
+            impacts=impacts, group=self._summary(o.n, flight_of, shared_of, o.alone, o.flights, o.shared, impacts, o.window,
+                                                 o.briefs, o.priced))
 
     @staticmethod
     def _requirement_cause(over, by_owner, briefs, flights, shared, priced, n, per_room):
@@ -185,13 +257,23 @@ class TripSolver:
         return STATUS[solver.solve(model)], solver
 
     @staticmethod
-    def _owner_conflict(owner, brief, candidates):
+    def owner_conflict(owner, brief, candidates):
         priced = [c for c in candidates if c.category == "FLIGHT" and c.owner == owner and c.total_cents is not None]
         if brief.baggage_required:
             with_bag = [c for c in priced if c.baggage_included is not False]
             if priced and not with_bag:
                 return Conflict(code="BAGGAGE_UNAVAILABLE", owner=owner)
             priced = with_bag
+        # The owner's own timing limits; the cheapest fare that breaks them says what relaxing would cost.
+        on_time = [c for c in priced if lands_in_window(c, brief.arrival_window)]
+        if priced and not on_time:
+            return Conflict(code="ARRIVAL_TIME", owner=owner, requirement="ARRIVAL_TIME",
+                            cheapest_cents=min(c.total_cents for c in priced))
+        direct = [c for c in on_time if stops_ok(c, brief.max_stops)]
+        if on_time and not direct:
+            return Conflict(code="TOO_MANY_STOPS", owner=owner, requirement="STOPS",
+                            cheapest_cents=min(c.total_cents for c in on_time))
+        priced = direct
         if not priced:
             return Conflict(code="NO_CANDIDATES", owner=owner)
         return Conflict(code="HARD_LIMIT", owner=owner, cheapest_cents=min(c.total_cents for c in priced))
@@ -265,6 +347,10 @@ class TripValidator:
             brief = by_owner[candidate.owner]
             if candidate.total_cents is None or candidate.total_cents > brief.hard_cap_cents:
                 checks.append("HARD_COST")
+            if not lands_in_window(candidate, brief.arrival_window):
+                checks.append("ARRIVAL_TIME")
+            if not stops_ok(candidate, brief.max_stops):
+                checks.append("TOO_MANY_STOPS")
             if brief.baggage_required and candidate.baggage_included is not True:
                 checks.append("BAGGAGE_UNKNOWN" if candidate.baggage_included is None else "BAGGAGE_REQUIRED")
         if "STAY" in shared:
@@ -288,20 +374,14 @@ class TripValidator:
 FlightSolver, FlightValidator = TripSolver, TripValidator
 
 
-RELAXABLE = {"BEDROOMS": ("own_bedroom", False), "RATING": ("stay_min_rating", None)}
+# Requirements an owner can set aside for a trip: the constraint key and the value
+# that means "set aside". Answering records it as their own confirmed constraint
+# (yes → set aside, no → `kept_<key>`), so it lasts the trip and is asked once.
+RELAXABLE = {"BEDROOMS": ("own_bedroom", False), "RATING": ("stay_min_rating", None),
+             "ARRIVAL_TIME": ("arrival_window", None), "STOPS": ("max_stops", None)}
 
 
-def relax_ref(input_revision: int, requirement: str) -> str:
-    """Action a CONSULTATION grant covers: setting one room requirement aside for this input revision."""
-    return f"relax-{requirement.lower()}-r{input_revision}"
-
-
-def relaxed(briefs, input_revision, granted):
-    """Briefs with each owner's granted relaxations applied. `granted(owner, ref)`."""
-    result = []
-    for brief in briefs:
-        for requirement, (field, value) in RELAXABLE.items():
-            if getattr(brief, field) not in (False, None) and granted(brief.owner, relax_ref(input_revision, requirement)):
-                brief = brief.model_copy(update={field: value})
-        result.append(brief)
-    return result
+def relax_nudge(requirement: str) -> dict:
+    key, value = RELAXABLE[requirement]
+    return {"yes": {"key": key, "value": value, "hardness": "HARD", "unit": ""},
+            "no": {"key": f"kept_{key}", "value": True, "hardness": "HARD", "unit": ""}}

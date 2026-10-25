@@ -17,7 +17,8 @@ import {
   runProcedure,
   withReceipt,
 } from './guards';
-import { resumeJobIfReady } from './effects';
+import { findIntake } from './onboarding';
+import { commitments, compromiseHistory, decisionOf, resumeJobIfReady } from './effects';
 
 function micros(ts: Timestamp | undefined): string | null {
   return ts ? ts.microsSinceUnixEpoch.toString() : null;
@@ -259,18 +260,113 @@ function buildContext(ctx: Ctx, j: JobRow) {
 
   const proposals = [...ctx.db.proposal.byRoomStage.filter(r.id)]
     .filter(p => p.state === 'AWAITING_REVIEW' || p.state === 'AGREED')
-    .map(p => ({
-      proposal_id: num(p.id),
-      stage: p.stage,
-      version: p.version,
-      state: p.state,
-      terms_digest: p.termsDigest,
-      terms: parsed(p.termsJson),
-    }));
+    .map(p => {
+      const d = decisionOf(ctx, p);
+      return {
+        proposal_id: num(p.id),
+        stage: p.stage,
+        decision_id: d.decisionId,
+        scope: d.scope,
+        version: p.version,
+        state: p.state,
+        terms_digest: p.termsDigest,
+        terms: parsed(p.termsJson),
+        selected_candidate_refs: d.selectedRefs,
+      };
+    });
+
+  // What the group already agreed, one entry per decision: later decisions
+  // build on these and the module checks new proposals against them.
+  const agreed = commitments(ctx, r.id).map(c => ({
+    decision_id: c.decisionId,
+    scope: c.scope,
+    stage: c.proposal.stage,
+    proposal_id: num(c.proposal.id),
+    version: c.proposal.version,
+    terms_digest: c.proposal.termsDigest,
+    selected_candidate_refs: c.selectedRefs,
+  }));
+
+  // Onboarding: the shared brief, each member's onboarding state (not contents),
+  // and, for an onboarding job, the one member it serves: their private
+  // conversation, pending patches and coverage. Never anyone else's.
+  const brief = ctx.db.tripBrief.roomId.find(r.id);
+  const intakes = members.map(m => ({ member_id: num(m.id), state: findIntake(ctx, r.id, m.member)?.state ?? null }));
+  const subjectRow = ctx.db.jobSubject.jobId.find(j.id);
+  let subject: { memberId: bigint; purpose: string } | undefined = subjectRow ?? undefined;
+  if (!subject && j.kind === 'INTERPRET') {
+    for (const m of members) {
+      for (const pm of ctx.db.privateMessage.byOwner.filter(m.member)) {
+        if (pm.jobId === j.id) subject = { memberId: m.id, purpose: 'MESSAGE' };
+      }
+    }
+  }
+  let subjectContext = null;
+  if (subject) {
+    const m = members.find(x => x.id === subject!.memberId)!;
+    const intakeRow = findIntake(ctx, r.id, m.member);
+    subjectContext = {
+      member_id: num(m.id),
+      purpose: subject.purpose,
+      messages: byId([...ctx.db.privateMessage.byOwner.filter(m.member)].filter(pm => pm.roomId === r.id)).map(pm => ({
+        id: num(pm.id),
+        sender: pm.sender,
+        body: pm.body,
+        job_id: pm.jobId === undefined ? null : num(pm.jobId),
+      })),
+      patches: byId([...ctx.db.constraintPatch.byOwner.filter(m.member)].filter(cp => cp.roomId === r.id)).map(cp => ({
+        id: num(cp.id),
+        patch: parsed(cp.patchJson),
+        state: cp.state,
+        source_message_id: cp.sourceMessageId === undefined ? null : num(cp.sourceMessageId),
+      })),
+      intake: intakeRow
+        ? { state: intakeRow.state, coverage: parsed(intakeRow.coverageJson), question_count: intakeRow.questionCount }
+        : null,
+      // Their persistent profile answers: defaults to suggest for this room, never to assume.
+      profile: Object.fromEntries(
+        [...ctx.db.profileAnswer.byOwner.filter(m.member)]
+          .filter(a => a.status === 'ANSWERED')
+          .map(a => [a.questionId, parsed(a.valueJson)])
+      ),
+    };
+  }
+
+  // Cumulative approved compromise (H_i) per active member, keyed by member id
+  // as a string: the optimizer's compromise_history, zero for anyone without any.
+  const history = compromiseHistory(ctx, r.id);
+  const compromise_history = Object.fromEntries(
+    members.filter(m => m.active).map(m => [String(num(m.id)), (history.get(m.id) ?? 0) / 1_000_000])
+  );
+
+  // Everyone's rules, needs and search facts in the generic language (worker-only:
+  // private like the constraints they mirror).
+  const memberOf = (o: { toHexString(): string }) => memberIdOf.get(o.toHexString()) ?? null;
+  const rules = byId([...ctx.db.participantRule.byRoom.filter(r.id)]).map(x => ({
+    rule_id: num(x.id), member_id: memberOf(x.owner), rule: parsed(x.ruleJson), kind: x.kind, state: x.state,
+    source_quote: x.sourceQuote, legacy_key: x.legacyKey ?? null,
+  }));
+  const needs = byId([...ctx.db.participantNeed.byRoom.filter(r.id)]).map(x => ({
+    member_id: memberOf(x.owner), category: x.category, attribute: x.attribute, needs: x.needs,
+  }));
+  const search_facts = byId([...ctx.db.searchFact.byRoom.filter(r.id)]).map(x => ({
+    member_id: memberOf(x.owner), fact: x.fact, value: parsed(x.valueJson),
+  }));
 
   return {
     job: leaseFields(j),
     room: { room_id: num(r.id), goal: r.goal, status: r.status, settings: parsed(r.settingsJson) },
+    trip_brief: brief
+      ? {
+          description: brief.description,
+          brief: parsed(brief.briefJson),
+          unclear: parsed(brief.unclearJson),
+          state: brief.state,
+          revision: num(brief.revision),
+        }
+      : null,
+    intakes,
+    subject: subjectContext,
     mediator_agent_id: num(agents.find(a => a.kind === 'MEDIATOR')!.id),
     members: people,
     constraints,
@@ -280,6 +376,11 @@ function buildContext(ctx: Ctx, j: JobRow) {
     messages,
     candidates,
     proposals,
+    commitments: agreed,
+    compromise_history,
+    rules,
+    needs,
+    search_facts,
   };
 }
 

@@ -157,14 +157,15 @@ def negotiate(client: Client, worker: Identity, room_id: int, pace: float, crash
     terms = {"flights": {str(m["member_id"]): f"sim_flight_{m['member_id']}" for m in members}, "mode": "FIXTURE"}
     published = client.procedure(
         worker, "publish_proposal", job_id=run.job_id, attempt=run.attempt, request_key=key("publish"),
-        stage="TRAVEL", terms_json=json.dumps(terms, sort_keys=True, separators=(",", ":")),
+        stage="TRAVEL", decision_id="trip", scope="COMPLETE_PLAN", terms_json=json.dumps(terms, sort_keys=True, separators=(",", ":")),
         shared_summary_json=json.dumps({"headline": "Everyone lands within an hour of each other (simulated flights)"}),
         validation_json=json.dumps({"validator": "simulator", "hard_constraints": "PASS"}),
         evidence_refs=[c["candidate_ref"] for c in candidates], affected_member_ids=[],
         selected_candidate_refs=[c["candidate_ref"] for c in candidates],
         impacts=[{"member_id": m["member_id"],
                   "impact_json": json.dumps({"cost_cents": json.loads(candidates[i]["facts_json"])["total_cents"]})}
-                 for i, m in enumerate(members)])
+                 for i, m in enumerate(members)],
+        burdens=[])
     print(f"published proposal {published['proposal_id']} v{published['version']}; approve it from the app")
 
 

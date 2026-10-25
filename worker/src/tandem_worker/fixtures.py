@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 
-from .contracts import Act, Brief, Candidate, Decision, Preferences, Snapshot, VoiceDraft, VoiceSegment
+from .contracts import (Act, Brief, BriefDraft, Candidate, Decision, IntakeExtraction, Preferences, ProfileSummary, Snapshot,
+                        TripBrief, VoiceDraft, VoiceSegment)
 
 
 HOUR = 3600
@@ -77,6 +80,8 @@ class FixtureResearch:
         self.requests.append(copy.deepcopy(request))
         now = request["observed_at"]
         targeted = request["purpose"] == "TARGETED"
+        if request.get("routes") or request.get("trip"):
+            return onboarded_offers(request)
         if self.scenario in FRICTION:
             spec = FRICTION[self.scenario]
             offers = spec.get("targeted", []) if targeted else spec["offers"]
@@ -147,3 +152,93 @@ class ScriptedModel:
     def voice(self, context):
         self.voices.append(copy.deepcopy(context))
         return VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k, text=v) for k, v in context["facts"].items()))
+
+    def profile_summary(self, context):
+        return ProfileSummary(summary="You: " + " ".join(f.rstrip(".") + "." for f in context["facts"])[:1100])
+
+
+# ---------- Onboarding personas ----------
+
+PERSONAS = json.loads((Path(__file__).parent / "personas" / "travellers.json").read_text())
+
+
+def persona(name: str) -> dict:
+    return next(p for p in PERSONAS["travellers"] if p["name"] == name)
+
+
+
+class PersonaModel(ScriptedModel):
+    """Deterministic onboarding model for scripted personas. Extraction is the
+    persona file's annotated reading of each message; questions fall back to the
+    engine's own wording; the trip brief is the file's."""
+    def extract(self, context):
+        p, items, settings, unclear = persona(context["owner"]), [], None, []
+        for message in context["messages"]:
+            if message["sender"] != "HUMAN":
+                continue
+            for reply in p["replies"]:
+                if reply["says"] not in message["body"]:
+                    continue
+                items += [{**item, "source_message_id": message["id"]} for item in reply.get("items", [])]
+                if reply.get("settings"):
+                    settings = {**reply["settings"], "source_message_id": message["id"]}
+                unclear += reply.get("unclear", [])
+        return IntakeExtraction(items=tuple(items), settings=settings, unclear=tuple(unclear))
+
+    def ask(self, context):
+        raise ValueError("scripted personas use the engine's fallback questions")
+
+    def brief(self, context):
+        return BriefDraft(brief=TripBrief(**PERSONAS["trip"]["brief"]))
+
+
+class ScriptedTraveller:
+    """Answers its agent like the persona would: the opener first, then whatever
+    the agent asked about (up to two topics), each answer used once."""
+    def __init__(self, name: str):
+        self.persona, self.used = persona(name), set()
+
+    def reply(self, asked: list[str]) -> str | None:
+        said = []
+        for topic in asked:
+            for i, reply in enumerate(self.persona["replies"]):
+                if i not in self.used and reply["when"] == topic:
+                    self.used.add(i)
+                    said.append(reply["says"])
+                    break
+        return " ".join(said) or None
+
+
+def onboarded_offers(request):
+    """Fixture offers for a room that searches from people's onboarding answers."""
+    import airportsdata
+    from .adapters.memo23 import local_epoch
+    offers, now, wanted = PERSONAS["fixture_offers"], request["observed_at"], set(request["categories"])
+    common = dict(observed_at=now, valid_until=now + 3600, run_ref=f"fixture-{request['purpose']}", mode="FIXTURE")
+    tag = f"{request['purpose'].lower()}-{int(now * 1000)}"
+    results = []
+    if "FLIGHT" in wanted:
+        for route in request["routes"]:
+            if route["owner"] not in request["target_owners"]:
+                continue
+            zone = airportsdata.load("IATA")[route["destination"]]["tz"]
+            for name, price, arrive, stops, bag in offers["flights"].get(route["origin"], []):
+                if route.get("max_stops") is not None and stops > route["max_stops"]:
+                    continue  # the search itself filters stops, like the live actor's maxStops
+                results.append(Candidate(id=f"{route['owner']}-{name}-{tag}", owner=route["owner"], total_cents=price,
+                    arrival_epoch=int(local_epoch(route["date"], arrive, zone)), arrival_timezone=zone, arrival_local=arrive,
+                    stops=stops, baggage_included=bag, cost_basis="COMPLETE_FLIGHT_TOTAL", flight_identity=f"{route['owner']}-{name}",
+                    source_url=f"https://fixtures.invalid/{route['origin']}/{name}", **common))
+    trip = request.get("trip") or {}
+    if "STAY" in wanted:
+        results += [Candidate(id=f"stay-{i}-{tag}", category="STAY", total_cents=price, capacity=guests, bedrooms=rooms,
+            rating=rating, title=title, cost_basis="COMPLETE_STAY_TOTAL", source_url=f"https://fixtures.invalid/stay/{i}", **common)
+            for i, (title, price, guests, rooms, rating) in enumerate(offers["stays"])]
+    if "TRANSFER" in wanted and trip.get("pickup_time"):
+        results += [Candidate(id=f"transfer-{i}-{tag}", category="TRANSFER", total_cents=price, capacity=seats,
+            title=f"{title}, pickup {trip['pickup_time']}", cost_basis="COMPLETE_TRANSFER_TOTAL",
+            source_url=f"https://fixtures.invalid/transfer/{i}", **common) for i, (title, price, seats) in enumerate(offers["transfers"])]
+    results += [Candidate(id=f"idea-{i}-{tag}", category=category, total_cents=price, title=title, rating=rating,
+        cost_basis="ESTIMATE_PER_PERSON", source_url=f"https://fixtures.invalid/idea/{i}", **common)
+        for i, (category, title, price, rating) in enumerate(offers["ideas"]) if category in wanted]
+    return results

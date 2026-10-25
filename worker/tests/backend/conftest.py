@@ -34,7 +34,7 @@ class Room:
     tokens: dict[str, str]
 
     def plan_job(self) -> str:
-        jobs = self.backend.eligible_jobs()
+        jobs = [str(j["id"]) for j in self.backend.pending_jobs() if j["kind"] == "PLAN"]
         assert jobs, "expected a pending PLAN job"
         return jobs[-1]
 
@@ -56,3 +56,17 @@ def stdb_room():
         settings = {"components": list(snapshot.components)} if len(snapshot.components) > 1 else None
         return make_room(briefs or defaults, limits=limits, settings=settings)
     return create
+
+
+def onboarding_room(names: tuple[str, ...], organizer: str) -> Room:
+    """People who just created/joined a room: no limits, no confirmed settings."""
+    http = StdbHttp(URL, DB)
+    tokens = {n: http.mint_identity()["token"] for n in names}
+    http.call(tokens[organizer], "create_room", goal="Onboarding (integration test)", display_name=organizer)
+    room = max(http.view(tokens[organizer], "my_rooms"), key=lambda r: r["id"])
+    for n in names:
+        if n != organizer:
+            http.call(tokens[n], "join_room", invite_code=room["invite_code"], display_name=n)
+    backend = SpacetimeBackend(URL, DB, WORKER_TOKEN, room_id=room["id"], owner_name=lambda m: m["display_name"],
+                               owner_tokens=tokens)
+    return Room(backend=backend, room_id=room["id"], tokens=tokens)

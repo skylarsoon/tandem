@@ -187,7 +187,7 @@ class ApifyResearch:
                  approved_searches: list, build_input: Callable, normalize_item: Callable, clock,
                  category="FLIGHT", max_polls=20, max_items=100, max_charge_usd=1.0, pause=time.sleep,
                  budget=None, request_input_builder=None, poll_deadline_seconds=120, monotonic=time.monotonic,
-                 normalizer_version=None, max_concurrent_runs=None):
+                 normalizer_version=None, max_concurrent_runs=None, reuse_window_seconds=900):
         if not re.fullmatch(r"[A-Za-z0-9_~-]+", actor_id) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", build):
             raise ValueError("Pin an allowlisted Actor ID and numeric build version")
         if max_polls <= 0 or max_items <= 0 or max_charge_usd <= 0:
@@ -206,6 +206,7 @@ class ApifyResearch:
         self.poll_deadline_seconds, self.monotonic = poll_deadline_seconds, monotonic
         self.normalizer_version = normalizer_version
         self.max_concurrent_runs = max_concurrent_runs
+        self.reuse_window_seconds = reuse_window_seconds
 
     def search(self, request):
         jobs = self.prepare(request)
@@ -230,7 +231,12 @@ class ApifyResearch:
             if owner is not None and owner not in targets:
                 continue
             actor_input = self.request_input_builder(search, request) if self.request_input_builder else self.build_input(search, request["purpose"])
-            key = digest([self.actor_id, self.build, request, search.model_dump(mode="json"), actor_input])
+            # Runs are keyed by what was searched, not by the room revision, so a job that's
+            # superseded mid-run (someone confirmed an answer) hands its paid runs to the next
+            # job, within one freshness window.
+            window = int(request.get("observed_at", 0) // self.reuse_window_seconds)
+            key = digest([self.actor_id, self.build, request.get("room_id"), request["purpose"], request.get("blocker_code"),
+                          search.model_dump(mode="json"), actor_input, window])
             jobs.append(RunJob(self, key, search, actor_input, request["purpose"]))
         return jobs
 

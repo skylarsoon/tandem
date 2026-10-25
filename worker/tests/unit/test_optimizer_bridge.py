@@ -1,7 +1,7 @@
 
 import unittest
 
-from tandem_worker.contracts import Snapshot, Candidate, ContractError
+from tandem_worker.contracts import Brief, Candidate, ContractError, Preferences, Snapshot
 from tandem_worker.optimizer_bridge import TandemOptimizerBridge
 
 
@@ -90,14 +90,16 @@ def fixture():
     }
 
     history = {m: 0.0 for m in members}
+    # The worker's typed limits; the same flight caps the context rows hold.
+    briefs = [Brief(owner=m, hard_cap_cents=35000, preferences=Preferences(confirmed=True)) for m in members]
 
-    return snapshot, candidates, context, history
+    return snapshot, candidates, context, history, briefs
 
 
 class OptimizerBridgeTests(unittest.TestCase):
 
     def test_selects_one_flight_per_participant(self):
-        snapshot, candidates, context, history = fixture()
+        snapshot, candidates, context, history, briefs = fixture()
 
         bridge = TandemOptimizerBridge(
             context_loader=lambda snapshot: context,
@@ -105,7 +107,7 @@ class OptimizerBridgeTests(unittest.TestCase):
             now=1500,
         )
 
-        result = bridge.solve(snapshot, [], candidates)
+        result = bridge.solve(snapshot, briefs, candidates)
 
         self.assertEqual(result.status, "OPTIMAL")
         self.assertEqual(len(result.selected), 4)
@@ -118,7 +120,7 @@ class OptimizerBridgeTests(unittest.TestCase):
         )
 
     def test_rejects_stale_revision(self):
-        snapshot, candidates, context, history = fixture()
+        snapshot, candidates, context, history, briefs = fixture()
         context["job"]["input_revision"] = 3
 
         bridge = TandemOptimizerBridge(
@@ -127,7 +129,7 @@ class OptimizerBridgeTests(unittest.TestCase):
         )
 
         with self.assertRaises(ContractError):
-            bridge.solve(snapshot, [], candidates)
+            bridge.solve(snapshot, briefs, candidates)
 
 
 if __name__ == "__main__":

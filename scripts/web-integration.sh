@@ -17,15 +17,19 @@ trap cleanup EXIT
 for p in "$PORT" "$WEB_PORT" "$WORKER_PORT"; do
  if curl -s "http://127.0.0.1:$p" >/dev/null 2>&1; then echo "Port $p is already in use." >&2; exit 1; fi
 done
-"$SPACETIME" --root-dir "$STATE/stdb" start --in-memory --listen-addr "127.0.0.1:$PORT" --non-interactive >"$STATE/database.log" 2>&1 &
+# The standard installer's `spacetime` launcher runs its binaries from inside --root-dir.
+INSTALLED_BIN="${SPACETIME_INSTALL_DIR:-$HOME/.local/share/spacetime}/bin"
+mkdir -p "$STATE/stdb"
+if [ -d "$INSTALLED_BIN" ] && [ ! -e "$STATE/stdb/bin" ]; then ln -s "$INSTALLED_BIN" "$STATE/stdb/bin"; fi
+"$SPACETIME" --root-dir="$STATE/stdb" start --in-memory --listen-addr "127.0.0.1:$PORT" --non-interactive >"$STATE/database.log" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 100); do curl -sf "$URL/v1/ping" >/dev/null && break; sleep .2; done
 curl -sf "$URL/v1/ping" >/dev/null
-"$SPACETIME" --root-dir "$STATE/stdb" publish --server "$URL" --module-path "$ROOT/spacetimedb" --no-config --yes "$DB" >"$STATE/publish.log" 2>&1
+"$SPACETIME" --root-dir="$STATE/stdb" publish --server "$URL" --module-path "$ROOT/spacetimedb" --no-config --yes "$DB" >"$STATE/publish.log" 2>&1
 IDENTITY_JSON="$(curl -sf -X POST "$URL/v1/identity")"
 WORKER_ID="$(printf '%s' "$IDENTITY_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["identity"])')"
 WORKER_TOKEN="$(printf '%s' "$IDENTITY_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')"
-"$SPACETIME" --root-dir "$STATE/stdb" call --server "$URL" --no-config -y "$DB" add_worker "{\"__identity__\":\"0x$WORKER_ID\"}" '"browser-test-worker"' >"$STATE/worker.log" 2>&1
+"$SPACETIME" --root-dir="$STATE/stdb" call --server "$URL" --no-config -y "$DB" add_worker "{\"__identity__\":\"0x$WORKER_ID\"}" '"browser-test-worker"' >"$STATE/worker.log" 2>&1
 export TANDEM_STDB_URL="$URL" TANDEM_STDB_DB="$DB" TANDEM_STDB_WORKER_TOKEN="$WORKER_TOKEN"
 export STDB_URL="$URL" STDB_DB="$DB" STDB_WORKER_TOKEN="$WORKER_TOKEN"
 export ANTHROPIC_API_KEY=test-key CLAUDE_MODEL=claude-test APIFY_TOKEN=test-key WORKER_WAKE_TOKEN=browser-test-wake-secret
