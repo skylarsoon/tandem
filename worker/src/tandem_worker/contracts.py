@@ -361,10 +361,13 @@ class GroupSummary(Record):
 class Conflict(Record):
     """Why no plan exists. Owner-specific conflicts go only to that owner."""
     code: Literal["HARD_LIMIT", "BAGGAGE_UNAVAILABLE", "NO_CANDIDATES", "ARRIVAL_WINDOW",
-                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME", "TOO_MANY_STOPS", "RULE"]
+                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME", "TOO_MANY_STOPS", "RULE",
+                  "DECLINED"]
     owner: str | None = None
     # RULE: the attributes whose rules (the owner's own, or the trip's dates) left them no option.
     attributes: tuple[str, ...] = ()
+    # DECLINED: how many options they were asked about and said no to.
+    declined: int = 0
     cheapest_cents: int | None = None
     # TRIP_LIMIT: the cheapest trip for this owner and their limit; STAY_UNAVAILABLE:
     # which requirement no stay meets (never whose).

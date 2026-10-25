@@ -10,7 +10,7 @@ from langgraph.types import interrupt
 
 from ..contracts import Act, Candidate, Conflict, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
-from ..explain_rules import rule_conflict_note
+from ..explain_rules import declined_note, rule_conflict_note
 from ..progress import activity, report as progress
 from ..rules import dates_outside_trip, decisions, evaluate, remaining_stages, search_dates, stage_decisions
 from ..shortlist import dedupe, shortlist_choices
@@ -22,7 +22,8 @@ RESEARCH_BLOCKER = {"HARD_LIMIT": "HARD_LIMIT", "BAGGAGE_UNAVAILABLE": "BAGGAGE_
                     "NO_CANDIDATES": "NO_MATCHING_CANDIDATE", "ARRIVAL_WINDOW": "ARRIVAL_OVERLAP",
                     "TRIP_LIMIT": "HARD_LIMIT", "STAY_UNAVAILABLE": "STAY_UNAVAILABLE",
                     "TRANSFER_UNAVAILABLE": "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME": "ARRIVAL_OVERLAP",
-                    "TOO_MANY_STOPS": "NO_MATCHING_CANDIDATE", "RULE": "NO_MATCHING_CANDIDATE"}
+                    "TOO_MANY_STOPS": "NO_MATCHING_CANDIDATE", "RULE": "NO_MATCHING_CANDIDATE",
+                    "DECLINED": "NO_MATCHING_CANDIDATE"}
 RESEARCH_CATEGORIES = {"TRIP_LIMIT": ("FLIGHT", "STAY"), "STAY_UNAVAILABLE": ("STAY",), "TRANSFER_UNAVAILABLE": ("TRANSFER",)}
 # The decision a room without stages plans (the whole trip); other agreed decisions' picks are locked.
 DECISION = "trip"
@@ -114,12 +115,14 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     asked.append(backend.ask_owner(claim, question))
         return sorted(set(asked))
 
-    def empty_conflict(snapshot, rules, owner, brief, candidates):
+    def empty_conflict(snapshot, rules, owner, brief, candidates, declined=()):
         """Why someone has no option. The old named limits explain what they cover; when
         options that pass those were still excluded, it was a rule they don't know (the
         person's own dates, the trip's dates, any other rule): name every rule that
         excluded something, and own dates that can't fit the trip at all. Never guess."""
         mine = [c for c in candidates if c.owner == owner and c.total_cents is not None]
+        if declined and not mine:  # what was left, they were asked about and said no to
+            return Conflict(code="DECLINED", owner=owner, declined=len(declined))
         broken = {r.attribute for c in mine for r in rules.binding(owner, c.category)
                   if evaluate(r, c.model_dump(mode="json")) == "VIOLATED"}
         broken |= dates_outside_trip(rules, owner, "FLIGHT", snapshot.start_date, snapshot.end_date)
@@ -253,7 +256,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     if pick.empty_groups:
                         # Someone has no usable flight at all: say why, never solve as if they did.
                         return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
-                            empty_conflict(plan_for, room_rules, o, by_owner[o], candidates) for o in pick.empty_groups))
+                            empty_conflict(plan_for, room_rules, o, by_owner[o], candidates,
+                                           [c for c in state["candidates"] if c["id"] in excluded and c["owner"] == o])
+                            for o in pick.empty_groups))
                     if takes_rules:
                         return solver.solve(plan_for, briefs, list(pick.candidates), rules=room_rules)
                     return solver.solve(plan_for, briefs, list(pick.candidates))
@@ -442,6 +447,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         for conflict in conflicts:
             if conflict.owner:
                 note = (rule_conflict_note(conflict, rules) if conflict.code == "RULE"
+                        else declined_note(conflict) if conflict.code == "DECLINED"
                         else owner_conflict_note(conflict, by_owner[conflict.owner]))
                 backend.notify_owner(claim, conflict.owner, note, f"no-plan:{state['round']}:{conflict.owner}")
             # A shared requirement that blocks is told only to whoever set it.

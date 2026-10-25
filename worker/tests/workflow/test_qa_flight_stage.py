@@ -412,3 +412,19 @@ def test_danas_vegetarian_need_comes_from_her_profile_and_waits_for_food(qa):
     # It's for food: it doesn't touch the flight decision.
     [(_, flights)] = live(plan(backend, worker), "flight")
     assert picks(flights)["Dana"]["category"] == "FLIGHT"
+
+
+def test_saying_no_to_every_option_is_said_back_as_that(tmp_path):
+    """Live, Bella declined each compromise she was asked about; the note said "no fare with a
+    complete price was found", which wasn't true. It's her choice, and it's said back as hers."""
+    backend, worker, _ = make_room(tmp_path, variant="bella_pricey_nonstop")
+    onboard(backend, worker)
+
+    def answer(name, question):
+        return False if name == "Bella" and question.kind == "CONSULTATION" else no_bag(name, question)
+    report = plan(backend, worker, answer=answer)
+    assert not live(report, "flight")
+    note = backend.conversation("Bella")[-1]["body"]
+    assert note.startswith("No plan fits yet: you said no to") and "complete price" not in note, note
+    room = [e["payload"]["text"] for e in report["events"] if e["kind"] == "NO_FEASIBLE_PLAN"][-1]
+    assert "none of the options found works for them" in room and "Bella" not in room
