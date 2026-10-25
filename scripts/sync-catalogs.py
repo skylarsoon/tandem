@@ -35,6 +35,9 @@ def main() -> None:
     for name, value in (("profile_questions.json", profile), ("attributes.json", attributes), ("legacy_keys.json", legacy),
                         ("decisions.json", decisions)):
         (worker / name).write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+    # The profile onboarding JSON Schema is generated from the same catalog.
+    import runpy
+    runpy.run_path(str(ROOT / "scripts" / "profile-schema.py"), run_name="__main__")
     print(f"synced: {len(profile['questions'])} profile questions, "
           f"{sum(len(a) for a in attributes['categories'].values())} attributes, {len(legacy['keys'])} named limits")
 
