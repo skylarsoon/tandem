@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { connect } from "../lib/client";
-import { json, money, proposalAction, questionAction, type Row } from "../lib/state";
+import { json, money, proposalAction, questionAction, recoveryAction, type Row } from "../lib/state";
 import { constraintValue, describeFact, established, factStrength, label, outgoingMessage, planningStatus, preferenceDefaults,
   readable, revisionEvents, revisionText, scoped, timeline, type Preferences, type Tables, type TimelineItem } from "../lib/planning";
 import { stages, workflow } from "../lib/workflow";
 import { AgentAvatar } from "./agent-avatar";
+import { AgentVoice, type VoicePlayback } from './agent-voice';
 import { RoomAgents } from "./agent-companions";
 import { myCharacter, messageCharacter } from "../lib/agents";
 
@@ -46,9 +47,9 @@ function ProposalCard({ proposal: p, tables, disabled, act, reducers, edit }: {
   return <>
     <div className="card-title"><h3>Plan · version {p.version}</h3><span className="tag">{readable(p.state)}</span></div>
     <p>{summary.text || "Review these exact options before deciding."}</p>
-    {(Array.isArray(terms.selected) ? terms.selected : []).map((c: Row) => <div className="option" key={c.id}>
-      <strong>{label(c.category || "Option")}</strong>
-      <p>{c.title || c.flight_identity || c.id} · {money(c.total_cents)}</p>
+    {(Array.isArray(terms.selected) ? terms.selected : []).map((c: Row, index: number) => <div className="option" key={c.id}>
+      <strong>{label(c.category || "Option")} · traveller {index + 1}</strong>
+      <p>{c.title || (c.flight_identity && !/[a-f0-9]{32}/i.test(c.flight_identity) ? c.flight_identity : "Selected flight")} <b>{money(c.total_cents)}</b></p>
       <Source url={c.source_url} />
     </div>)}
     {Array.isArray(summary.suggestions) && summary.suggestions.length > 0 && <details>
@@ -77,6 +78,7 @@ function MessageCard({ item, tables, room, disabled, act, reducers, prefs, setPr
   excluded: string[]; setExcluded: (ids: string[]) => void; edit: () => void;
 }) {
   const row = item.row;
+  const [declineReason, setDeclineReason] = useState("");
   const organizer = tables.room_members?.some(m => m.isMe && m.role === "ORGANIZER");
   if (item.kind === "message" || item.kind === "event") return <p className="utterance">{item.text}</p>;
   if (item.kind === "brief") {
@@ -95,12 +97,17 @@ function MessageCard({ item, tables, room, disabled, act, reducers, prefs, setPr
   }
   if (item.kind === "question") {
     const schema = json<Row>(row.answerSchemaJson, { type: "boolean" });
-    const booleanAnswer = schema.type === "boolean" || row.kind === "PARTICIPATION_CONFIRMATION";
+    const recovery = row.kind === 'PLAN_RECOVERY';
+    const choices = recovery ? json<Row>(row.actionJson, {}).choices : [];
+    const grant = ['OBJECTION_DISCLOSURE', 'CONCESSION_CONSULTATION', 'BROADER_EXPLORATION'].includes(row.kind);
+    const booleanAnswer = !recovery && (schema.type === 'boolean' || row.kind === 'PARTICIPATION_CONFIRMATION' || grant);
     return <>
     <h3>A question for you</h3><p>{row.prompt}</p>
     {row.kind === "PARTICIPATION_CONFIRMATION" && row.state === "OPEN" && <Participation value={prefs} onChange={setPrefs} disabled={disabled} />}
+    {row.state === 'OPEN' && grant && <label>Reason if you say no (optional)<textarea rows={2} maxLength={500} value={declineReason} disabled={disabled} onChange={e => setDeclineReason(e.target.value)} /></label>}
     {row.state === "OPEN" ? <div className="actions">
-      {booleanAnswer && [true, false].map(yes => <button key={String(yes)} disabled={disabled} onClick={() => void act(item.key, () => reducers.answerQuestion(questionAction(row, yes, prefs)))}>{yes ? "Yes" : "No"}</button>)}
+      {recovery && Array.isArray(choices) && choices.map((choice: Row) => <button key={choice.id} disabled={disabled} onClick={() => void act(item.key, () => reducers.answerQuestion(recoveryAction(row, choice.id)))}>{choice.label}</button>)}
+      {booleanAnswer && [true, false].map(yes => <button key={String(yes)} disabled={disabled} onClick={() => void act(item.key, () => reducers.answerQuestion(questionAction(row, yes, prefs, declineReason)))}>{yes ? "Yes" : "No"}</button>)}
       <button disabled={disabled} onClick={edit}>Reply in chat</button>
     </div> : <small>{row.state === "ANSWERED" ? "Answer recorded" : "Earlier question · no longer active"}</small>}
   </>;
@@ -185,6 +192,12 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
 }) {
   const tables = connected ? scoped(input, room) : {}, items = timeline(room, tables);
   const sharedSetup = tables.room_members?.some(m => m.isMe && m.role === "ORGANIZER") && !tables.room_trip_brief?.length;
+  const [view, setView] = useState<"personal" | "discussion">("personal");
+  const [playback, setPlayback] = useState<VoicePlayback | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const relevantItems = view === "discussion" ? items.filter(item => item.audience === "shared" && item.kind === "message" && item.row.senderAgentId != null) : items;
+  const archived = relevantItems.filter(item => item.kind === 'event' || (item.kind === 'patch' && !['PENDING', 'PROPOSED', 'OPEN'].includes(item.row.state)));
+  const visibleItems = showHistory ? relevantItems : relevantItems.filter(item => !archived.includes(item));
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState("");
@@ -201,11 +214,17 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
     if (authoritativePrefs) setPrefs({ speakUpForMe: authoritativePrefs.speakUpForMe, askMeFirst: authoritativePrefs.askMeFirst,
       giveMeTime: authoritativePrefs.giveMeTime, remindersOptedIn: authoritativePrefs.remindersOptedIn });
   }, [authoritativePrefs]);
+  useEffect(() => { if (view === 'discussion' && scroll.current) scroll.current.scrollTop = 0; }, [view]);
   const latest = items.at(-1)?.key;
   const pendingCorrection = items.some(item => corrections.includes(item.key) && ["OPEN", "PENDING", "PROPOSED", "SUMMARY"].includes(item.row.state));
   useEffect(() => {
     if (atBottom.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [latest, items.length]);
+  useEffect(() => {
+    if (!playback) return;
+    const node = scroll.current?.querySelector(`[data-message-key="${CSS.escape(playback.key)}"]`);
+    if (node instanceof HTMLElement && scroll.current) scroll.current.scrollTo({ top: node.offsetTop - scroll.current.offsetTop - 20, behavior: 'smooth' });
+  }, [playback?.key]);
   const act: Action = async (key, operation) => {
     if (!connected || inflight.current.has(key)) return false;
     inflight.current.add(key); setPending(keys => [...keys, key]); setError("");
@@ -230,37 +249,50 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
       atBottom.current = true;
     }
   };
-  return <section className="conversation-panel" aria-label="Trip conversation">
-    <div className="conversation-heading"><div><p className="eyebrow">LET’S MAKE A PLAN</p><h2>Your trip, in conversation</h2></div><AgentAvatar variant={myCharacter(tables)} size="message" animated={false} /></div>
-    <p className="conversation-intro">Talk with your agent. Private replies and shared trip updates are labeled below.</p>
-    <RoomAgents tables={tables} connected={connected} />
+  return <section className={`conversation-panel conversation-panel--${view}`} aria-label="Trip conversation">
+    <div className="conversation-heading">{view === 'discussion' && <button type="button" className="studio-back" onClick={() => setView('personal')}>← Back to trip</button>}<div><p className="eyebrow">{view === 'discussion' ? 'FOUR PERSPECTIVES. ONE GETAWAY.' : 'YOUR OWN CORNER OF THE TRIP'}</p><h2>{view === 'discussion' ? 'A meeting of little minds.' : 'Your trip, in conversation'}</h2></div><AgentAvatar speechTarget={String(tables.room_members?.find(m => m.isMe)?.agentId ?? 'personal')} variant={myCharacter(tables)} size="message" animated={false} /></div>
+    <p className="conversation-intro">{view === 'discussion' ? `${room.title || room.name || 'Your trip'} · Real agent messages, shared with everyone.` : 'A plan that works for everyone starts with a little conversation.'}</p>
+    <RoomAgents room={room} tables={tables} connected={connected} activeTarget={playback?.target} speaking={playback?.phase === 'speaking'} />
+    <div className="conversation-tabs" role="tablist" aria-label="Conversation view">
+      <button type="button" role="tab" aria-selected={view === 'personal'} onClick={() => setView('personal')}>Your agent <span>Private replies</span></button>
+      <button type="button" role="tab" aria-selected={view === 'discussion'} onClick={() => setView('discussion')}>Agent discussion <span>{tables.room_messages?.length || 0} shared messages</span></button>
+    </div>
+    <AgentVoice onPlayback={setPlayback} key={String(room.id)} items={items} tables={tables} discussion={view === 'discussion'} connected={connected} onTranscript={async body => {
+      const outgoing = outgoingMessage(room, tables, body);
+      const ok = await act('voice-composer', () => outgoing.kind === 'description'
+        ? reducers.setTripDescription(outgoing.args) : reducers.submitPrivateMessage({ roomId: room.id, body }));
+      if (!ok) setMessage(current => current ? `${current}\n${body}` : body);
+      else { atBottom.current = true; setReceipt('Spoken details sent · review the agent’s suggestions before confirming.'); }
+      return ok;
+    }} />
     <div className="conversation-feed" role="log" aria-label="Trip messages" aria-live="polite" aria-relevant="additions" ref={scroll} onScroll={() => {
       if (scroll.current) atBottom.current = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100;
     }}>
-      {!items.length && <div className="conversation-empty"><span aria-hidden="true">↗</span><h3>Start with an idea.</h3><p>A weekend away, a camping trip, a celebration—tell your agent what you’re imagining. It can ask for the details as you go.</p></div>}
-      {items.map(item => {
+      {archived.length > 0 && <button type="button" className="conversation-history" aria-expanded={showHistory} onClick={() => setShowHistory(value => !value)}>{showHistory ? 'Hide earlier updates' : `Show ${archived.length} earlier updates & saved details`}</button>}
+      {!visibleItems.length && <div className="conversation-empty"><span aria-hidden="true">↗</span><h3>{view === 'discussion' ? 'Every voice, one plan.' : 'Start with an idea.'}</h3><p>{view === 'discussion' ? 'Shared agent messages appear here as your companions compare options. Each traveller first confirms their needs privately.' : 'A weekend away, a camping trip, a celebration—tell your agent what you’re imagining. It can ask for the details as you go.'}</p></div>}
+      {visibleItems.map(item => {
         const human = item.kind === "message" && item.row.sender === "HUMAN";
         const blocked = corrections.includes(item.key) || editing?.key === item.key;
         const agent = tables.room_agents?.find(a => a.id === item.row.senderAgentId);
         const member = tables.room_members?.find(m => m.agentId === item.row.senderAgentId);
         const appearance = messageCharacter(tables, item.row.senderAgentId);
         const speaker = human ? "You" : item.row.senderAgentId ? agent?.kind === "MEDIATOR" ? "Mediator" : `${member?.displayName || "Personal"}’s agent` : item.speaker;
-        return <article key={item.key} className={`chat-item ${human ? "from-you" : "from-agent"} ${item.kind === "event" ? "chat-event" : ""} ${item.audience === "shared" ? "shared-item" : "private-item"}`}>
-          <div className="message-meta">{!human && item.kind !== "event" && (item.audience === "private" || item.row.senderAgentId != null) && <AgentAvatar variant={appearance.variant} mediator={appearance.mediator} size="message" animated={false} />}<strong>{speaker}</strong><span>{item.audience === "private" ? "Only you" : "Shared with trip"}</span></div>
+        return <article key={item.key} data-message-key={item.key} data-speaking={playback?.key === item.key} data-color={appearance.variant} className={`chat-item ${human ? "from-you" : "from-agent"} ${item.kind === "event" ? "chat-event" : ""} ${item.audience === "shared" ? "shared-item" : "private-item"}`}>
+          <div className="message-meta">{!human && item.kind !== "event" && (item.audience === "private" || item.row.senderAgentId != null) && <AgentAvatar speechTarget={String(item.row.senderAgentId ?? tables.room_members?.find(m => m.isMe)?.agentId ?? 'personal')} variant={appearance.variant} mediator={appearance.mediator} size="message" animated={false} />}<strong>{speaker}</strong>{playback?.key === item.key && <span className="message-speaking">{playback.phase === 'speaking' ? 'Speaking' : 'Preparing voice'}</span>}<span>{item.audience === "private" ? "Only you" : "Shared with trip"}</span></div>
           <MessageCard item={item} tables={tables} room={room} disabled={!connected || pending.length > 0 || blocked || pendingCorrection} act={act} reducers={reducers} prefs={prefs} setPrefs={setPrefs} excluded={excluded} setExcluded={setExcluded} edit={() => startEdit(item)} />
           {blocked && <small className="correction-status">{corrections.includes(item.key) ? "Correction sent · awaiting an updated response" : "Write your correction below, or cancel to keep this suggestion."}</small>}
         </article>;
       })}
     </div>
-    <div className="composer-wrap">
+    {view === 'discussion' ? <div className="discussion-footer"><span>Every agent has a voice. The final decision is yours.</span><button type="button" onClick={() => setView('personal')}>Back to your agent →</button>{tables.room_proposals?.length ? <button type="button" onClick={() => { setView('personal'); atBottom.current = true; requestAnimationFrame(() => { if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; }); }}>Review the plan ↗</button> : null}</div> : <div className="composer-wrap">
       {error && <p role="alert" className="notice">{error}</p>}
       {editing && <div className="reply-context"><span>Replying about {editing.title}</span><button onClick={() => setEditing(undefined)}>Cancel reply</button></div>}
       <form className="chat-composer" onSubmit={e => { e.preventDefault(); void send(); }}>
         <label className="sr-only" htmlFor="trip-message">Message your agent</label>
-        <textarea id="trip-message" ref={composer} value={message} disabled={!connected || pending.includes("composer")} onChange={e => { setMessage(e.target.value); setReceipt(""); }} rows={3} placeholder={sharedSetup ? "Describe the shared trip idea…" : "Tell your agent what you have in mind…"} maxLength={4000} />
+        <textarea id="trip-message" ref={composer} value={message} disabled={!connected || pending.includes("composer")} onChange={e => { setMessage(e.target.value); setReceipt(""); }} rows={2} placeholder={sharedSetup ? "Describe the shared trip idea…" : "Tell your agent what you have in mind…"} maxLength={4000} />
         <div className="composer-bottom"><small>{!connected ? "Reconnecting · your draft stays here" : sharedSetup ? "First trip idea · shared with travellers" : "Private to your agent · add details anytime"}</small><button className="send-message" disabled={!connected || !message.trim() || pending.includes("composer")}>{pending.includes("composer") ? "Sending…" : "Send message ↑"}</button></div>
       </form>
       <p className="send-receipt" role="status">{receipt || "Your agent suggests. You confirm changes and approve the final plan."}</p>
-    </div>
+    </div>}
   </section>;
 }

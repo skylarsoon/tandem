@@ -28,8 +28,8 @@
       {"id": "sports", "label": "Sports and games"}, {"id": "shopping", "label": "Shopping and markets"},
       {"id": "classes", "label": "Classes and hands-on experiences"}, {"id": "family", "label": "Family activities"},
       {"id": "other", "label": "Other", "other_text": true}, {"id": "still_exploring", "label": "Still exploring", "exclusive": true}]},
-    {"id": "C03", "key": "priority_ranking", "section": "core", "prompt": "What should your agent put first when balancing options?", "input": "rank",
-     "helper": "Put all six priorities in order, from most to least important to you.", "options": [
+    {"id": "C03", "key": "priority_ranking", "section": "core", "prompt": "What should your agent put first when balancing options?", "input": "rank", "max": 5,
+     "helper": "Pick up to five, then put them in order. Anything you don't pick is unranked, not unwanted.", "options": [
       {"id": "affordability", "label": "Affordability", "hint": "Keep my costs down"},
       {"id": "togetherness", "label": "Group togetherness", "hint": "Share experiences"},
       {"id": "time_efficiency", "label": "Time efficiency", "hint": "Reduce travel and waiting"},

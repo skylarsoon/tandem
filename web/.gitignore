@@ -7,3 +7,6 @@ test-results/
 playwright-report/
 next-env.d.ts
 .next-integration/
+
+# Copied from the installed, versioned MediaPipe package by postinstall.
+/public/vision/wasm/

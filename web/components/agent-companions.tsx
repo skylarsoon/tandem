@@ -1,8 +1,10 @@
 "use client";
 
 import { useRef, useState } from 'react';
+import { CompanionPortrait } from './companion-portrait';
 import { AgentAvatar } from './agent-avatar';
 import { activityLabels, agentActivity, characters, memberCharacter, myCharacter, type Character } from '../lib/agents';
+import type { Row } from '../lib/state';
 import type { Tables } from '../lib/planning';
 
 export function CharacterPicker({ value, connected, save }: { value: Character; connected: boolean; save: (variant: Character) => Promise<unknown> }) {
@@ -33,11 +35,8 @@ export function CharacterPicker({ value, connected, save }: { value: Character; 
 
 export function AgentWelcome({ tables, connected, appearanceReady = true, save }: { tables: Tables; connected: boolean; appearanceReady?: boolean; save: (variant: Character) => Promise<unknown> }) {
   const variant = myCharacter(tables), name = tables.my_profile?.[0]?.displayName?.trim();
-  const [hello, setHello] = useState(0);
   return <section className="agent-welcome" aria-label="Your personal agent">
-    <button type="button" className="agent-hello-button" aria-label="Say hello to your agent" onClick={() => setHello(n => n + 1)}>
-      <AgentAvatar key={`${variant}:${hello}`} variant={variant} size="hero" greeting={connected} animated={connected} />
-    </button>
+    <CompanionPortrait variant={variant} connected={connected} />
     <div className="agent-welcome-copy"><p className="eyebrow">YOUR LITTLE TRAVEL COMPANION</p>
       <h2>{name ? `Hey ${name},` : 'Hey there,'}<br />where are we going?</h2>
       <p>I’m your personal agent. Bring an idea, and I’ll help you and your people find a plan that fits.</p>
@@ -48,26 +47,38 @@ export function AgentWelcome({ tables, connected, appearanceReady = true, save }
   </section>;
 }
 
-export function RoomAgents({ tables, connected }: { tables: Tables; connected: boolean }) {
+export function RoomAgents({ tables, connected, room, activeTarget, speaking }: { tables: Tables; connected: boolean; room?: Row; activeTarget?: string; speaking?: boolean }) {
   const members = (tables.room_members || []).filter(m => m.active);
   const mediator = tables.room_agents?.find(a => a.kind === 'MEDIATOR');
+  const count = Math.max(4, members.length);
+  const progress = tables.room_intake_progress?.[0];
+  const [copied, setCopied] = useState(false);
   return <section className="room-companions" aria-label="Agents in this trip">
-    <div className="room-companions-heading"><span>YOUR PLANNING CREW</span><small>{connected ? 'A little help for everyone' : 'Reconnecting…'}</small></div>
-    <ul className="room-companions-list">
-      {members.map(m => {
-        const activity = agentActivity(tables, m.agentId, connected);
-        const online = connected && tables.room_presence?.find(p => String(p.membershipId) === String(m.id))?.online;
-        return <li key={String(m.id)} className={m.isMe ? 'is-your-agent' : ''}>
-          <AgentAvatar variant={m.isMe ? myCharacter(tables) : memberCharacter(tables, m)} activity={activity} />
-          <strong>{m.isMe ? 'Your agent' : `${m.displayName}’s agent`}</strong>
-          <span className="agent-status">{activityLabels[activity]}</span>
-          <small className="agent-owner-presence"><i className={`dot ${online ? 'online' : ''}`} />{m.displayName}{m.isMe ? ' (you)' : ''} · {connected ? online ? 'online' : 'away' : 'unknown'}</small>
-        </li>;
-      })}
-      {mediator && <li className="mediator-companion"><AgentAvatar variant="mint" mediator activity={agentActivity(tables, mediator.id, connected)} />
-        <strong>Mediator</strong><span className="agent-status">{activityLabels[agentActivity(tables, mediator.id, connected)]}</span><small>Here for the whole group</small>
-      </li>}
-    </ul>
-    {!members.length && <p className="room-companions-empty">{connected ? 'Your companions will appear when you join a trip.' : 'Your crew will return when the connection is restored.'}</p>}
+    <div className="room-companions-heading"><span>YOUR AGENTS, TOGETHER</span><small>{connected ? progress ? `${progress.ready} of ${progress.total} travellers ready` : 'A personal voice for everyone' : 'Reconnecting…'}</small></div>
+    <div className="crew-scroll"><div className="crew-scene" style={{ minWidth: count * 95 }}>
+      <svg className="crew-connections" viewBox="0 0 1000 200" preserveAspectRatio="none" aria-hidden="true">
+        {members.map((m, i) => <path key={String(m.id)} d={`M ${(i + .5) / count * 1000} 45 C ${(i + .5) / count * 1000} 145, 500 125, 500 190`}
+          className={connected && !['IDLE', 'DISCONNECTED', 'WAITING_FOR_OWNER'].includes(agentActivity(tables, m.agentId, connected)) ? 'is-working' : ''} />)}
+      </svg>
+      <ul className="room-companions-list" style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}>
+        {members.map(m => {
+          const activity = agentActivity(tables, m.agentId, connected);
+          const online = connected && tables.room_presence?.find(p => String(p.membershipId) === String(m.id))?.online;
+          return <li key={String(m.id)} className={m.isMe ? 'is-your-agent' : ''} data-color={m.isMe ? myCharacter(tables) : memberCharacter(tables, m)} data-speaking={speaking && activeTarget === String(m.agentId)} data-activity={activity}>
+            <AgentAvatar speechTarget={String(m.agentId)} variant={m.isMe ? myCharacter(tables) : memberCharacter(tables, m)} activity={activity} />
+            <strong>{m.isMe ? 'Your agent' : `${m.displayName}’s agent`}</strong>
+            <span className="agent-status">{activeTarget === String(m.agentId) ? speaking ? 'Speaking' : 'Getting ready to speak' : activityLabels[activity]}</span>
+            <small className="agent-owner-presence"><i className={`dot ${online ? 'online' : ''}`} />{m.displayName}{m.isMe ? ' (you)' : ''} · {connected ? online ? 'online' : 'away' : 'unknown'}</small>
+          </li>;
+        })}
+        {connected && Array.from({ length: count - members.length }, (_, i) => <li className="crew-empty-seat" key={`empty-${i}`}><span aria-hidden="true">+</span><strong>Someone’s missing</strong><small>Invite a traveller</small></li>)}
+      </ul>
+      {mediator && <div className="mediator-companion crew-hub" data-speaking={speaking && activeTarget === String(mediator.id)}><AgentAvatar speechTarget={String(mediator.id)} variant="mint" size="message" animated={false} mediator activity={agentActivity(tables, mediator.id, connected)} /><div><strong>Mediator</strong><small>Bringing everyone’s needs together</small></div></div>}
+    </div></div>
+    {room?.inviteCode && connected && members.length < 4 && <div className="crew-invite"><span>Bring your people <code>{room.inviteCode}</code></span><button type="button" onClick={() => {
+      void navigator.clipboard?.writeText(String(room.inviteCode)).then(() => setCopied(true)).catch(() => setCopied(false));
+    }}>{copied ? 'Copied' : 'Copy invite code'}</button></div>}
+    {connected && progress && progress.ready < progress.total && <p className="crew-readiness">Once everyone confirms their needs, your agents begin comparing options.</p>}
+    {!connected && <p className="room-companions-empty">Your crew will return when the connection is restored.</p>}
   </section>;
 }

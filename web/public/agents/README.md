@@ -43,3 +43,44 @@ Useful checks: `npm test`, `npm run typecheck`, `npm run build` in `web/`;
 `npx playwright test e2e/agents.spec.ts e2e/planning.spec.ts` in `web/`;
 backend `test_appearance.py`, `test_rooms_and_access.py`, `test_live.py`;
 worker `tests/unit/test_intake_activity.py` and existing intake/progress tests.
+
+
+## Figma Pip and animation assets
+
+`pip-figma.png` preserves the original 1024 × 1024 Figma asset from
+`f7KSvYAJ1jZpjO6hGqw1Pi`, node `28:175` (“Original Pip artwork”).
+
+The user requested relaxed arms, a larger character, blinking and occasional
+waves. `pip-resting.png` is a transparent pose edit and `pip-arm.png` is a
+separate rounded arm, made with the built-in image generation tool from that
+reference. `PipCompanion` animates these image layers; it is not a free-moving
+3D model. The arm rests down and waves only on a recognized camera hand-wave;
+blinks and breathing stop offscreen, when disconnected, and with reduced motion.
+Message and picker avatars remain still. Other variants retain their assets.
+
+Generation prompts:
+- Resting pose: preserve Pip's exact lavender face, body, green leaves,
+  material and lighting; lower the viewer-right arm so both arms rest at the
+  sides; extract onto true transparency without floor or background.
+- Arm layer: isolate a complete rounded lavender arm with matching texture and
+  lighting; rounded shoulder and plump mitten, hanging down with a slight curve;
+  no flat cut edge, fingers, body, or background.
+
+
+## Upright 3D companion and camera gestures
+
+The lavender hero uses the original image rig. `PipThree` is an unused experimental Three.js recreation with
+volumetric torso, arms, feet, leaves, eyes and smile. It is not the original
+Figma mesh (none was supplied). Small room/message artwork remains image based.
+The experimental model rotates only around Y: the camera drives -90° to +90°, with no roll
+or pitch. The component also accepts a manual angle for testing its back view.
+The active artwork retains its bounded perspective movement, not a true 180° turn.
+The product exposes only an accessible camera icon; there are no debug messages,
+preview, model switch links or rotation sliders. WebGL failure uses the artwork
+fallback. Rendering pauses offscreen; automatic motion respects reduced motion.
+
+An open-hand lateral sweep or palm rocking triggers a wave, with a cooldown.
+No timer, click, lost-face event or raised-but-still hand triggers a wave.
+Face and hand landmarks run locally after the user enables camera access;
+frames are not recorded or uploaded. Camera tracks and models are released on
+stop, disconnect, hidden page and unmount.

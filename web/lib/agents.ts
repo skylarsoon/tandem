@@ -12,10 +12,23 @@ export function character(value: unknown): Character {
   return characters.find(c => c.id === value)?.id ?? 'lavender';
 }
 export function myCharacter(tables: Tables): Character {
-  return character(tables.my_agent_appearance?.[0]?.variant ?? memberCharacter(tables, tables.room_members?.find(m => m.isMe)));
+  const member = tables.room_members?.find(m => m.isMe);
+  return member ? memberCharacter(tables, member) : character(tables.my_agent_appearance?.[0]?.variant);
 }
 export function memberCharacter(tables: Tables, member?: Row): Character {
-  return character(tables.room_agent_appearances?.find(a => String(a.membershipId) === String(member?.id))?.variant);
+  if (!member) return 'lavender';
+  // A room uses a stable, collision-free palette. Every participant sees the
+  // same assignment, including when appearance views are not deployed yet.
+  const members = [...(tables.room_members || [])].sort((a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : 1);
+  const used = new Set<Character>();
+  for (const current of members) {
+    const saved = tables.room_agent_appearances?.find(a => String(a.membershipId) === String(current.id))?.variant;
+    const preferred = saved == null ? undefined : character(saved);
+    const assigned = preferred && !used.has(preferred) ? preferred : characters.find(c => !used.has(c.id))?.id ?? characters[members.indexOf(current) % 4].id;
+    used.add(assigned);
+    if (String(current.id) === String(member.id)) return assigned;
+  }
+  return 'lavender';
 }
 
 export const activityLabels = {

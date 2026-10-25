@@ -82,10 +82,11 @@ export function questionAnswer(kind: string, yes: boolean, preferences: Row) {
   if (kind === "MISSING_FACT") return { answer: yes };
   throw new Error("Unsupported question type");
 }
-export function questionAction(question: Row, yes: boolean, preferences: Row) {
+export function questionAction(question: Row, yes: boolean, preferences: Row, reason?: string) {
   if (question.state !== "OPEN")
     throw new Error("This question is no longer open");
   const answer = questionAnswer(question.kind, yes, preferences);
+  if (!yes && reason?.trim()) Object.assign(answer, { reason: reason.trim().slice(0, 500) });
   const nudge = json<Row>(question.actionJson, {}).nudge;
   if (question.kind === "MISSING_FACT" && nudge) {
     const choice = nudge[yes ? "yes" : "no"];
@@ -98,6 +99,12 @@ export function questionAction(question: Row, yes: boolean, preferences: Row) {
     version: question.version,
     answerJson: JSON.stringify(answer),
   };
+}
+export function recoveryAction(question: Row, choiceId: string) {
+  if (question.state !== 'OPEN' || question.kind !== 'PLAN_RECOVERY') throw new Error('This question is no longer open');
+  const choices = json<Row>(question.actionJson, {}).choices;
+  if (!Array.isArray(choices) || !choices.some(c => c.id === choiceId)) throw new Error('Choose one of the offered options');
+  return { questionId: question.id, version: question.version, answerJson: JSON.stringify({ choice: choiceId }) };
 }
 export function proposalAction(proposal: Row, response: string, note?: string) {
   if (proposal.state !== "AWAITING_REVIEW" || !proposal.isReviewer)

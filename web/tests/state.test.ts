@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   accessor,
   baseTables,
+  appearanceTables,
   personalTables,
   roomTables,
   RoomSession,
@@ -14,7 +15,7 @@ import {
 function fake() {
   const subscriptions: any[] = [];
   const db = Object.fromEntries(
-    [...baseTables, ...roomTables, ...personalTables].map((name) => {
+    [...baseTables, ...roomTables, ...personalTables, ...appearanceTables].map((name) => {
       const callbacks = new Set<() => void>();
       const table = {
         rows: [] as any[],
@@ -75,7 +76,7 @@ describe("room subscriptions", () => {
     subscriptions[0].applied();
     expect(session.snapshot.status).toBe("ready");
     session.select("1");
-    const [base, room] = subscriptions.slice(-2);
+    const [base, room] = subscriptions.slice(-3);
     connection.db.roomMessages.rows = [
       { roomId: 1n, id: 1n },
       { roomId: 2n, id: 2n },
@@ -90,8 +91,8 @@ describe("room subscriptions", () => {
     expect(room.unsubscribe).toHaveBeenCalledOnce();
     room.applied();
     expect(session.snapshot.status).toBe("synchronizing");
+    subscriptions.at(-3).applied();
     subscriptions.at(-2).applied();
-    subscriptions.at(-1).applied();
     expect(session.snapshot.tables.room_messages).toEqual([
       { roomId: 2n, id: 2n },
     ]);
@@ -111,8 +112,8 @@ describe("room subscriptions", () => {
     session.disconnected();
     expect(session.snapshot.tables).toEqual({});
     session.connected();
+    subscriptions.at(-3).applied();
     subscriptions.at(-2).applied();
-    subscriptions.at(-1).applied();
     connection.db.myQuestions.callbacks.forEach((f: any) => f());
     await Promise.resolve();
     expect(session.snapshot.tables.my_questions).toHaveLength(1);

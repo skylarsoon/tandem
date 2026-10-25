@@ -9,9 +9,10 @@ export function RankedPriorities({ q, value, disabled, onChange }: {
   q: Question; value?: Ranking; disabled: boolean; onChange: (value: Ranking) => void;
 }) {
   const options = q.options ?? [];
-  // Preserve existing preferences and append any previously unranked choices.
+  // Preserve the selected order. The catalog determines how many can be ranked.
   const saved = (value?.ranked ?? []).filter(id => options.some(option => option.id === id));
-  const ranked = [...new Set([...saved, ...options.map(option => option.id)])];
+  const limit = Math.min(q.max ?? options.length, options.length);
+  const ranked = [...new Set(value ? saved : options.slice(0, limit).map(option => option.id))].slice(0, limit);
   const list = useRef<HTMLOListElement>(null);
   const gesture = useRef<{ id: string; y: number; moved: boolean; target: string } | null>(null);
   const [dragging, setDragging] = useState<string>();
@@ -63,6 +64,7 @@ export function RankedPriorities({ q, value, disabled, onChange }: {
   }
 
   return <div className="priority-editor">
+    <p className="hint">Choose up to {limit} priorities. Unselected choices stay unranked.</p><div className="chips">{options.map(option => <button type="button" key={option.id} disabled={disabled || (!ranked.includes(option.id) && ranked.length >= limit)} aria-pressed={ranked.includes(option.id)} onClick={() => update(ranked.includes(option.id) ? ranked.filter(id => id !== option.id) : [...ranked, option.id], `${option.label} updated`)}>{option.label}</button>)}</div>
     <div className="priority-heading"><strong>Your priorities</strong><span>Most → least important</span></div>
     <p className="hint" id={`rank-help-${q.id}`}>Most important at the top. Drag the handles to reorder, or use the arrow buttons.</p>
     <ol className="priority-list" ref={list} aria-label="Ranked priorities" aria-describedby={`rank-help-${q.id}`}>

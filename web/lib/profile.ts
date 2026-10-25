@@ -146,9 +146,9 @@ export function ready(q: Question, v: any): boolean {
     case "multi":
       return Array.isArray(v.selected) && v.selected.length > 0;
     case "rank":
-      return !!q.options && Array.isArray(v.ranked) && v.ranked.length === q.options.length
+      return !!q.options && Array.isArray(v.ranked) && v.ranked.length > 0 && v.ranked.length <= (q.max ?? q.options.length)
         && new Set(v.ranked).size === v.ranked.length
-        && q.options.every(option => v.ranked.includes(option.id)) && v.confirmed === true;
+        && v.ranked.every((id: string) => q.options!.some(option => option.id === id)) && v.confirmed === true;
     case "groups":
       return Object.keys(v).length > 0;
     case "avatar":

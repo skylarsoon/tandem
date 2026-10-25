@@ -104,7 +104,7 @@
                 ]
               },
               "minItems": 1,
-              "maxItems": 6,
+              "maxItems": 5,
               "uniqueItems": true,
               "description": "Most important first"
             },

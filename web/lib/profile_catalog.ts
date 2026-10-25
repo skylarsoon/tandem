@@ -205,7 +205,8 @@ export const PROFILE_CATALOG = {
       "section": "core",
       "prompt": "What should your agent put first when balancing options?",
       "input": "rank",
-      "helper": "Put all six priorities in order, from most to least important to you.",
+      "max": 5,
+      "helper": "Pick up to five, then put them in order. Anything you don't pick is unranked, not unwanted.",
       "options": [
         {
           "id": "affordability",

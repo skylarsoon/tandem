@@ -21,9 +21,10 @@ group("profile onboarding helpers", () => {
     expect(move(["a", "b", "c"], "c", -1)).toEqual(["a", "c", "b"]);
     expect(move(["a", "b"], "a", -1)).toEqual(["a", "b"]);
     expect(ready(question("C03"), { ranked: ["affordability"], confirmed: false })).toBe(false);
-    expect(ready(question("C03"), { ranked: ["affordability"], confirmed: true })).toBe(false);
+    expect(ready(question("C03"), { ranked: ["affordability"], confirmed: true })).toBe(true);
     const all = question("C03").options!.map(option => option.id);
-    expect(ready(question("C03"), { ranked: all, confirmed: true })).toBe(true);
+    expect(ready(question("C03"), { ranked: all.slice(0, 5), confirmed: true })).toBe(true);
+    expect(ready(question("C03"), { ranked: all, confirmed: true })).toBe(false);
     expect(ready(question("C03"), { ranked: [...all.slice(1), all[1]], confirmed: true })).toBe(false);
   });
 

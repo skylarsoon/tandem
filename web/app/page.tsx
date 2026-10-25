@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { connect } from "../lib/client";
 import { PlanningConversation, TripOverview } from "../components/planning-room";
 import { DestinationSlideshow } from "../components/destination-slideshow";
+import { AgentSetup } from "../components/agent-setup";
 import { AgentWelcome } from "../components/agent-companions";
 import { scoped } from "../lib/planning";
 import type { Row } from "../lib/state";
@@ -28,6 +29,7 @@ export default function Page() {
 function Dashboard({ client }: { client: Client }) {
   const state = useSyncExternalStore(client.session.subscribe, client.session.getSnapshot, client.session.getSnapshot);
   const [roomId, setRoomId] = useState<string>();
+  const [setupRoom, setSetupRoom] = useState<string>();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [name, setName] = useState("");
@@ -44,11 +46,18 @@ function Dashboard({ client }: { client: Client }) {
   const room = current || (sharedRoom.current && String(sharedRoom.current.id) === roomId ? sharedRoom.current : undefined);
   const tables = room ? scoped(state.tables, room) : {};
   const disabled = !ready || pending;
-  function select(id: string) { setRoomId(id); sharedRoom.current = undefined; client.session.select(id); }
+  function select(id: string) {
+    setRoomId(id); sharedRoom.current = undefined; client.session.select(id);
+    setSetupRoom(sessionStorage.getItem(`tandem:setup:${id}`) === 'pending' ? id : undefined);
+  }
   useEffect(() => {
     if (!ready || !awaitingRoom.current) return;
     const added = rooms.find(r => !awaitingRoom.current!.has(String(r.id)));
-    if (added) { awaitingRoom.current = undefined; select(String(added.id)); }
+    if (added) {
+      awaitingRoom.current = undefined;
+      sessionStorage.setItem(`tandem:setup:${added.id}`, 'pending');
+      select(String(added.id));
+    }
   }, [rooms, ready, operation]);
   async function manage(fn: () => Promise<unknown>) {
     setPending(true); setError(""); awaitingRoom.current = new Set(rooms.map(r => String(r.id)));
@@ -76,6 +85,9 @@ function Dashboard({ client }: { client: Client }) {
       {room ? <TripOverview room={room} tables={tables} connected={ready} /> : <div className="trip-placeholder"><p className="eyebrow">ROOM TO EXPLORE</p><h1>A plan starts with a conversation.</h1><p>Select a trip, or create one and tell your agent what you have in mind.</p></div>}
       <p className="connection"><span className={`dot ${ready ? "online" : ""}`} />{ready ? "Connected" : "Synchronizing your trip…"}</p>
     </aside>
-    {room ? <PlanningConversation key={String(room.id)} room={room} tables={tables} reducers={client.connection.reducers} connected={ready} /> : <DestinationSlideshow welcome={<AgentWelcome tables={state.tables} connected={ready} appearanceReady={state.appearanceStatus === "ready"} save={variant => client.connection.reducers.setAgentAppearance({ variant })} />} />}
+    {room ? setupRoom === String(room.id) ? <AgentSetup key={String(room.id)} room={room} tables={tables} connected={ready} appearanceReady={state.appearanceStatus === "ready"}
+      save={variant => client.connection.reducers.setAgentAppearance({ variant })}
+      onComplete={() => { sessionStorage.setItem(`tandem:setup:${room.id}`, 'done'); setSetupRoom(undefined); }} />
+      : <PlanningConversation key={String(room.id)} room={room} tables={tables} reducers={client.connection.reducers} connected={ready} /> : <DestinationSlideshow welcome={<AgentWelcome tables={state.tables} connected={ready} appearanceReady={state.appearanceStatus === "ready"} save={variant => client.connection.reducers.setAgentAppearance({ variant })} />} />}
   </div>;
 }

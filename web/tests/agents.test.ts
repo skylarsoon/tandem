@@ -11,6 +11,7 @@ const tables = {
     { id: 2n, agentId: 12n, displayName: 'Sam', active: true, agentVariant: 'yellow' },
     { id: 3n, agentId: 13n, displayName: 'Former member', active: false, agentVariant: 'mint' },
   ],
+  room_agent_appearances: [{ membershipId: 1n, variant: 'peach' }, { membershipId: 2n, variant: 'yellow' }],
   room_agents: [{ id: 10n, kind: 'MEDIATOR' }],
   room_presence: [{ membershipId: 2n, online: false }],
   room_agent_activity: [{ agentId: 12n, activity: 'SEARCHING' }],

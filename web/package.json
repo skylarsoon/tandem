@@ -9,22 +9,26 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "generate": "spacetime generate --lang typescript --out-dir lib/module_bindings --module-path ../spacetimedb -y"
+    "generate": "spacetime generate --lang typescript --out-dir lib/module_bindings --module-path ../spacetimedb -y",
+    "postinstall": "node scripts/prepare-vision.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
+    "@mediapipe/tasks-vision": "^1.1.1",
     "next": "^16.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "spacetimedb": "2.13.*"
+    "spacetimedb": "2.13.*",
+    "three": "^0.186.1"
   },
   "devDependencies": {
-    "esbuild": "0.28.2",
     "@playwright/test": "^1.56.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.186.0",
+    "esbuild": "0.28.2",
     "typescript": "~5.6.2",
     "vitest": "^3.2.0"
   }
