@@ -224,7 +224,8 @@ def test_qa_01_each_persona_is_stored_as_they_said_it(qa):
     assert chris['"departure_date"']["rule"] == {"category": "FLIGHT", "attribute": "departure_date", "operator": "gte",
                                                  "value": "2026-11-21", "kind": "hard"}
     assert chris['"return_arrival_date"']["rule"]["value"] == "2026-11-24"
-    assert dana["trip_note"]["value"] == "Same flight as Alex if possible"
+    assert dana['"flight_identity"']["rule"] == {"category": "FLIGHT", "attribute": "flight_identity", "operator": "same_as",
+                                                  "value": "Alex", "kind": "soft"}, "a wish about Alex's flight, private to Dana"
     # Each person is searched on their own dates; only firm statements would filter a search.
     plan(backend, worker)
     routes = {r["owner"]: r for r in research.requests[0]["routes"]}
@@ -387,3 +388,14 @@ def test_qa_04_when_her_nonstop_cant_be_had_bella_is_asked_with_her_own_words(tm
     assert "Nonstop (my reading of" not in prompt and "I strongly prefer nonstop flights" in prompt, prompt
     assert prompt.endswith("May your agent accept this on your behalf?")
 
+
+
+def test_dana_flies_with_alex_and_alex_never_hears_about_her_wish(qa):
+    backend, worker, _ = qa
+    [(_, flights)] = live(plan(backend, worker), "flight")
+    chosen = picks(flights)
+    assert chosen["Dana"]["flight_identity"] == chosen["Alex"]["flight_identity"], "togetherness is her first priority"
+    alex_sees = json.dumps([backend.owner_view("Alex"), backend.conversation("Alex"), backend.shared_report()])
+    assert "same flight" not in alex_sees and "I'd love it if we could take the same flight" not in alex_sees
+    alex_agent = [c for c in worker.model.decisions if c["owner"] == "Alex"]
+    assert not any("same flight" in json.dumps(c) for c in alex_agent), "her wish stays with her agent"

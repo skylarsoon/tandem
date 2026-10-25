@@ -286,7 +286,9 @@ def describe_rule(rule: Rule) -> str:
     catalog = attributes()
     spec = catalog["aggregates"][rule.aggregate] if rule.aggregate else catalog["categories"][rule.category][rule.attribute]
     show = money if spec["type"] == "money" else day if spec["type"] == "date" else str
-    if rule.operator in RANKINGS:
+    if rule.operator == "same_as":
+        text = f"{spec.get('same_as', 'the same ' + spec['label'] + ' as')} {rule.value}"
+    elif rule.operator in RANKINGS:
         timed = spec["type"] in ("epoch", "time", "date")
         way = ("early" if timed else "low") if rule.operator == "lowest" else ("late" if timed else "high")
         text = f"{spec['label']} {spec.get(rule.operator, f'as {way} as possible')}"

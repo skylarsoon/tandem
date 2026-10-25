@@ -13,7 +13,7 @@ import math
 from dataclasses import dataclass, field
 
 from .contracts import Candidate
-from .rules import RANKINGS, RoomRules, Rule, attribute_type, attributes, comparable, decisions, evaluate, importance
+from .rules import RANKINGS, RELATIONS, RoomRules, Rule, attribute_type, attributes, comparable, decisions, evaluate, importance
 
 
 @dataclass
@@ -196,7 +196,7 @@ def compile_request(snapshot, room_rules: RoomRules, candidates: list[Candidate]
         for owner in [g.owner] if g.owner is not None else members:
             ranking = room_rules.ranking.get(owner, ())
             for rule in room_rules.soft(owner, g.category):
-                if rule.aggregate is None:
+                if rule.aggregate is None and rule.operator not in RELATIONS:
                     prefer(owner, g, lambda c, r=rule: score(r, c, g.options),
                            rule.importance or importance(ranking, attribute=rule.attribute), rule=rule)
             # "Own room if possible": a shared pick that also holds this person's own share.
@@ -205,6 +205,22 @@ def compile_request(snapshot, room_rules: RoomRules, candidates: list[Candidate]
                                      need.attribute, settings)
                 prefer(owner, g, lambda c, a=need.attribute, k=with_mine: 1.0 if (getattr(c, a) or 0) >= k else 0.0,
                        importance(ranking, attribute=need.attribute), need=need)
+    # "The same as someone": how many different picks the two of them make, ideally one.
+    own_group = {(g.owner, g.category): g for g in groups if g.owner is not None}
+    for owner in members:
+        for rule in (r for r in room_rules.soft(owner) if r.operator in RELATIONS):
+            mine, theirs = own_group.get((owner, rule.category)), own_group.get((rule.value, rule.category))
+            if mine is None or theirs is None:
+                continue  # not both choosing this now
+            for c in (*mine.options, *theirs.options):
+                row_of[c.id].setdefault(rule.attribute, f"unknown:{c.id}")  # unknown is never "the same"
+            name = f"together_{len(preferences)}"
+            aggregates.append({"attribute": name, "operation": "count_distinct", "source_attribute": rule.attribute,
+                               "selection_group_ids": [mine.id, theirs.id]})
+            constraints.append({"id": f"soft:{owner}:{len(preferences)}", "kind": "soft", "owner_id": owner, "attribute": name,
+                                "operator": "lte", "value": 1, "importance": rule.importance
+                                or importance(room_rules.ranking.get(owner, ()), relation=rule.operator)})
+            preferences.append(Preference(id=f"soft:{owner}:{len(preferences)}", owner=owner, rule=rule))
     for rule in decisions()["group_rules"]:
         across = [g.id for g in groups if g.category == rule["across"]]
         if len(across) > 1:

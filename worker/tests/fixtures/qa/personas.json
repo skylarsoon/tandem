@@ -290,9 +290,15 @@
               "source_quote": "Nonstop flights are nice, but I'm okay with one connection"
             },
             {
-              "key": "trip_note",
-              "value": "Same flight as Alex if possible",
-              "source_quote": "I'd love it if we could take the same flight"
+              "key": "rule",
+              "rule": {
+                "category": "FLIGHT",
+                "attribute": "flight_identity",
+                "operator": "same_as",
+                "value": "Alex"
+              },
+              "hardness": "SOFT",
+              "source_quote": "Since Alex and I are both flying from San Francisco, I'd love it if we could take the same flight"
             }
           ]
         },

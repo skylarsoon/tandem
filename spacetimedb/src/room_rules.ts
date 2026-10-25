@@ -74,7 +74,7 @@ export function mirrorLegacy(
 
 // A proposed patch can be checked before anyone confirms it: a generic rule must
 // fit the catalog; an old named limit must parse.
-export function checkRule(raw: unknown): void {
+export function checkRule(raw: unknown, ctx?: Ctx, roomId?: bigint, owner?: Identity): void {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('INVALID_RULE', 'a rule is an object');
   try {
     validateRule(raw as Rule, CATALOG);
@@ -82,6 +82,15 @@ export function checkRule(raw: unknown): void {
     if (error instanceof RuleError) fail('INVALID_RULE', error.message);
     throw error;
   }
+  if (ctx && roomId !== undefined && owner) checkRelation(ctx, roomId, owner, raw as Rule);
+}
+
+// "The same flight as Alex" must name another active member of this room, by their name here.
+function checkRelation(ctx: Ctx, roomId: bigint, owner: Identity, rule: Rule): void {
+  if (rule.operator !== 'same_as') return;
+  const named = [...ctx.db.membership.byRoomMember.filter(roomId)].some(
+    m => m.active && !m.member.isEqual(owner) && m.displayName === rule.value);
+  if (!named) fail('INVALID_RULE', 'same_as names another member of this room');
 }
 
 // An owner's rule in the generic language (entered directly, or a confirmed agent
@@ -89,12 +98,7 @@ export function checkRule(raw: unknown): void {
 export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: string): bigint {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('INVALID_RULE', 'a rule is an object');
   const rule = raw as Rule;
-  try {
-    validateRule(rule, CATALOG);
-  } catch (error) {
-    if (error instanceof RuleError) fail('INVALID_RULE', error.message);
-    throw error;
-  }
+  checkRule(rule, ctx, roomId, ctx.sender);
   const kind = rule.kind ?? 'hard';
   // A later statement about the same thing (same attribute or total, same comparison, must or wish) replaces it.
   for (const r of [...ctx.db.participantRule.byRoom.filter(roomId)]) {

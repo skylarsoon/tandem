@@ -443,7 +443,7 @@ export const proposeConstraintPatch = spacetimedb.reducer(
       const j = requireLease(ctx, args.jobId, args.attempt);
       const m = requireMembershipById(ctx, j.roomId, args.memberId);
       const proposed = JSON.parse(args.patchJson) as { rule?: unknown };
-      if (proposed && typeof proposed === 'object' && proposed.rule !== undefined) checkRule(proposed.rule);
+      if (proposed && typeof proposed === 'object' && proposed.rule !== undefined) checkRule(proposed.rule, ctx, j.roomId, m.member);
       else constraintFromPatch(args.patchJson);
       // A patch that quotes the owner must quote them exactly, from their own message.
       const quote = (JSON.parse(args.patchJson) as { source_quote?: unknown }).source_quote;

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), date (local YYYY-MM-DD), text. shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up. trip_bound: the attribute must sit inside the trip's dates (room settings start_date/end_date) for every pick: by_end means on or before the end date (e.g. arriving), from_start on or after the start date (e.g. leaving to go home). search_date: a person's own firm rule on this attribute moves their search: outbound searches no earlier than their earliest allowed date, return no later than their latest. lowest/highest: how a preference for the lowest or highest value reads (\"travel time as short as possible\").",
+  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), date (local YYYY-MM-DD), text. shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up. trip_bound: the attribute must sit inside the trip's dates (room settings start_date/end_date) for every pick: by_end means on or before the end date (e.g. arriving), from_start on or after the start date (e.g. leaving to go home). search_date: a person's own firm rule on this attribute moves their search: outbound searches no earlier than their earliest allowed date, return no later than their latest. lowest/highest: how a preference for the lowest or highest value reads (\"travel time as short as possible\"). same_as: how a preference to share a pick with another member reads (\"the same flight as Alex\").",
   "categories": {
     "FLIGHT": {
       "total_cents": {
@@ -76,6 +76,11 @@
         "type": "int",
         "label": "travel time home",
         "lowest": "as short as possible"
+      },
+      "flight_identity": {
+        "type": "text",
+        "label": "flight",
+        "same_as": "the same flight as"
       }
     },
     "STAY": {

@@ -136,3 +136,14 @@ def test_a_later_statement_about_the_same_thing_replaces_the_earlier_one(ready_r
     add_rule(room, "carol", {**leave, "value": "2026-11-22", "kind": "soft"})  # a wish sits beside the must
     mine = [json.loads(r["rule_json"]) for r in my_rules(room, "carol") if r["legacy_key"] is None]
     assert sorted((r["value"], r["kind"]) for r in mine) == [("2026-11-22", "soft"), ("2026-11-25", "hard")]
+
+
+def test_the_same_flight_as_someone_names_another_member_and_is_only_a_wish(ready_room, client, worker):
+    room, _ = ready_room
+    together = {"category": "FLIGHT", "attribute": "flight_identity", "operator": "same_as", "kind": "soft"}
+    expect_error("INVALID_RULE", add_rule, room, "dave", {**together, "value": "Zed"})      # not in the room
+    expect_error("INVALID_RULE", add_rule, room, "dave", {**together, "value": "Dave"})    # not themselves
+    expect_error("INVALID_RULE", add_rule, room, "dave", {**together, "value": "Alice", "kind": "hard"})
+    add_rule(room, "dave", {**together, "value": "Alice"}, "I'd love to fly with Alice")
+    assert any(json.loads(r["rule_json"])["operator"] == "same_as" for r in my_rules(room, "dave"))
+    assert not any(json.loads(r["rule_json"]).get("operator") == "same_as" for r in my_rules(room, "alice")), "private to Dave"

@@ -19,10 +19,13 @@ export type Catalog = {
 };
 export type Verdict = 'SATISFIED' | 'VIOLATED' | 'UNKNOWN' | 'NOT_APPLICABLE';
 
-const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between', 'lowest', 'highest'];
+const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between', 'lowest', 'highest', 'same_as'];
 // A preference for the cheapest, shortest, earliest...: a ranking among the options found,
 // never a check on one option, so only ever soft.
 const RANKINGS = ['lowest', 'highest'];
+// Wanting the same pick as another member (value: their name): about two people's choices,
+// so never a check on one option, and only ever a wish (no one can require another's choice).
+const RELATIONS = ['same_as'];
 const ORDERED = ['money', 'int', 'number', 'epoch', 'time', 'date'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -81,6 +84,14 @@ export function validateRule(rule: Rule, catalog: Catalog): void {
     checkWeighting(rule, kind);
     return;
   }
+  if (RELATIONS.includes(op)) {
+    if (rule.kind !== 'soft' || rule.aggregate !== undefined || typeof rule.value !== 'string' || !rule.value.trim() ||
+        rule.tolerance !== undefined) {
+      bad(`${op} is a wish about another member's pick: their name, soft`);
+    }
+    checkWeighting(rule, kind);
+    return;
+  }
   if ((kind === 'bool' || kind === 'text') && !['eq', 'neq', 'in', 'not_in'].includes(op)) bad(`${op} doesn't apply to ${kind}`);
   if (op === 'in' || op === 'not_in') {
     if (!Array.isArray(rule.value) || rule.value.length === 0) bad(`${op} needs a non-empty list`);
@@ -123,7 +134,8 @@ export function evaluateRule(rule: Rule, facts: Record<string, unknown>, catalog
   if (rule.aggregate !== undefined) bad('aggregate rules are evaluated on a whole plan, not one candidate');
   if ((facts.category ?? rule.category) !== rule.category) return 'NOT_APPLICABLE';
   validateRule(rule, catalog);
-  if (RANKINGS.includes(rule.operator)) return 'NOT_APPLICABLE'; // a ranking among options, not a check on one
+  // A ranking among options, or about two people's picks: not a check on one.
+  if (RANKINGS.includes(rule.operator) || RELATIONS.includes(rule.operator)) return 'NOT_APPLICABLE';
   const actual = facts[rule.attribute!];
   if (actual === undefined || actual === null) return 'UNKNOWN';
   const kind = attributeType(rule, catalog);

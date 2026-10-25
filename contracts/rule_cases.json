@@ -735,6 +735,50 @@
     "baggage_included": true
    },
    "expect": "INVALID_RULE"
+  },
+  {
+   "name": "the same flight as someone is about two picks, not one",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "flight_identity",
+    "operator": "same_as",
+    "value": "Alex",
+    "kind": "soft"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "flight_identity": "UA11582026-11-20"
+   },
+   "expect": "NOT_APPLICABLE"
+  },
+  {
+   "name": "no one can require another member's choice",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "flight_identity",
+    "operator": "same_as",
+    "value": "Alex"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "flight_identity": "UA11582026-11-20"
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "the same as whom: a name is needed",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "flight_identity",
+    "operator": "same_as",
+    "value": "",
+    "kind": "soft"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "flight_identity": "UA11582026-11-20"
+   },
+   "expect": "INVALID_RULE"
   }
  ],
  "legacy_cases": [

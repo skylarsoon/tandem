@@ -24,10 +24,13 @@ from pydantic import Field
 
 from .contracts import ContractError, Record
 
-OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest")
+OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest", "same_as")
 # A preference for the cheapest, shortest, earliest...: a ranking among the options found,
 # never a check on one option, so only ever soft.
 RANKINGS = ("lowest", "highest")
+# Wanting the same pick as another member (value: their name): about two people's choices,
+# so never a check on one option, and only ever a wish (no one can require another's choice).
+RELATIONS = ("same_as",)
 ORDERED = {"money", "int", "number", "epoch", "time", "date"}
 TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -39,7 +42,7 @@ class Rule(Record):
     category: str | None = None   # with `attribute`: a rule on each candidate of that category
     attribute: str | None = None
     aggregate: str | None = None  # or a rule on a total (e.g. my_cost)
-    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest"]
+    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest", "same_as"]
     value: Any = None
     kind: Literal["hard", "soft"] = "hard"
     importance: int | None = None  # soft rules only: 1-5, how much it matters to them
@@ -301,6 +304,12 @@ def validate(rule: Rule) -> None:
             raise RuleError(f"{op} is a preference on an ordered attribute, with no value")
         _check_weighting(rule, kind)
         return
+    if op in RELATIONS:
+        if rule.kind != "soft" or rule.aggregate is not None or not isinstance(rule.value, str) or not rule.value.strip() \
+                or rule.tolerance is not None:
+            raise RuleError(f"{op} is a wish about another member's pick: their name, soft")
+        _check_weighting(rule, kind)
+        return
     if kind in ("bool", "text") and op not in ("eq", "neq", "in", "not_in"):
         raise RuleError(f"{op} doesn't apply to {kind}")
     if op in ("in", "not_in"):
@@ -340,8 +349,8 @@ def evaluate(rule: Rule, facts: dict) -> str:
     if facts.get("category", rule.category) != rule.category:
         return "NOT_APPLICABLE"
     validate(rule)
-    if rule.operator in RANKINGS:
-        return "NOT_APPLICABLE"  # a ranking among options, not a check on one
+    if rule.operator in RANKINGS or rule.operator in RELATIONS:
+        return "NOT_APPLICABLE"  # a ranking among options, or about two people's picks: not a check on one
     actual = facts.get(rule.attribute)
     if actual is None:
         return "UNKNOWN"
