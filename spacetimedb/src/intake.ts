@@ -72,12 +72,13 @@ export const confirmTripBrief = spacetimedb.reducer({ roomId: t.u64(), revision:
   if (brief.revision !== args.revision) fail('STALE_SNAPSHOT', 'the brief changed; review it again');
   const proposed = JSON.parse(brief.briefJson) as Record<string, unknown>;
   const before = JSON.parse(r.settingsJson) as Record<string, unknown>;
+  // A brief that leaves something out keeps what the room already had.
   const settings = validateRoomSettings({
     ...before,
-    destination: proposed.destination,
-    destination_airport: proposed.destination_airport,
-    start_date: proposed.start_date,
-    end_date: proposed.end_date,
+    destination: proposed.destination ?? before.destination,
+    destination_airport: proposed.destination_airport ?? before.destination_airport,
+    start_date: proposed.start_date ?? before.start_date,
+    end_date: proposed.end_date ?? before.end_date,
     components: proposed.components ?? before.components,
   });
   const reopen = [

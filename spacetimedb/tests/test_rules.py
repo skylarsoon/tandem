@@ -109,3 +109,20 @@ def test_a_rule_set_aside_stops_binding(ready_room, client, worker):
     [cap] = [r for r in my_rules(room, "bob") if r["legacy_key"] == "flight_budget_total"]
     expect_error("INVALID_STATE", client.call, room.people["bob"], "set_rule_state", rule_id=cap["id"], state="set_aside")
     expect_error("INVALID_ARGUMENT", client.call, room.people["bob"], "set_rule_state", rule_id=rule["id"], state="forgotten")
+
+
+def test_a_kept_rule_still_binds_and_a_preference_keeps_its_weight(ready_room, client, worker):
+    room, _ = ready_room
+    add_rule(room, "bob", RATING)
+    prefer = {"category": "STAY", "attribute": "rating", "operator": "gte", "value": 4.8, "kind": "soft",
+              "importance": 4, "tolerance": {"limit": 4.0}}
+    add_rule(room, "bob", prefer)
+    expect_error("INVALID_RULE", add_rule, room, "bob", {**RATING, "importance": 4})  # a must has no weight
+    mine = {json.loads(r["rule_json"])["kind"]: r for r in my_rules(room, "bob") if r["legacy_key"] is None}
+    assert json.loads(mine["soft"]["rule_json"]) == prefer
+    # Asked to relax it, Bob keeps it: "kept" is still in force.
+    client.call(room.people["bob"], "set_rule_state", rule_id=mine["hard"]["id"], state="kept")
+    job_id = stay_job(room, client, worker)
+    shared = dict(scope="SINGLE_SHARED_BOOKING", decision_id="stay", stage="STAY_EXPERIENCES")
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 [record_shared(room, worker, job_id, "STAY", 90000, rating=4.0)], **shared)

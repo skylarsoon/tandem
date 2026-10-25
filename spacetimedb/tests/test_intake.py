@@ -19,6 +19,15 @@ def intake_job(room: Room, worker, name: str) -> int:
     raise AssertionError(f"no intake job for {name}")
 
 
+def brief_job(room: Room, worker) -> dict:
+    """The organizer's open trip-description job (newest first; others are member onboarding)."""
+    for j in sorted(room.jobs(worker, "INTAKE"), key=lambda j: -j["id"]):
+        room.claim(worker, j["id"])
+        if room.context(worker, j["id"])["subject"]["purpose"] == "BRIEF":
+            return j
+    raise AssertionError("no trip-description job")
+
+
 def described_room(room: Room, worker) -> None:
     """Organizer describes the trip, the agent proposes the brief, the organizer confirms."""
     room.client.call(room.people["alice"], "set_trip_description", room_id=room.room_id,
@@ -156,3 +165,27 @@ def test_late_joiner_gets_onboarding_and_publish_waits_for_everyone(room, client
 def test_rooms_without_a_brief_keep_todays_behaviour(ready_room, worker):
     room, job_id = ready_room
     assert room.publish(worker, job_id)["version"] == 1
+
+
+def test_a_brief_that_leaves_dates_out_keeps_the_rooms_dates(room, client, worker):
+    described_room(room, worker)
+    room.client.call(room.people["alice"], "set_trip_description", room_id=room.room_id,
+                     description="Same trip, but let's also get a ride from the airport.")
+    job = brief_job(room, worker)
+    without_dates = {k: v for k, v in BRIEF.items() if k not in ("start_date", "end_date")}
+    room.client.call(worker, "propose_trip_brief", job_id=job["id"], attempt=room.leases[job["id"]],
+                     request_key=key(), brief_json=json.dumps(without_dates), unclear_json="[]")
+    [brief] = [b for b in client.view(room.people["alice"], "room_trip_brief") if b["room_id"] == room.room_id]
+    room.client.call(room.people["alice"], "confirm_trip_brief", room_id=room.room_id, revision=brief["revision"])
+    [mine] = [r for r in client.view(room.people["alice"], "my_rooms") if r["id"] == room.room_id]
+    settings = json.loads(mine["settings_json"])
+    assert (settings["start_date"], settings["end_date"]) == ("2027-02-12", "2027-02-16")
+
+
+def test_dates_out_of_order_are_refused(room, client, worker):
+    room.client.call(room.people["alice"], "set_trip_description", room_id=room.room_id, description="Honolulu trip")
+    [job] = room.jobs(worker, "INTAKE")
+    room.claim(worker, job["id"])
+    backwards = dict(BRIEF, start_date="2027-02-16", end_date="2027-02-12")
+    expect_error("INVALID_ARGUMENT", room.client.call, worker, "propose_trip_brief", job_id=job["id"],
+                 attempt=room.leases[job["id"]], request_key=key(), brief_json=json.dumps(backwards), unclear_json="[]")

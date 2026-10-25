@@ -43,5 +43,5 @@ def suggestions(profile: dict) -> dict[str, Suggestion]:
 
 def asks_first(profile: dict) -> bool | None:
     """The profile's consultation style as a default for "check with me before
-    agreeing to pay more" (None when it says to ask per plan, or isn't answered)."""
-    return {"ask_first": True, "suggest_then_review": False}.get((profile.get("C09") or {}).get("selected"))
+    agreeing to pay more" ("ask me for each plan" is asking first; None if unanswered)."""
+    return {"ask_first": True, "ask_per_plan": True, "suggest_then_review": False}.get((profile.get("C09") or {}).get("selected"))

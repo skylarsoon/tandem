@@ -37,8 +37,8 @@ class Rule(Record):
     operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between"]
     value: Any
     kind: Literal["hard", "soft"] = "hard"
-    importance: int | None = Field(default=None, ge=1, le=5)  # soft rules only; asked later
-    tolerance: dict | None = None                              # soft partial credit: {"limit": …}
+    importance: int | None = None  # soft rules only: 1-5, how much it matters to them
+    tolerance: dict | None = None  # soft rules only: {"limit": …}, partial credit up to there
     state: Literal["active", "set_aside", "kept"] = "active"
     source_quote: str = ""
     source_message_id: int | None = None
@@ -69,8 +69,8 @@ class RoomRules(Record):
     facts: tuple[SearchFact, ...] = ()
 
     def binding(self, owner: str | None = None, category: str | None = None) -> list[Rule]:
-        """Hard, active rules (optionally one owner's, on one category's candidates)."""
-        return [r for r in self.rules if r.kind == "hard" and r.state == "active"
+        """Hard rules in force, active or kept (optionally one owner's, on one category's candidates)."""
+        return [r for r in self.rules if r.kind == "hard" and r.state in ("active", "kept")
                 and (owner is None or r.owner == owner) and (category is None or r.category == category)]
 
 
@@ -149,6 +149,21 @@ def validate(rule: Rule) -> None:
             raise RuleError("between needs low ≤ high (only times may wrap past midnight)")
     else:
         _scalar(rule.value, kind)
+    _check_weighting(rule, kind)
+
+
+def _check_weighting(rule: Rule, kind: str) -> None:
+    """How much a preference matters, and how far from it still earns partial credit."""
+    if (rule.importance is not None or rule.tolerance is not None) and rule.kind != "soft":
+        raise RuleError("only a preference (soft) has an importance or a tolerance")
+    if rule.importance is not None and (type(rule.importance) is not int or not 1 <= rule.importance <= 5):
+        raise RuleError("importance is a whole number from 1 to 5")
+    if rule.tolerance is not None:
+        if rule.operator not in ("lt", "lte", "gt", "gte") or not isinstance(rule.tolerance, dict) or set(rule.tolerance) != {"limit"}:
+            raise RuleError("a tolerance is {limit} on lt, lte, gt or gte")
+        limit, value = _scalar(rule.tolerance["limit"], kind), _scalar(rule.value, kind)
+        if (limit <= value) if rule.operator in ("lt", "lte") else (limit >= value):
+            raise RuleError("a tolerance limit lies past the preferred value")
 
 
 def evaluate(rule: Rule, facts: dict) -> str:
@@ -193,6 +208,9 @@ def from_legacy(owner: str, key: str, row: dict) -> list[Record]:
     if spec["as"] == "search_fact":
         return [SearchFact(owner=owner, fact=spec["fact"], value=value)]
     if spec["as"] == "need":
+        # A need someone hedged ("own room if possible") is a preference, never a must.
+        if row.get("hardness", "HARD") != "HARD":
+            return []
         return [Need(owner=owner, category=spec["category"], attribute=spec["attribute"], needs=spec["needs"])]
     if spec["as"] != "rule":
         return []
@@ -203,10 +221,14 @@ def from_legacy(owner: str, key: str, row: dict) -> list[Record]:
         value = spec["value"]
     out = []
     if row.get("hardness") == "SOFT" and "flexible_limit" in spec:
-        # Flexible: firm at the top of the range they gave; what they'd like stays a soft preference.
-        limit = (row.get("authorized_range") or {}).get("max", value)
-        out.append(Rule(**target, operator=spec["operator"], value=limit, **common))
-        out.append(Rule(**target, operator=spec["operator"], value=value, kind="soft", **common))
+        # Flexible: what they'd like is a preference with partial credit up to their stated top,
+        # or up to the catalog's tolerance if they named none. Only a stated top is also firm.
+        top = (row.get("authorized_range") or {}).get("max")
+        if top is not None:
+            out.append(Rule(**target, operator=spec["operator"], value=top, **common))
+        limit = top if top is not None else round(value * spec["soft_tolerance"]) if "soft_tolerance" in spec else None
+        tolerance = {"limit": limit} if limit is not None and limit > value else None
+        out.append(Rule(**target, operator=spec["operator"], value=value, kind="soft", tolerance=tolerance, **common))
     else:
         firm = row.get("hardness", "HARD") == "HARD" or spec.get("enforce_soft", False)
         out.append(Rule(**target, operator=spec["operator"], value=value, kind="hard" if firm else "soft", **common))

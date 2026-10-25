@@ -54,5 +54,5 @@ def test_rooms_get_suggestions_only_from_answers_a_trip_can_use():
     assert offered["origin_airport"].patch() == {"key": "origin_airport", "value": "JFK", "hardness": "HARD", "unit": "",
                                                  "source_profile": "A06"}
     assert offered["own_bedroom"].hardness == "SOFT", "a preference stays a preference"
-    assert asks_first(profile) is True and asks_first({"C09": {"selected": "ask_per_plan"}}) is None
+    assert asks_first(profile) is True and asks_first({"C09": {"selected": "ask_per_plan"}}) is True and asks_first({}) is None
     assert suggestions({}) == {}

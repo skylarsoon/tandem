@@ -2,7 +2,7 @@
 import pytest
 
 from tandem_worker.contracts import IntakeContext, IntakeExtraction, IntakeItem, IntakeMessage, IntakeQuestion, TripBrief, Unclear
-from tandem_worker.intake_policy import amounts, fallback_question, open_topics, question_ok, verify
+from tandem_worker.intake_policy import amounts, describe, fallback_question, open_topics, question_ok, verify
 
 BRIEF = TripBrief(destination="Honolulu", destination_airport="HNL", start_date="2027-02-12", end_date="2027-02-16")
 
@@ -72,11 +72,13 @@ def test_live_run_regressions():
     kept, _, coverage, _ = verify(IntakeExtraction(items=(item("trip_budget_total", 90000, "keep the whole trip around $900",
         hardness="SOFT", authorized_range={"max": 100000}),)), ctx(said))
     assert coverage["money"] == "ANSWERED" and kept[0].authorized_range == {"max": 100000}
-    # Sam: "would be nice, but I'm flexible" is a preference, not an own-room requirement.
+    # Sam: "would be nice, but I'm flexible" is kept as a preference, never as an own-room requirement.
     hedge = "A place with a few separate bedrooms would be nice, but I'm flexible on the layout."
-    assert verify(IntakeExtraction(items=(item("own_bedroom", True, "a few separate bedrooms would be nice"),)), ctx(hedge))[0] == ()
+    [kept] = verify(IntakeExtraction(items=(item("own_bedroom", True, "a few separate bedrooms would be nice"),)), ctx(hedge))[0]
+    assert kept.hardness == "SOFT" and describe(kept) == "If possible: you'd like your own room"
     firm = "My main must-have is having my own bedroom, if that's possible."
-    assert len(verify(IntakeExtraction(items=(item("own_bedroom", True, "having my own bedroom"),)), ctx(firm))[0]) == 1
+    [kept] = verify(IntakeExtraction(items=(item("own_bedroom", True, "having my own bedroom"),)), ctx(firm))[0]
+    assert kept.hardness == "HARD"
     # Sam: "nonstop flights only" is 0 stops, shown as a reading.
     [stops] = verify(IntakeExtraction(items=(item("max_stops", 0, "nonstop flights only"),)), ctx("Must-have: nonstop flights only"))[0]
     assert stops.interpreted is True

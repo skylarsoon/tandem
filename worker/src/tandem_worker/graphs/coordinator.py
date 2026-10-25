@@ -105,7 +105,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         if state["round"] == 0 and not state["candidates"]:
             reused = backend.reusable_candidates(claim)
             if reused:
-                return {"candidates": candidates_data(reused), "need_research": False}
+                # Earlier jobs' results can hold the same offer twice (separate runs, new ids).
+                return {"candidates": candidates_data(dedupe(reused)), "need_research": False}
         purpose = "INITIAL" if state["round"] == 0 else "TARGETED"
         # Stable observation/request time across a replay, persisted in the op receipt.
         stamp = backend.operation(claim, f"research-time:{state['round']}", {}, "local", clock.now)

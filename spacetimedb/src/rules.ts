@@ -10,6 +10,8 @@ export type Rule = {
   operator: string;
   value: unknown;
   kind?: string;
+  importance?: number; // soft rules only: 1-5, how much it matters to them
+  tolerance?: { limit: unknown }; // soft rules only: partial credit up to the limit
 };
 export type Catalog = {
   categories: Record<string, Record<string, { type: string }>>;
@@ -73,6 +75,27 @@ export function validateRule(rule: Rule, catalog: Catalog): void {
   } else {
     scalar(rule.value, kind);
   }
+  checkWeighting(rule, kind);
+}
+
+// How much a preference matters, and how far from it still earns partial credit.
+function checkWeighting(rule: Rule, kind: string): void {
+  if ((rule.importance !== undefined || rule.tolerance !== undefined) && rule.kind !== 'soft') {
+    bad('only a preference (soft) has an importance or a tolerance');
+  }
+  if (rule.importance !== undefined && (!Number.isInteger(rule.importance) || rule.importance < 1 || rule.importance > 5)) {
+    bad('importance is a whole number from 1 to 5');
+  }
+  if (rule.tolerance !== undefined) {
+    const t = rule.tolerance as unknown;
+    if (!['lt', 'lte', 'gt', 'gte'].includes(rule.operator) || !t || typeof t !== 'object' || Array.isArray(t) ||
+        Object.keys(t).join() !== 'limit') {
+      bad('a tolerance is {limit} on lt, lte, gt or gte');
+    }
+    const limit = scalar(rule.tolerance.limit, kind) as number;
+    const value = scalar(rule.value, kind) as number;
+    if (['lt', 'lte'].includes(rule.operator) ? limit <= value : limit >= value) bad('a tolerance limit lies past the preferred value');
+  }
 }
 
 // SATISFIED / VIOLATED / UNKNOWN / NOT_APPLICABLE for one candidate's facts.
@@ -118,7 +141,10 @@ export function fromLegacy(key: string, row: LegacyRow, table: LegacyTable, cata
   let value = row.value;
   if (value === null || value === undefined || ('only_when' in spec && value !== spec.only_when)) return out;
   if (spec.as === 'search_fact') out.facts.push({ fact: spec.fact, value });
-  if (spec.as === 'need') out.needs.push({ category: spec.category, attribute: spec.attribute, needs: spec.needs });
+  // A need someone hedged ("own room if possible") is a preference, never a must.
+  if (spec.as === 'need' && (row.hardness ?? 'HARD') === 'HARD') {
+    out.needs.push({ category: spec.category, attribute: spec.attribute, needs: spec.needs });
+  }
   if (spec.as !== 'rule') return out;
   const target = 'aggregate' in spec ? { aggregate: spec.aggregate as string } : { category: spec.category as string, attribute: spec.attribute as string };
   if ('value_from' in spec) {
@@ -128,10 +154,14 @@ export function fromLegacy(key: string, row: LegacyRow, table: LegacyTable, cata
     value = spec.value;
   }
   if (row.hardness === 'SOFT' && 'flexible_limit' in spec) {
-    // Flexible: firm at the top of the range they gave; what they'd like stays a soft preference.
-    const range = (row.authorized_range ?? {}) as { max?: unknown };
-    out.rules.push({ ...target, operator: spec.operator, value: range.max ?? value, kind: 'hard' });
-    out.rules.push({ ...target, operator: spec.operator, value, kind: 'soft' });
+    // Flexible: what they'd like is a preference with partial credit up to their stated top,
+    // or up to the catalog's tolerance if they named none. Only a stated top is also firm.
+    const top = ((row.authorized_range ?? {}) as { max?: number }).max;
+    if (top !== undefined) out.rules.push({ ...target, operator: spec.operator, value: top, kind: 'hard' });
+    const limit = top ?? ('soft_tolerance' in spec ? Math.round((value as number) * (spec.soft_tolerance as number)) : undefined);
+    const soft: Rule = { ...target, operator: spec.operator, value, kind: 'soft' };
+    if (limit !== undefined && limit > (value as number)) soft.tolerance = { limit };
+    out.rules.push(soft);
   } else {
     const firm = (row.hardness ?? 'HARD') === 'HARD' || spec.enforce_soft === true;
     out.rules.push({ ...target, operator: spec.operator, value, kind: firm ? 'hard' : 'soft' });

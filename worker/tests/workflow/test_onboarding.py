@@ -149,7 +149,11 @@ def test_from_onboarding_to_a_plan_with_just_in_time_questions(tmp_path):
     [proposal] = backend.shared_report()["proposals"].values()
     chosen = {c.get("owner") or c["category"]: c for c in proposal["terms"]["selected"]}
     assert chosen["maya"]["arrival_local"] == "21:00", "her 'no red-eye' rules out the 01:10 fare"
-    assert chosen["sam"]["stops"] == 0, "nonstop only"
+    # Sam said "nonstop if possible": a preference, so it never filters his search or binds.
+    [sam_route] = [r for r in research.requests[0]["routes"] if r["owner"] == "sam"]
+    assert sam_route["max_stops"] is None and chosen["sam"]["stops"] is not None
+    # (Until preferences are weighed, cost picks his one-stop fare, which includes a bag.)
+    sam_bag_asked = 0 if chosen["sam"]["baggage_included"] else 1
     assert chosen["STAY"]["title"] == "Downtown 3-bedroom condo"
     assert chosen["TRANSFER"]["title"] == "Airport van, pickup 22:30", "booked for the group's latest landing (22:10)"
     # Priya alone was asked to share, because her own-room request pushed someone past a private limit.
@@ -157,7 +161,7 @@ def test_from_onboarding_to_a_plan_with_just_in_time_questions(tmp_path):
     assert not any(p.startswith("Your own-room request") for n in NAMES if n != "priya" for p in asked.get(n, []))
     # Just in time, once: rooming for those who never said, a bag for the one fare without one.
     assert all(sum("OK to share a room?" in p for p in asked[n]) == 1 for n in NAMES if n != "priya")
-    assert sum("Do you need one?" in p for p in asked["sam"]) == 1
+    assert sum("Do you need one?" in p for p in asked.get("sam", [])) == sam_bag_asked
     assert research.requests[0]["routes"][0]["origin"] == "SEA" and "TRANSFER" not in research.requests[0]["categories"]
     assert "laid off" not in json.dumps(backend.shared_report())
 

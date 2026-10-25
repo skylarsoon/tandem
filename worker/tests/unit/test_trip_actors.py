@@ -189,6 +189,24 @@ def test_mismatched_or_unpriced_activities_are_quarantined(change):
         booking_attractions.normalize(row, ACTIVITY, RUN, 900)
 
 
+@pytest.mark.parametrize("change", [
+    lambda r: r.update(name="Honolulu Airport Shuttle to Waikiki Hotels"),
+    lambda r: r.update(url="https://www.booking.com/attractions/us/abc-private-airport-transfer.html"),
+    lambda r: r.update(category="Taxi"),
+])
+def test_rides_are_not_activities(change):
+    row = deepcopy(rows("booking_attractions")[0])
+    change(row)
+    with pytest.raises(ValueError, match="NOT_AN_ACTIVITY"):
+        booking_attractions.normalize(row, ACTIVITY, RUN, 900)
+
+
+def test_a_tour_with_hotel_pickup_is_still_an_activity():
+    row = deepcopy(rows("booking_attractions")[0])
+    row["name"] = "Circle Island Tour with hotel pick-up"
+    assert one(booking_attractions, row, ACTIVITY).title == "Circle Island Tour with hotel pick-up"
+
+
 def test_suggestions_are_never_targeted():
     for actor, search in ((booking_attractions, ACTIVITY), (google_places, DINNER)):
         with pytest.raises(ContractError, match="TARGETED_SEARCH_NOT_AUTHORIZED"):

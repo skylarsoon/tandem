@@ -142,6 +142,19 @@ Our first idea for measuring compromise (extra cost as a share of your budget) w
 
 **Adding an argument broke every caller at once.** SpacetimeDB rejects a call that is missing an argument ("missing reducer argument `burdens`"), so adding one to `publish_proposal` broke the simulator, the worker and the tests together. Every caller is now updated in the same commit, and the module and the worker have to be deployed together.
 
+**Preferences were quietly turning into rules.** Preparing an end-to-end test with four personas, we followed each sentence through the pipeline and found three ways a preference got bent:
+- Bella's "around $800 for flights, but I'd pay more for comfort" became "never above $800";
+- Sam's "nonstop if possible" became a search filter, so connecting flights were never even searched;
+- "a bag would be nice" was thrown away for not being firm enough.
+
+Now only firm statements become limits. A hedged one is kept as a preference: it's shown back as "If possible: …" and earns partial credit up to the top the person named (or twice the target if they named none). It never filters a search.
+
+**A worker that could make four calls, ever.** A long-running worker shared one budget counter that never reset, with a default of four Claude calls and one search. A real room's onboarding ran out partway through. The service now has a daily ceiling, and each job gets its own limit.
+
+**The scraper's stop count.** A single-leg San Francisco to Honolulu flight came back as "1 stop". The rows also list every flight leg, so stops are now counted from the legs, and the stated number is only a fallback.
+
+**Options that silently disappear.** Pinning the optimizer's behaviour in a test showed that an option missing a fact a preference needs (say, no stop count) is dropped from the ranking, even if it's the cheapest. If every option lacks the fact, nothing gets planned at all. So preferences will reach the optimizer as precomputed scores where unknown counts as unmet, never as missing.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

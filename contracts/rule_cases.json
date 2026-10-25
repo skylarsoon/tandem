@@ -506,6 +506,92 @@
     "total_cents": 100
    },
    "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a preference with importance and tolerance is checked like any rule",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 40000,
+    "kind": "soft",
+    "importance": 4,
+    "tolerance": {
+     "limit": 80000
+    }
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 45000
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "importance on a hard rule is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 50000,
+    "importance": 3
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 45000
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "importance outside 1-5 is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 50000,
+    "kind": "soft",
+    "importance": 6
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 45000
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a tolerance needs an ordering operator",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "stops",
+    "operator": "eq",
+    "value": 0,
+    "kind": "soft",
+    "tolerance": {
+     "limit": 1
+    }
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "stops": 0
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a tolerance limit on the wrong side of the preference is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 40000,
+    "kind": "soft",
+    "tolerance": {
+     "limit": 30000
+    }
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 45000
+   },
+   "expect": "INVALID_RULE"
   }
  ],
  "legacy_cases": [

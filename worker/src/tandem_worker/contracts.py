@@ -476,6 +476,12 @@ class TripBrief(Record):
     group_size: int | None = Field(default=None, ge=1, le=20)
     vibe: str = Field(default="", max_length=200)
 
+    @model_validator(mode="after")
+    def dates_in_order(self):
+        if self.start_date > self.end_date:
+            raise ValueError("TRIP_DATES_OUT_OF_ORDER")
+        return self
+
 
 class BriefDraft(Record):
     """Model output for a trip description: a brief only if every field was stated,

@@ -111,20 +111,22 @@ export const RULE_ATTRIBUTES = {
 
 export const LEGACY_KEYS = {
   "version": 1,
-  "about": "How the named limits stored before rules existed become rules, needs and facts. Data, read by the module and the worker alike; the only key-specific knowledge left, kept for old rooms and the form flow. A SOFT limit becomes a soft rule (a preference, not enforced) unless enforce_soft; a flexible budget is firm at the top of its authorized range; a cleared value (set aside) makes nothing.",
+  "about": "How the named limits stored before rules existed become rules, needs and facts. Data, read by the module and the worker alike; the only key-specific knowledge left, kept for old rooms and the form flow. A SOFT limit becomes a soft rule (a preference, not enforced) unless enforce_soft; a SOFT need makes nothing binding. A flexible budget is a preference with partial credit up to the top of its authorized range (also firm there) or, with no range, up to soft_tolerance times itself. A cleared value (set aside) makes nothing.",
   "keys": {
     "flight_budget_total": {
       "as": "rule",
       "category": "FLIGHT",
       "attribute": "total_cents",
       "operator": "lte",
-      "flexible_limit": "authorized_range.max"
+      "flexible_limit": "authorized_range.max",
+      "soft_tolerance": 2
     },
     "trip_budget_total": {
       "as": "rule",
       "aggregate": "my_cost",
       "operator": "lte",
-      "flexible_limit": "authorized_range.max"
+      "flexible_limit": "authorized_range.max",
+      "soft_tolerance": 2
     },
     "baggage_required": {
       "as": "rule",
@@ -132,8 +134,7 @@ export const LEGACY_KEYS = {
       "attribute": "baggage_included",
       "operator": "eq",
       "only_when": true,
-      "value": true,
-      "enforce_soft": true
+      "value": true
     },
     "arrival_window": {
       "as": "rule",

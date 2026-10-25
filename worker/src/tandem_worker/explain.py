@@ -68,8 +68,13 @@ def suggestions(candidates: list[Candidate], per_category: int = 3) -> tuple[Sug
     for category in ("ACTIVITY", "DINNER"):
         ideas = sorted((c for c in candidates if c.category == category and c.title),
                        key=lambda c: (-(c.rating or 0), c.total_cents if c.total_cents is not None else 10**9, c.id))
+        seen, distinct = set(), []
+        for c in ideas:  # the same place from two searches is one idea
+            if c.title.casefold() not in seen:
+                seen.add(c.title.casefold())
+                distinct.append(c)
         result += [Suggestion(candidate=c.id, category=category, title=c.title, estimate_per_person_cents=c.total_cents,
-                              rating=c.rating, source_url=c.source_url) for c in ideas[:per_category]]
+                              rating=c.rating, source_url=c.source_url) for c in distinct[:per_category]]
     return tuple(result)
 
 

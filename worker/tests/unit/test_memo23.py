@@ -53,6 +53,19 @@ def test_normalization_preserves_observation_and_unknown_costs(live_case):
     assert candidate.id != other.id and candidate.flight_identity == other.flight_identity
 
 
+def test_stops_come_from_the_legs_listed(live_case):
+    row = deepcopy(live_case.apify.rows[0])
+    legs = [k for k in row if k.startswith("segments-") and k.endswith("-flight-number")]
+    assert len(legs) == 1
+    row["stops"] = 1  # what the scraper said for a single-leg SFO->HNL flight
+    assert normalize_item(row, live_case.config.searches[0], run_record(live_case)).stops == 0
+    row["segments-1-flight-number"] = "HA 12"
+    assert normalize_item(row, live_case.config.searches[0], run_record(live_case)).stops == 1
+    for key in [k for k in row if k.startswith("segments-")]:
+        row.pop(key)
+    assert normalize_item(row, live_case.config.searches[0], run_record(live_case)).stops == 1  # no legs: as stated
+
+
 def test_missing_baggage_is_unknown(live_case):
     row = deepcopy(live_case.apify.rows[0])
     row.pop("checked-bags-included")

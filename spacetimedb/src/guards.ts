@@ -439,6 +439,9 @@ export function validateRoomSettings(settings: unknown): Record<string, unknown>
       fail('INVALID_ARGUMENT', `${key} must be YYYY-MM-DD`);
     }
   }
+  if (typeof s.start_date === 'string' && typeof s.end_date === 'string' && s.start_date > s.end_date) {
+    fail('INVALID_ARGUMENT', 'start_date must not be after end_date');
+  }
   if (s.destination_airport !== undefined && (typeof s.destination_airport !== 'string' || !/^[A-Z]{3}$/.test(s.destination_airport))) {
     fail('INVALID_ARGUMENT', 'destination_airport must be a 3-letter IATA code');
   }

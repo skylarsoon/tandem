@@ -99,7 +99,7 @@ export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: stri
     roomId,
     owner: ctx.sender,
     ruleJson: JSON.stringify({ category: rule.category, attribute: rule.attribute, aggregate: rule.aggregate,
-      operator: rule.operator, value: rule.value, kind }),
+      operator: rule.operator, value: rule.value, kind, importance: rule.importance, tolerance: rule.tolerance }),
     kind,
     state: 'active',
     sourceQuote: quote,
@@ -111,7 +111,7 @@ export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: stri
 // Does this person have a money limit (any rule on a money attribute or total)?
 export function hasMoneyRule(ctx: Ctx, roomId: bigint, owner: Identity): boolean {
   return [...ctx.db.participantRule.byRoom.filter(roomId)].some(r => {
-    if (!r.owner.isEqual(owner) || r.state !== 'active') return false;
+    if (!r.owner.isEqual(owner) || !inForce(r.state)) return false;
     try {
       return attributeType(JSON.parse(r.ruleJson) as Rule, CATALOG) === 'money';
     } catch {
@@ -120,10 +120,15 @@ export function hasMoneyRule(ctx: Ctx, roomId: bigint, owner: Identity): boolean
   });
 }
 
+// In force unless set aside: 'kept' is a rule its owner was asked to relax and chose to keep.
+function inForce(state: string): boolean {
+  return state === 'active' || state === 'kept';
+}
+
 // The rules that bind right now: hard, and not set aside.
 export function bindingRules(ctx: Ctx, roomId: bigint): OwnedRule[] {
   return [...ctx.db.participantRule.byRoom.filter(roomId)]
-    .filter(r => r.kind === 'hard' && r.state === 'active')
+    .filter(r => r.kind === 'hard' && inForce(r.state))
     .map(r => ({ owner: r.owner, rule: JSON.parse(r.ruleJson) as Rule, quote: r.sourceQuote }));
 }
 

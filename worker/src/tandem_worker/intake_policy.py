@@ -21,8 +21,8 @@ FLIGHT_SCOPE = ("flight", "airfare", "fare", "ticket", "plane")
 FIRM = ("max", "under", "no more than", "can't go", "cannot go", "can't do more", "cap", "limit", "at most", "tops",
         "won't go over", "not over", "hard", "absolutely", "not a cent")
 FLEX = ("around", "about", "-ish", "ish", "roughly", "flexible", "stretch", "give or take", "approximately", "if needed")
-# A requirement needs a firm word; a hedge ("would be nice", "flexible") is a
-# preference, and recording it as a requirement would be assuming.
+# A requirement needs a firm word; a hedge ("would be nice", "flexible") makes it a
+# preference. Recording it as a requirement would be assuming; dropping it would lose it.
 NEEDS = ("must", "need", "non-negotiable", "have to", "require", "can't do without", "essential", "deal-breaker")
 HEDGES = ("would be nice", "nice to have", "flexible", "if possible", "ideally", "prefer", "don't mind", "not a big deal")
 NONSTOP = ("nonstop", "non-stop", "direct", "no connection", "no layover", "no stops")
@@ -61,9 +61,6 @@ def check_item(item: IntakeItem, said: str) -> str | None:
             if not isinstance(top, int) or not any(abs(f * 100 - top) < 1 for f in amounts(said)):
                 return "NUMBER_NOT_SAID"
         return None
-    if item.key in {"baggage_required", "own_bedroom"} and value is True:
-        firm, hedged = mentions(said, NEEDS), mentions(quote, HEDGES)
-        return None if firm or not hedged else "ONLY_A_PREFERENCE"
     if item.key in {"no_budget_limit", "dates_ok", "baggage_required", "own_bedroom"}:
         return None if isinstance(value, bool) and (value or item.key != "no_budget_limit") else "BAD_VALUE"
     if item.key == "stay_min_rating":
@@ -99,8 +96,6 @@ def _check_rule(item: IntakeItem, said: str) -> str | None:
     kind, quote = attribute_type(rule), item.source_quote
     for v in rule.value if isinstance(rule.value, list) else [rule.value]:
         if kind == "bool":
-            if v and mentions(quote, HEDGES) and not mentions(said, NEEDS):
-                return "ONLY_A_PREFERENCE"
             continue
         if kind == "money":
             stated = any(abs(f * 100 - v) < 1 for f in amounts(quote))
@@ -111,6 +106,16 @@ def _check_rule(item: IntakeItem, said: str) -> str | None:
         if not stated and not item.interpreted:
             return "NUMBER_NOT_SAID"
     return None
+
+
+def soften(item: IntakeItem, said: str) -> IntakeItem:
+    """Anything said with a hedge and no firm word ("nonstop would be nice") is kept
+    as a preference. Budgets have their own firmness check (budget_gap)."""
+    if item.key in MONEY_KEYS or item.hardness != "HARD":
+        return item
+    if mentions(item.source_quote, HEDGES) and not mentions(said, NEEDS):
+        return item.model_copy(update={"hardness": "SOFT"})
+    return item
 
 
 def budget_gap(item: IntakeItem, said: str) -> str | None:
@@ -134,6 +139,7 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
     for item in extraction.items:
         if item.source_message_id not in said:
             continue
+        item = soften(item, said[item.source_message_id])
         problem = check_item(item, said[item.source_message_id])
         if problem == "NUMBER_NOT_SAID" and item.key in BUDGET_KEYS and item.authorized_range is not None:
             # Keep the budget they stated; ask about the stretch instead of dropping both.
@@ -261,7 +267,8 @@ def describe_rule(rule: Rule) -> str:
     spec = catalog["aggregates"][rule.aggregate] if rule.aggregate else catalog["categories"][rule.category][rule.attribute]
     show = (lambda v: money(v)) if spec["type"] == "money" else str
     if spec["type"] == "bool":
-        text = ("must have " if rule.value else "must not have ") + spec["label"]
+        must = "" if rule.kind == "soft" else "must "
+        text = must + ("have " if rule.value else "not have ") + spec["label"]
     elif rule.operator == "between":
         text = f"{spec['label']} between {show(rule.value[0])} and {show(rule.value[1])}"
     elif isinstance(rule.value, list):
@@ -276,8 +283,16 @@ def money(cents: int) -> str:
 
 
 def describe(item: IntakeItem) -> str:
+    text = _describe(item)
+    if item.hardness == "SOFT" and item.key not in BUDGET_KEYS:
+        return f"If possible: {text[0].lower()}{text[1:]}"  # a preference, weighed but never a must
+    return text
+
+
+def _describe(item: IntakeItem) -> str:
+    soft = item.hardness == "SOFT"
     if item.key == "rule":
-        return describe_rule(Rule.model_validate({**item.rule, "kind": "hard"}))
+        return describe_rule(Rule.model_validate({**item.rule, "kind": "soft" if soft else "hard"}))
     v = item.value
     if item.key == "origin_airport":
         return f"Flying from {v}"
@@ -290,10 +305,10 @@ def describe(item: IntakeItem) -> str:
     text = {
         "no_budget_limit": "No budget limit",
         "dates_ok": "The dates work for you" if v else "The dates don't work as they are",
-        "baggage_required": "You need a checked bag" if v else "No checked bag needed",
+        "baggage_required": ("A checked bag" if soft else "You need a checked bag") if v else "No checked bag needed",
         "own_bedroom": "You'd like your own room" if v else "Happy to share a room",
         "stay_min_rating": f"Stays rated {v} or higher",
-        "max_stops": "Nonstop only" if v == 0 else f"At most {v} stop{'s' if v != 1 else ''}",
+        "max_stops": ("Nonstop" if soft else "Nonstop only") if v == 0 else f"At most {v} stop{'s' if v != 1 else ''}",
         "trip_note": f"Noted, not used in planning yet: {v}",
     }.get(item.key)
     if item.key == "arrival_window":

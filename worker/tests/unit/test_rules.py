@@ -22,7 +22,7 @@ def python_conversion(key, row) -> dict:
     out = {"rules": [], "needs": [], "facts": []}
     for item in from_legacy("x", key, row):
         if isinstance(item, Rule):
-            out["rules"].append(item.model_dump(include={"category", "attribute", "aggregate", "operator", "value", "kind"},
+            out["rules"].append(item.model_dump(include={"category", "attribute", "aggregate", "operator", "value", "kind", "importance", "tolerance"},
                                                 exclude_none=True))
         elif isinstance(item, Need):
             out["needs"].append({"category": item.category, "attribute": item.attribute, "needs": item.needs})
