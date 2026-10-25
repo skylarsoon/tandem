@@ -1,18 +1,77 @@
 {
   "version": 1,
-  "about": "How the named limits stored before rules existed become rules, needs and facts. Data, read by the module and the worker alike; the only key-specific knowledge left, kept for old rooms and the form flow.",
+  "about": "How the named limits stored before rules existed become rules, needs and facts. Data, read by the module and the worker alike; the only key-specific knowledge left, kept for old rooms and the form flow. A SOFT limit becomes a soft rule (a preference, not enforced) unless enforce_soft; a flexible budget is firm at the top of its authorized range; a cleared value (set aside) makes nothing.",
   "keys": {
-    "flight_budget_total": {"as": "rule", "category": "FLIGHT", "attribute": "total_cents", "operator": "lte", "flexible_limit": "authorized_range.max"},
-    "trip_budget_total": {"as": "rule", "aggregate": "my_cost", "operator": "lte", "flexible_limit": "authorized_range.max"},
-    "baggage_required": {"as": "rule", "category": "FLIGHT", "attribute": "baggage_included", "operator": "eq", "only_when": true, "value": true},
-    "arrival_window": {"as": "rule", "category": "FLIGHT", "attribute": "arrival_local", "operator": "between", "value_from": ["earliest", "latest"], "defaults": ["00:00", "23:59"]},
-    "max_stops": {"as": "rule", "category": "FLIGHT", "attribute": "stops", "operator": "lte"},
-    "stay_min_rating": {"as": "rule", "category": "STAY", "attribute": "rating", "operator": "gte"},
-    "own_bedroom": {"as": "need", "category": "STAY", "attribute": "bedrooms", "only_when": true, "needs": 1},
-    "origin_airport": {"as": "search_fact", "fact": "origin"},
-    "no_budget_limit": {"as": "coverage", "topic": "money"},
-    "dates_ok": {"as": "coverage", "topic": "dates"},
-    "trip_note": {"as": "note"}
+    "flight_budget_total": {
+      "as": "rule",
+      "category": "FLIGHT",
+      "attribute": "total_cents",
+      "operator": "lte",
+      "flexible_limit": "authorized_range.max"
+    },
+    "trip_budget_total": {
+      "as": "rule",
+      "aggregate": "my_cost",
+      "operator": "lte",
+      "flexible_limit": "authorized_range.max"
+    },
+    "baggage_required": {
+      "as": "rule",
+      "category": "FLIGHT",
+      "attribute": "baggage_included",
+      "operator": "eq",
+      "only_when": true,
+      "value": true,
+      "enforce_soft": true
+    },
+    "arrival_window": {
+      "as": "rule",
+      "category": "FLIGHT",
+      "attribute": "arrival_local",
+      "operator": "between",
+      "value_from": [
+        "earliest",
+        "latest"
+      ],
+      "defaults": [
+        "00:00",
+        "23:59"
+      ]
+    },
+    "max_stops": {
+      "as": "rule",
+      "category": "FLIGHT",
+      "attribute": "stops",
+      "operator": "lte"
+    },
+    "stay_min_rating": {
+      "as": "rule",
+      "category": "STAY",
+      "attribute": "rating",
+      "operator": "gte"
+    },
+    "own_bedroom": {
+      "as": "need",
+      "category": "STAY",
+      "attribute": "bedrooms",
+      "only_when": true,
+      "needs": 1
+    },
+    "origin_airport": {
+      "as": "search_fact",
+      "fact": "origin"
+    },
+    "no_budget_limit": {
+      "as": "coverage",
+      "topic": "money"
+    },
+    "dates_ok": {
+      "as": "coverage",
+      "topic": "dates"
+    },
+    "trip_note": {
+      "as": "note"
+    }
   },
   "kept_prefix": "kept_"
 }

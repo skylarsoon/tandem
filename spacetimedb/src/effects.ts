@@ -1,5 +1,6 @@
 import { ScheduleAt } from 'spacetimedb';
 import type { Identity } from 'spacetimedb';
+import { mirrorLegacy } from './room_rules';
 import {
   type Ctx,
   HARDNESS,
@@ -55,6 +56,7 @@ export type ConstraintInput = {
   hardness: string;
   authorizedRangeJson?: string;
   privateRationale?: string;
+  sourceQuote?: string;
 };
 
 // Accepts the patch shape the worker proposes:
@@ -71,6 +73,7 @@ export function constraintFromPatch(patchJson: string): ConstraintInput {
     hardness: typeof patch.hardness === 'string' ? patch.hardness : fail('INVALID_ARGUMENT', 'patch.hardness is required'),
     authorizedRangeJson: patch.authorized_range === undefined ? undefined : JSON.stringify(patch.authorized_range),
     privateRationale: typeof patch.private_rationale === 'string' ? patch.private_rationale : undefined,
+    sourceQuote: typeof patch.source_quote === 'string' ? patch.source_quote : undefined,
   };
 }
 
@@ -97,6 +100,8 @@ export function upsertConstraint(ctx: Ctx, roomId: bigint, input: ConstraintInpu
   } else {
     ctx.db.participantConstraint.insert({ id: 0n, roomId, owner: ctx.sender, key: input.key, ...fields, revision: 1n });
   }
+  // The same limit in the generic rule language, which is what planning reads.
+  mirrorLegacy(ctx, roomId, ctx.sender, input.key, input);
   // A batch of confirmations (an onboarding summary) replans once, at the end.
   if (replan) invalidateRoom(ctx, roomId, { input: true }, 'constraint confirmed');
   emitEvent(ctx, roomId, 'REQUIREMENTS_UPDATED', { message: 'A participant updated their requirements' });

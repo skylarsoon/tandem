@@ -168,8 +168,8 @@ def from_legacy(owner: str, key: str, row: dict) -> list[Record]:
     if spec is None:
         raise RuleError(f"unknown named limit {key}")
     value = row.get("value")
-    if "only_when" in spec and value != spec["only_when"]:
-        return []
+    if value is None or ("only_when" in spec and value != spec["only_when"]):
+        return []  # set aside (cleared), or a "no" that asks for nothing
     common = {"owner": owner, "source_quote": row.get("source_quote", "") or "",
               "rationale_private": row.get("private_rationale") or ""}
     if spec["as"] == "search_fact":
@@ -190,7 +190,8 @@ def from_legacy(owner: str, key: str, row: dict) -> list[Record]:
         out.append(Rule(**target, operator=spec["operator"], value=limit, **common))
         out.append(Rule(**target, operator=spec["operator"], value=value, kind="soft", **common))
     else:
-        out.append(Rule(**target, operator=spec["operator"], value=value, **common))
+        firm = row.get("hardness", "HARD") == "HARD" or spec.get("enforce_soft", False)
+        out.append(Rule(**target, operator=spec["operator"], value=value, kind="hard" if firm else "soft", **common))
     for rule in out:
         validate(rule)
     return out

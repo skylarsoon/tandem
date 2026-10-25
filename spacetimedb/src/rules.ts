@@ -100,3 +100,42 @@ export function evaluateRule(rule: Rule, facts: Record<string, unknown>, catalog
   }
   return ok ? 'SATISFIED' : 'VIOLATED';
 }
+
+// ---------- The old named limits, as rules (contracts/legacy_keys.json) ----------
+
+export type Need = { category: string; attribute: string; needs: number };
+export type SearchFact = { fact: string; value: unknown };
+export type LegacyTable = { keys: Record<string, Record<string, any>>; kept_prefix: string };
+export type LegacyRow = { value: unknown; hardness?: string; authorized_range?: unknown };
+
+// An old named limit as rules, needs or search facts. Coverage markers and notes
+// aren't planning inputs; a cleared value (set aside) makes nothing. The twin of
+// rules.py from_legacy.
+export function fromLegacy(key: string, row: LegacyRow, table: LegacyTable, catalog: Catalog) {
+  const out = { rules: [] as Rule[], needs: [] as Need[], facts: [] as SearchFact[] };
+  if (key.startsWith(table.kept_prefix)) return out;
+  const spec = table.keys[key] ?? bad(`unknown named limit ${key}`);
+  let value = row.value;
+  if (value === null || value === undefined || ('only_when' in spec && value !== spec.only_when)) return out;
+  if (spec.as === 'search_fact') out.facts.push({ fact: spec.fact, value });
+  if (spec.as === 'need') out.needs.push({ category: spec.category, attribute: spec.attribute, needs: spec.needs });
+  if (spec.as !== 'rule') return out;
+  const target = 'aggregate' in spec ? { aggregate: spec.aggregate as string } : { category: spec.category as string, attribute: spec.attribute as string };
+  if ('value_from' in spec) {
+    const window = value as Record<string, unknown>;
+    value = (spec.value_from as string[]).map((k, i) => window[k] || spec.defaults[i]);
+  } else if ('value' in spec) {
+    value = spec.value;
+  }
+  if (row.hardness === 'SOFT' && 'flexible_limit' in spec) {
+    // Flexible: firm at the top of the range they gave; what they'd like stays a soft preference.
+    const range = (row.authorized_range ?? {}) as { max?: unknown };
+    out.rules.push({ ...target, operator: spec.operator, value: range.max ?? value, kind: 'hard' });
+    out.rules.push({ ...target, operator: spec.operator, value, kind: 'soft' });
+  } else {
+    const firm = (row.hardness ?? 'HARD') === 'HARD' || spec.enforce_soft === true;
+    out.rules.push({ ...target, operator: spec.operator, value, kind: firm ? 'hard' : 'soft' });
+  }
+  for (const rule of out.rules) validateRule(rule, catalog);
+  return out;
+}

@@ -507,5 +507,127 @@
    },
    "expect": "INVALID_RULE"
   }
+ ],
+ "legacy_cases": [
+  {
+   "key": "flight_budget_total",
+   "row": {
+    "value": 50000,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "flight_budget_total",
+   "row": {
+    "value": 45000,
+    "hardness": "SOFT",
+    "authorized_range": {
+     "max": 50000
+    }
+   }
+  },
+  {
+   "key": "trip_budget_total",
+   "row": {
+    "value": 80000,
+    "hardness": "SOFT"
+   }
+  },
+  {
+   "key": "baggage_required",
+   "row": {
+    "value": true,
+    "hardness": "SOFT"
+   }
+  },
+  {
+   "key": "baggage_required",
+   "row": {
+    "value": false,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "arrival_window",
+   "row": {
+    "value": {
+     "earliest": "07:00"
+    },
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "arrival_window",
+   "row": {
+    "value": {
+     "earliest": "22:00",
+     "latest": "02:00"
+    },
+    "hardness": "SOFT"
+   }
+  },
+  {
+   "key": "max_stops",
+   "row": {
+    "value": 0,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "stay_min_rating",
+   "row": {
+    "value": 4.5,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "stay_min_rating",
+   "row": {
+    "value": null,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "own_bedroom",
+   "row": {
+    "value": true,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "own_bedroom",
+   "row": {
+    "value": false,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "origin_airport",
+   "row": {
+    "value": "SFO",
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "no_budget_limit",
+   "row": {
+    "value": true,
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "trip_note",
+   "row": {
+    "value": "home by Sunday",
+    "hardness": "HARD"
+   }
+  },
+  {
+   "key": "kept_own_bedroom",
+   "row": {
+    "value": true,
+    "hardness": "HARD"
+   }
+  }
  ]
 }

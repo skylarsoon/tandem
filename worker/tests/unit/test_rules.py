@@ -13,7 +13,22 @@ from tandem_worker.contracts import Candidate
 from tandem_worker.rules import Need, Rule, RuleError, SearchFact, attributes, evaluate, from_legacy, legacy
 
 ROOT = Path(__file__).resolve().parents[3]
-CASES = json.loads((ROOT / "contracts" / "rule_cases.json").read_text())["cases"]
+SHARED = json.loads((ROOT / "contracts" / "rule_cases.json").read_text())
+CASES, LEGACY = SHARED["cases"], SHARED["legacy_cases"]
+
+
+def python_conversion(key, row) -> dict:
+    """from_legacy's output in the TypeScript twin's shape, for comparison."""
+    out = {"rules": [], "needs": [], "facts": []}
+    for item in from_legacy("x", key, row):
+        if isinstance(item, Rule):
+            out["rules"].append(item.model_dump(include={"category", "attribute", "aggregate", "operator", "value", "kind"},
+                                                exclude_none=True))
+        elif isinstance(item, Need):
+            out["needs"].append({"category": item.category, "attribute": item.attribute, "needs": item.needs})
+        else:
+            out["facts"].append({"fact": item.fact, "value": item.value})
+    return out
 
 
 def verdict(case) -> str:
@@ -30,8 +45,12 @@ def test_python_evaluator_on_the_shared_cases(case):
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node 22.18+ to run the module's TypeScript")
 def test_the_database_evaluator_gives_the_same_answers():
-    out = subprocess.run(["node", str(ROOT / "scripts" / "check-rule-cases.mjs")], capture_output=True, text=True, check=True)
-    assert json.loads(out.stdout) == [c["expect"] for c in CASES]
+    out = json.loads(subprocess.run(["node", str(ROOT / "scripts" / "check-rule-cases.mjs")], capture_output=True, text=True,
+                                    check=True).stdout)
+    assert out["verdicts"] == [c["expect"] for c in CASES]
+    # The old named limits convert the same way on both sides.
+    for case, theirs in zip(LEGACY, out["conversions"]):
+        assert theirs == python_conversion(case["key"], case["row"]), case
 
 
 def test_agrees_with_the_optimizers_own_evaluator():

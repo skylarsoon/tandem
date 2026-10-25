@@ -6,6 +6,7 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AddRuleReducer from "../add_rule_reducer";
 import AddWorkerReducer from "../add_worker_reducer";
 import AnswerQuestionReducer from "../answer_question_reducer";
 import AskOwnerReducer from "../ask_owner_reducer";
@@ -32,6 +33,7 @@ import ProposeTripBriefReducer from "../propose_trip_brief_reducer";
 import RecordCandidatesReducer from "../record_candidates_reducer";
 import RecordMessageProcessedReducer from "../record_message_processed_reducer";
 import RejectConstraintPatchReducer from "../reject_constraint_patch_reducer";
+import RemoveRuleReducer from "../remove_rule_reducer";
 import RenewLeaseReducer from "../renew_lease_reducer";
 import ReplyToOwnerReducer from "../reply_to_owner_reducer";
 import RequestProfileSummaryReducer from "../request_profile_summary_reducer";
@@ -50,6 +52,7 @@ import UpsertProfileReducer from "../upsert_profile_reducer";
 import WithdrawConsentReducer from "../withdraw_consent_reducer";
 import WithdrawConstraintPatchesReducer from "../withdraw_constraint_patches_reducer";
 
+export type AddRuleParams = __Infer<typeof AddRuleReducer>;
 export type AddWorkerParams = __Infer<typeof AddWorkerReducer>;
 export type AnswerQuestionParams = __Infer<typeof AnswerQuestionReducer>;
 export type AskOwnerParams = __Infer<typeof AskOwnerReducer>;
@@ -76,6 +79,7 @@ export type ProposeTripBriefParams = __Infer<typeof ProposeTripBriefReducer>;
 export type RecordCandidatesParams = __Infer<typeof RecordCandidatesReducer>;
 export type RecordMessageProcessedParams = __Infer<typeof RecordMessageProcessedReducer>;
 export type RejectConstraintPatchParams = __Infer<typeof RejectConstraintPatchReducer>;
+export type RemoveRuleParams = __Infer<typeof RemoveRuleReducer>;
 export type RenewLeaseParams = __Infer<typeof RenewLeaseReducer>;
 export type ReplyToOwnerParams = __Infer<typeof ReplyToOwnerReducer>;
 export type RequestProfileSummaryParams = __Infer<typeof RequestProfileSummaryReducer>;

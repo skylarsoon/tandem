@@ -411,6 +411,9 @@ export type MyQuestions = __Infer<typeof MyQuestions>;
 export const MyRooms = __t.object("MyRooms", {});
 export type MyRooms = __Infer<typeof MyRooms>;
 
+export const MyRules = __t.object("MyRules", {});
+export type MyRules = __Infer<typeof MyRules>;
+
 export const NegotiationRound = __t.object("NegotiationRound", {
   id: __t.u64(),
   jobId: __t.u64(),
@@ -455,6 +458,31 @@ export const ParticipantImpact = __t.object("ParticipantImpact", {
   impactJson: __t.string(),
 });
 export type ParticipantImpact = __Infer<typeof ParticipantImpact>;
+
+export const ParticipantNeed = __t.object("ParticipantNeed", {
+  id: __t.u64(),
+  roomId: __t.u64(),
+  owner: __t.identity(),
+  category: __t.string(),
+  attribute: __t.string(),
+  needs: __t.f64(),
+  legacyKey: __t.option(__t.string()),
+  updatedAt: __t.timestamp(),
+});
+export type ParticipantNeed = __Infer<typeof ParticipantNeed>;
+
+export const ParticipantRule = __t.object("ParticipantRule", {
+  id: __t.u64(),
+  roomId: __t.u64(),
+  owner: __t.identity(),
+  ruleJson: __t.string(),
+  kind: __t.string(),
+  state: __t.string(),
+  sourceQuote: __t.string(),
+  legacyKey: __t.option(__t.string()),
+  updatedAt: __t.timestamp(),
+});
+export type ParticipantRule = __Infer<typeof ParticipantRule>;
 
 export const ParticipationPreferences = __t.object("ParticipationPreferences", {
   owner: __t.identity(),
@@ -684,6 +712,29 @@ export type RoomThreads = __Infer<typeof RoomThreads>;
 
 export const RoomTripBrief = __t.object("RoomTripBrief", {});
 export type RoomTripBrief = __Infer<typeof RoomTripBrief>;
+
+export const RuleRow = __t.object("RuleRow", {
+  id: __t.u64(),
+  roomId: __t.u64(),
+  ruleJson: __t.string(),
+  kind: __t.string(),
+  state: __t.string(),
+  sourceQuote: __t.string(),
+  legacyKey: __t.option(__t.string()),
+  updatedAt: __t.timestamp(),
+});
+export type RuleRow = __Infer<typeof RuleRow>;
+
+export const SearchFact = __t.object("SearchFact", {
+  id: __t.u64(),
+  roomId: __t.u64(),
+  owner: __t.identity(),
+  fact: __t.string(),
+  valueJson: __t.string(),
+  legacyKey: __t.option(__t.string()),
+  updatedAt: __t.timestamp(),
+});
+export type SearchFact = __Infer<typeof SearchFact>;
 
 export const ThreadOpen = __t.object("ThreadOpen", {
   topicRef: __t.string(),

@@ -11,7 +11,6 @@ import {
   digest,
   emitEvent,
   fail,
-  insideWindow,
   oneOf,
   parseJson,
   refResolves,
@@ -27,6 +26,7 @@ import {
 } from './guards';
 import { commitments, messageOwnAgent, recomputeAgreement, scheduleReviewReminders, supersedeProposal } from './effects';
 import { findIntake } from './onboarding';
+import { bindingRules, checkCandidateRules, checkNeeds, costLimitsHold } from './room_rules';
 
 const ImpactInput = t.object('ImpactInput', { memberId: t.u64(), impactJson: t.string() });
 // burdenMicros: the 0..1 compromise burden in millionths (0..1_000_000).
@@ -73,14 +73,6 @@ const SCOPES = [
   'COMPLETE_PLAN',
   'GENERAL_AGREEMENT',
 ] as const;
-
-function constraintValue(ctx: Ctx, roomId: bigint, owner: Identity, key: string, hardOnly: boolean): unknown {
-  for (const c of ctx.db.participantConstraint.byRoomOwnerKey.filter([roomId, owner, key])) {
-    if (hardOnly && c.hardness !== 'HARD') return undefined;
-    return JSON.parse(c.valueJson);
-  }
-  return undefined;
-}
 
 type Member = ReturnType<typeof activeMembers>[number];
 function activeMembers(ctx: Ctx, roomId: bigint) {
@@ -134,20 +126,9 @@ function checkFlights(ctx: Ctx, r: RoomRow, active: Member[], refs: string[], co
     if (!ctx.db.participationPreferences.owner.find(member.member)?.confirmed) {
       fail('INVALID_PROPOSAL', 'every traveller must confirm participation preferences');
     }
-    const cap = constraintValue(ctx, r.id, member.member, 'flight_budget_total', true);
-    if (typeof cap === 'number' && total > cap) fail('INVALID_PROPOSAL', `candidate ${ref} exceeds a hard limit`);
-    if (constraintValue(ctx, r.id, member.member, 'baggage_required', false) === true && facts.baggage_included !== true) {
-      fail('INVALID_PROPOSAL', `candidate ${ref} does not confirm required baggage`);
-    }
     if (typeof facts.arrival_epoch !== 'number') fail('INVALID_PROPOSAL', `candidate ${ref} has no arrival time`);
-    const window = constraintValue(ctx, r.id, member.member, 'arrival_window', true);
-    if (window !== undefined && !insideWindow(facts.arrival_local, window)) {
-      fail('INVALID_PROPOSAL', `candidate ${ref} arrives outside a traveller's arrival window`);
-    }
-    const maxStops = constraintValue(ctx, r.id, member.member, 'max_stops', true);
-    if (typeof maxStops === 'number' && (typeof facts.stops !== 'number' || facts.stops > maxStops)) {
-      fail('INVALID_PROPOSAL', `candidate ${ref} has more stops than a traveller allows`);
-    }
+    // The traveller's own rules on their own flight (fare, bag, landing time, stops...).
+    checkCandidateRules(bindingRules(ctx, r.id), [member.member], 'FLIGHT', facts as Record<string, unknown>, ref);
     arrivals.push(facts.arrival_epoch);
   }
   if (costs.flights.size !== active.length) fail('INVALID_COVERAGE', 'every active member needs exactly one selected flight');
@@ -164,6 +145,10 @@ function checkShared(ctx: Ctx, r: RoomRow, active: Member[], ref: string, costs:
   if (typeof facts.capacity !== 'number' || facts.capacity < active.length) {
     fail('INVALID_PROPOSAL', `candidate ${ref} doesn't fit everyone`);
   }
+  // Everyone's rules on the shared pick, and what it must hold for them.
+  const people = active.map(m => m.member);
+  checkCandidateRules(bindingRules(ctx, r.id), people, category, facts as Record<string, unknown>, ref);
+  checkNeeds(ctx, r.id, people, JSON.parse(r.settingsJson), category, facts as Record<string, unknown>, ref);
   costs.shared += total;
   return category;
 }
@@ -174,13 +159,12 @@ function checkShared(ctx: Ctx, r: RoomRow, active: Member[], ref: string, costs:
 // so the error says which one breaks it.
 function checkTripBudgets(ctx: Ctx, r: RoomRow, active: Member[], own: Costs, committed?: Costs): void {
   const n = active.length;
+  const rules = bindingRules(ctx, r.id);
   const over = (c: Costs[]) =>
     active.some(m => {
-      const cap = constraintValue(ctx, r.id, m.member, 'trip_budget_total', true);
-      if (typeof cap !== 'number') return false;
       const mine = c.reduce((sum, x) => sum + (x.flights.get(m.id) ?? 0) + x.perPerson, 0);
       const shared = c.reduce((sum, x) => sum + x.shared, 0);
-      return n * mine + shared > n * cap;
+      return !costLimitsHold(rules, m.member, n, mine, shared);
     });
   if (over([own])) fail('INVALID_PROPOSAL', 'a traveller’s share of the trip exceeds a hard limit');
   if (committed && over([own, committed])) {
@@ -271,6 +255,7 @@ function validateScope(ctx: Ctx, r: RoomRow, scope: string, decisionId: string, 
     if (typeof facts.capacity === 'number' && facts.capacity < active.length) {
       fail('INVALID_PROPOSAL', `candidate ${refs[0]} doesn't fit everyone`);
     }
+    checkCandidateRules(bindingRules(ctx, r.id), active.map(m => m.member), category, facts as Record<string, unknown>, refs[0]);
     for (const c of others) {
       if (c.scope !== 'ACTIVITY_DECISION') continue;
       for (const ref of c.selectedRefs) {

@@ -205,7 +205,8 @@ def record_shared(room: Room, worker, job_id: int, category: str, total_cents: i
     import time as _time
     now = _time.time()
     body = {"category": category, "total_cents": total_cents, "currency": "USD", "observed_at": now - 5,
-            "valid_until": now + 3600, "capacity": 4, "cost_basis": f"COMPLETE_{category}_TOTAL", **facts}
+            "valid_until": now + 3600, "capacity": 4, "cost_basis": f"COMPLETE_{category}_TOTAL",
+            **({"bedrooms": 2} if category == "STAY" else {}), **facts}
     ref = f"{category.lower()}-{key()}"
     room.client.call(worker, "record_candidates", job_id=job_id, attempt=room.leases[job_id], request_key=key(),
                      candidates=[{"candidate_ref": ref, "candidate_set_version": 1, "category": category, "mode": "FIXTURE",

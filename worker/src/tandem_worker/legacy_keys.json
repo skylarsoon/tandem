@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "How the named limits stored before rules existed become rules, needs and facts. Data, read by the module and the worker alike; the only key-specific knowledge left, kept for old rooms and the form flow.",
+  "about": "How the named limits stored before rules existed become rules, needs and facts. Data, read by the module and the worker alike; the only key-specific knowledge left, kept for old rooms and the form flow. A SOFT limit becomes a soft rule (a preference, not enforced) unless enforce_soft; a flexible budget is firm at the top of its authorized range; a cleared value (set aside) makes nothing.",
   "keys": {
     "flight_budget_total": {
       "as": "rule",
@@ -21,7 +21,8 @@
       "attribute": "baggage_included",
       "operator": "eq",
       "only_when": true,
-      "value": true
+      "value": true,
+      "enforce_soft": true
     },
     "arrival_window": {
       "as": "rule",

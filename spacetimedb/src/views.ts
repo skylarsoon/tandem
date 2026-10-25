@@ -282,6 +282,31 @@ export const myProposalImpacts = spacetimedb.view({ name: 'my_proposal_impacts',
   }))
 );
 
+const RuleRow = t.row('RuleRow', {
+  id: t.u64().primaryKey(),
+  roomId: t.u64(),
+  ruleJson: t.string(),
+  kind: t.string(),
+  state: t.string(),
+  sourceQuote: t.string(),
+  legacyKey: t.option(t.string()),
+  updatedAt: t.timestamp(),
+});
+
+// Your own rules in every room, in the generic language.
+export const myRules = spacetimedb.view({ name: 'my_rules', public: true }, t.array(RuleRow), ctx =>
+  [...ctx.db.participantRule.byOwner.filter(ctx.sender)].map(r => ({
+    id: r.id,
+    roomId: r.roomId,
+    ruleJson: r.ruleJson,
+    kind: r.kind,
+    state: r.state,
+    sourceQuote: r.sourceQuote,
+    legacyKey: r.legacyKey,
+    updatedAt: r.updatedAt,
+  }))
+);
+
 // Your own approved compromises, never anyone else's: burdens come from
 // private limits, so the ledger has no room-wide view.
 export const myCompromises = spacetimedb.view({ name: 'my_compromises', public: true }, t.array(CompromiseRow), ctx =>

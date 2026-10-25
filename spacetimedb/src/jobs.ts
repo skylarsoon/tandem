@@ -339,6 +339,20 @@ function buildContext(ctx: Ctx, j: JobRow) {
     members.filter(m => m.active).map(m => [String(num(m.id)), (history.get(m.id) ?? 0) / 1_000_000])
   );
 
+  // Everyone's rules, needs and search facts in the generic language (worker-only:
+  // private like the constraints they mirror).
+  const memberOf = (o: { toHexString(): string }) => memberIdOf.get(o.toHexString()) ?? null;
+  const rules = byId([...ctx.db.participantRule.byRoom.filter(r.id)]).map(x => ({
+    rule_id: num(x.id), member_id: memberOf(x.owner), rule: parsed(x.ruleJson), kind: x.kind, state: x.state,
+    source_quote: x.sourceQuote, legacy_key: x.legacyKey ?? null,
+  }));
+  const needs = byId([...ctx.db.participantNeed.byRoom.filter(r.id)]).map(x => ({
+    member_id: memberOf(x.owner), category: x.category, attribute: x.attribute, needs: x.needs,
+  }));
+  const search_facts = byId([...ctx.db.searchFact.byRoom.filter(r.id)]).map(x => ({
+    member_id: memberOf(x.owner), fact: x.fact, value: parsed(x.valueJson),
+  }));
+
   return {
     job: leaseFields(j),
     room: { room_id: num(r.id), goal: r.goal, status: r.status, settings: parsed(r.settingsJson) },
@@ -364,6 +378,9 @@ function buildContext(ctx: Ctx, j: JobRow) {
     proposals,
     commitments: agreed,
     compromise_history,
+    rules,
+    needs,
+    search_facts,
   };
 }
 

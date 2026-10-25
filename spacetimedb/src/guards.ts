@@ -452,12 +452,3 @@ export function minutesOf(value: unknown): number | undefined {
   return h < 24 && m < 60 ? h * 60 + m : undefined;
 }
 
-// Is a local arrival time inside {earliest, latest}? A window may wrap midnight.
-export function insideWindow(local: unknown, window: unknown): boolean {
-  const w = (window ?? {}) as { earliest?: unknown; latest?: unknown };
-  const at = minutesOf(local);
-  const from = w.earliest === undefined ? 0 : minutesOf(w.earliest);
-  const to = w.latest === undefined ? 24 * 60 - 1 : minutesOf(w.latest);
-  if (at === undefined || from === undefined || to === undefined) return false;
-  return from <= to ? at >= from && at <= to : at >= from || at <= to;
-}

@@ -34,6 +34,7 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AddRuleReducer from "./add_rule_reducer";
 import AddWorkerReducer from "./add_worker_reducer";
 import AnswerQuestionReducer from "./answer_question_reducer";
 import AskOwnerReducer from "./ask_owner_reducer";
@@ -60,6 +61,7 @@ import ProposeTripBriefReducer from "./propose_trip_brief_reducer";
 import RecordCandidatesReducer from "./record_candidates_reducer";
 import RecordMessageProcessedReducer from "./record_message_processed_reducer";
 import RejectConstraintPatchReducer from "./reject_constraint_patch_reducer";
+import RemoveRuleReducer from "./remove_rule_reducer";
 import RenewLeaseReducer from "./renew_lease_reducer";
 import ReplyToOwnerReducer from "./reply_to_owner_reducer";
 import RequestProfileSummaryReducer from "./request_profile_summary_reducer";
@@ -101,6 +103,7 @@ import MyProfileCalibrationRow from "./my_profile_calibration_table";
 import MyProposalImpactsRow from "./my_proposal_impacts_table";
 import MyQuestionsRow from "./my_questions_table";
 import MyRoomsRow from "./my_rooms_table";
+import MyRulesRow from "./my_rules_table";
 import RoomAgentActivityRow from "./room_agent_activity_table";
 import RoomAgentsRow from "./room_agents_table";
 import RoomCandidatesRow from "./room_candidates_table";
@@ -218,6 +221,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyRoomsRow),
+  myRules: __table({
+    name: 'my_rules',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyRulesRow),
   roomAgentActivity: __table({
     name: 'room_agent_activity',
     indexes: [
@@ -320,6 +330,7 @@ const tablesSchema = __schema({
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("add_rule", AddRuleReducer),
   __reducerSchema("add_worker", AddWorkerReducer),
   __reducerSchema("answer_question", AnswerQuestionReducer),
   __reducerSchema("ask_owner", AskOwnerReducer),
@@ -346,6 +357,7 @@ const reducersSchema = __reducers(
   __reducerSchema("record_candidates", RecordCandidatesReducer),
   __reducerSchema("record_message_processed", RecordMessageProcessedReducer),
   __reducerSchema("reject_constraint_patch", RejectConstraintPatchReducer),
+  __reducerSchema("remove_rule", RemoveRuleReducer),
   __reducerSchema("renew_lease", RenewLeaseReducer),
   __reducerSchema("reply_to_owner", ReplyToOwnerReducer),
   __reducerSchema("request_profile_summary", RequestProfileSummaryReducer),

@@ -216,6 +216,63 @@ const participantConstraint = table(
   }
 );
 
+// What people need, in the generic rule language (rules.ts): one row per rule,
+// need or search fact. Rows mirrored from an old named limit carry its key, so
+// confirming that limit again replaces them. Private to the owner and the worker.
+const participantRule = table(
+  {
+    name: 'participant_rule',
+    indexes: [
+      { accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] },
+      { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    owner: t.identity(),
+    ruleJson: t.string(),
+    kind: t.string(),
+    state: t.string(),
+    sourceQuote: t.string(),
+    legacyKey: t.option(t.string()),
+    updatedAt: t.timestamp(),
+  }
+);
+
+const participantNeed = table(
+  {
+    name: 'participant_need',
+    indexes: [{ accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] }],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    owner: t.identity(),
+    category: t.string(),
+    attribute: t.string(),
+    needs: t.f64(),
+    legacyKey: t.option(t.string()),
+    updatedAt: t.timestamp(),
+  }
+);
+
+const searchFact = table(
+  {
+    name: 'search_fact',
+    indexes: [{ accessor: 'byRoom', algorithm: 'btree', columns: ['roomId'] }],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    roomId: t.u64(),
+    owner: t.identity(),
+    fact: t.string(),
+    valueJson: t.string(),
+    legacyKey: t.option(t.string()),
+    updatedAt: t.timestamp(),
+  }
+);
+
 const constraintPatch = table(
   {
     name: 'constraint_patch',
@@ -713,6 +770,9 @@ const spacetimedb = schema({
   agentStatus,
   reviewReminder,
   participantConstraint,
+  participantRule,
+  participantNeed,
+  searchFact,
   constraintPatch,
   privateMessage,
   tripBrief,

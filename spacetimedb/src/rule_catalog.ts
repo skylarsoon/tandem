@@ -2,7 +2,7 @@
 
 export const RULE_ATTRIBUTES = {
   "version": 1,
-  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), text.",
+  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), text. shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up.",
   "categories": {
     "FLIGHT": {
       "total_cents": {
@@ -45,7 +45,8 @@ export const RULE_ATTRIBUTES = {
       },
       "bedrooms": {
         "type": "int",
-        "label": "bedrooms"
+        "label": "bedrooms",
+        "shared_by_setting": "people_per_bedroom"
       },
       "rating": {
         "type": "number",
@@ -110,7 +111,7 @@ export const RULE_ATTRIBUTES = {
 
 export const LEGACY_KEYS = {
   "version": 1,
-  "about": "How the named limits stored before rules existed become rules, needs and facts. Data, read by the module and the worker alike; the only key-specific knowledge left, kept for old rooms and the form flow.",
+  "about": "How the named limits stored before rules existed become rules, needs and facts. Data, read by the module and the worker alike; the only key-specific knowledge left, kept for old rooms and the form flow. A SOFT limit becomes a soft rule (a preference, not enforced) unless enforce_soft; a flexible budget is firm at the top of its authorized range; a cleared value (set aside) makes nothing.",
   "keys": {
     "flight_budget_total": {
       "as": "rule",
@@ -131,7 +132,8 @@ export const LEGACY_KEYS = {
       "attribute": "baggage_included",
       "operator": "eq",
       "only_when": true,
-      "value": true
+      "value": true,
+      "enforce_soft": true
     },
     "arrival_window": {
       "as": "rule",
