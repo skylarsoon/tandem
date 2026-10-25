@@ -514,6 +514,12 @@ class LocalBackend:
                 briefs={o: primitive(Brief(owner=o, hard_cap_cents=NO_CONFIRMED_CAP)) for o in members})
             self._onboarding(state)["organizer"] = organizer or members[0]
 
+    def set_profile(self, owner: str, answers: dict) -> None:
+        """The owner's persistent profile answers (question id -> value), as the
+        database's job context carries them."""
+        with self._tx() as state:
+            state.setdefault("profiles", {})[owner] = answers
+
     @staticmethod
     def _onboarding(state):
         return state.setdefault("onboarding", {"organizer": state["snapshot"]["members"][0], "trip_brief": None,
@@ -651,7 +657,8 @@ class LocalBackend:
                 pending=tuple(p["patch"] for p in board["patches"] if p["owner"] == owner and p["state"] == "PENDING"),
                 confirmed_keys=tuple(board["constraints"].get(owner, {})), intake_state=intake.get("state"),
                 coverage=intake.get("coverage", {}), question_count=intake.get("question_count", 0),
-                preferences_confirmed=state["briefs"][owner]["preferences"]["confirmed"])
+                preferences_confirmed=state["briefs"][owner]["preferences"]["confirmed"],
+                profile=state.get("profiles", {}).get(owner, {}))
 
     def propose_patch(self, claim, owner, patch, source_message_id, key):
         with self._tx() as state:
@@ -664,6 +671,8 @@ class LocalBackend:
                 source = next((m for m in board["pmessages"] if m["id"] == source_message_id), None)
                 if not source or source["owner"] != owner or source["sender"] != "HUMAN" or quote not in source["body"]:
                     raise ContractError("INVALID_EVIDENCE_REF")
+            if patch.get("source_profile") is not None and patch["source_profile"] not in state.get("profiles", {}).get(owner, {}):
+                raise ContractError("INVALID_EVIDENCE_REF")  # only a question they answered in their profile
             board["patches"].append({"id": len(board["patches"]) + 1, "owner": owner, "patch": patch,
                                      "source_message_id": source_message_id, "state": "PENDING"})
             self._record(state, f"patch:{claim.job_id}:{key}", patch, None)

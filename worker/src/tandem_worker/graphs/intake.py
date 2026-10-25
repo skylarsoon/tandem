@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from ..contracts import BriefDraft, ContractError, IntakeContext, IntakeExtraction, digest
 from ..intake_policy import MAX_QUESTIONS, fallback_question, open_topics, opening_question, patch_json, summary_text, verify
+from ..profile_suggest import asks_first, suggestions
 
 
 def _model(backend, claim, kind, context, call, schema):
@@ -34,10 +35,17 @@ def run_intake(backend, claim, model) -> str:
         return _brief(backend, claim, model, ctx)
     if ctx.brief is None or ctx.intake_state not in ("ASKING", "SUMMARY"):
         return "NOT_HANDLED"  # owner chat outside onboarding isn't handled yet
+    suggested = suggestions(ctx.profile)
     if ctx.question_count == 0 and ctx.purpose == "INTAKE":
-        # The first message is always the same kind of trip-aware opener.
-        backend.notify_owner(claim, ctx.owner, opening_question(ctx), f"intake:{claim.job_id}:open")
-        backend.update_intake(claim, ctx.owner, ctx.coverage, "ASKING", True, f"intake:{claim.job_id}:open")
+        # The first message is always the same kind of trip-aware opener. A usual airport
+        # from their profile is offered for one-tap confirmation instead of asked.
+        usual = suggested.get("origin_airport")
+        coverage = dict(ctx.coverage)
+        if usual and "origin_airport" not in ctx.confirmed_keys:
+            backend.propose_patch(claim, ctx.owner, usual.patch(), None, f"intake:{claim.job_id}:usual-origin")
+            coverage["origin"] = "ANSWERED"
+        backend.notify_owner(claim, ctx.owner, opening_question(ctx, usual.value if usual else None), f"intake:{claim.job_id}:open")
+        backend.update_intake(claim, ctx.owner, coverage, "ASKING", True, f"intake:{claim.job_id}:open")
         return "ASKED"
     reopened = ctx.purpose == "INTAKE"  # the brief changed: ask again about what it affects
     if not reopened and (not ctx.messages or ctx.messages[-1].sender != "HUMAN"):
@@ -48,6 +56,16 @@ def run_intake(backend, claim, model) -> str:
         "owner": ctx.owner, "brief": ctx.brief.model_dump(), "messages": transcript,
         "already_confirmed": list(ctx.confirmed_keys)}, model.extract, IntakeExtraction) or IntakeExtraction()
     items, settings, coverage, reasons = verify(extraction, ctx)
+    # The usual airport offered from their profile covers "where from" until they say otherwise.
+    if coverage["origin"] != "ANSWERED" and any(p.get("key") == "origin_airport" and p.get("source_profile") for p in ctx.pending):
+        coverage["origin"] = "ANSWERED"
+    # "Check with me before paying more" can come from their profile's consultation style.
+    settings_from_profile = False
+    profile_asks = asks_first(ctx.profile)
+    if (not ctx.preferences_confirmed and settings is not None and settings.speak_up_for_me is not None
+            and settings.ask_me_first is None and profile_asks is not None):
+        settings, settings_from_profile = settings.model_copy(update={"ask_me_first": profile_asks}), True
+        coverage["settings"] = "ANSWERED"
     if reopened:
         coverage = {t: ("OPEN" if ctx.coverage.get(t) == "OPEN" else state) for t, state in coverage.items()}
     by_key = {i.key: i for i in items}
@@ -79,12 +97,17 @@ def run_intake(backend, claim, model) -> str:
         if item.key == "origin_airport" and "origin_airport" in ctx.confirmed_keys:
             continue
         backend.propose_patch(claim, ctx.owner, patch_json(item), item.source_message_id, f"{step}:{item.key}")
+    # Profile defaults they didn't mention here, offered for this trip (confirmed with the rest).
+    offered = [s for k, s in suggested.items() if k not in by_key and k not in ctx.confirmed_keys]
+    for suggestion in offered:
+        backend.propose_patch(claim, ctx.owner, suggestion.patch(), None, f"{step}:profile:{suggestion.key}")
     if settings is not None and not ctx.preferences_confirmed:
         # Give me time stays on (no nudging reminders) unless they change it in the summary.
         backend.propose_preferences(claim, ctx.owner, bool(settings.speak_up_for_me), bool(settings.ask_me_first), True,
                                     f"{step}:settings")
     missing_money = coverage["money"] != "ANSWERED"
-    backend.notify_owner(claim, ctx.owner, summary_text(items, settings, ctx, missing_money), f"{step}:summary")
+    backend.notify_owner(claim, ctx.owner, summary_text(items, settings, ctx, missing_money, offered, settings_from_profile),
+                         f"{step}:summary")
     backend.update_intake(claim, ctx.owner, coverage, "SUMMARY", False, f"{step}:summary")
     return "SUMMARY"
 

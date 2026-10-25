@@ -153,8 +153,9 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
 
     def sweep():
         nonlocal handled
+        # Profile jobs belong to no room, so a room filter doesn't hold them back.
         jobs = [j for j in backend.pending_jobs()
-                if (rooms is None or j["room_id"] in rooms) and (kinds is None or j["kind"] in kinds)]
+                if (rooms is None or j["room_id"] in rooms or j["kind"] == "PROFILE") and (kinds is None or j["kind"] in kinds)]
         if max_jobs is not None:
             jobs = jobs[:max(0, max_jobs - handled)]
         # Each person's onboarding job is independent (its own lease), so conversations run
@@ -179,7 +180,7 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
         done = sweep()
         return {"result": {"outcome": ",".join(sorted({r.get("outcome", "?") for r in done})) or "NO_ELIGIBLE_WORK"}}
     service = WorkerService(None, settings, directory, None, backend=backend, run=scan, rooms=rooms,
-                            kinds=set(kinds) if kinds else {"PLAN", "INTAKE", "INTERPRET"},
+                            kinds=set(kinds) if kinds else {"PLAN", "INTAKE", "INTERPRET", "PROFILE"},
                             poll_interval=poll_seconds, settle_seconds=settle_seconds)
     token = settings.worker_wake_token.get_secret_value() if settings.worker_wake_token else None
     run_service(service, token, host=host, port=port, label={"mode": "ROOMS", "rooms": sorted(rooms) if rooms else "ALL"})

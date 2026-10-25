@@ -162,9 +162,11 @@ def _dates(brief) -> str:
     return f"{start:%b} {start.day}–{end.day}" if start.month == end.month else f"{start:%b} {start.day} – {end:%b} {end.day}"
 
 
-def opening_question(ctx: IntakeContext) -> str:
+def opening_question(ctx: IntakeContext, usual_airport: str | None = None) -> str:
     with_whom = f" with {', '.join(ctx.others[:-1]) + ' and ' + ctx.others[-1] if len(ctx.others) > 1 else ctx.others[0]}" if ctx.others else ""
-    return (f"Hi {ctx.display_name or ctx.owner}! {ctx.brief.destination}, {_dates(ctx.brief)}{with_whom}. Where would you fly from, and is there "
+    where = (f"Flying from {usual_airport} like usual? Tap confirm, or tell me where you're flying from. And is there "
+             if usual_airport else "Where would you fly from, and is there ")
+    return (f"Hi {ctx.display_name or ctx.owner}! {ctx.brief.destination}, {_dates(ctx.brief)}{with_whom}. {where}"
             "anything about this trip that's a must-have or a deal-breaker for you?")
 
 
@@ -233,7 +235,8 @@ def describe(item: IntakeItem) -> str:
     return text or item.key
 
 
-def summary_text(items: tuple[IntakeItem, ...], settings, ctx: IntakeContext, missing_money: bool) -> str:
+def summary_text(items: tuple[IntakeItem, ...], settings, ctx: IntakeContext, missing_money: bool,
+                 suggested=(), settings_from_profile: bool = False) -> str:
     lines = ["Here's what I've got. Confirm, or tell me what to change:"]
     for item in items:
         if item.key == "origin_airport" and "origin_airport" in ctx.confirmed_keys:
@@ -245,8 +248,11 @@ def summary_text(items: tuple[IntakeItem, ...], settings, ctx: IntakeContext, mi
         lines.append("• How I'll act for you: " + (
             "I'll tell the group when a plan breaks one of your limits (never why)" if settings.speak_up_for_me
             else "I'll tell only you when a plan breaks one of your limits") + ", and " + (
-            "I'll check with you before agreeing to pay more." if settings.ask_me_first
-            else "I'll accept small trade-offs within your limits without asking."))
+            "I'll check with you before agreeing to pay more" if settings.ask_me_first
+            else "I'll accept small trade-offs within your limits without asking")
+            + (" (that part from your profile)." if settings_from_profile else "."))
+    for suggestion in suggested:
+        lines.append(f"• {suggestion.text} (from your profile; for this trip too?)")
     if missing_money:
         lines.append("• Still needed: a budget, or say there's no limit. I won't plan without it.")
     lines.append("Anything you didn't mention, I'll ask about only if a plan depends on it.")

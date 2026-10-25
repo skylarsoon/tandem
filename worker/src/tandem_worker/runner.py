@@ -10,6 +10,7 @@ from langgraph.types import Command
 
 from .contracts import ContractError, Limits
 from .graphs.coordinator import build_coordinator
+from .graphs.profile import run_profile
 from .graphs.intake import run_intake
 from .ports import SystemClock
 from .progress import activity, report
@@ -79,6 +80,9 @@ class Worker:
         try:
             if self.before_run is not None:
                 self.before_run(claim)
+            if claim.kind == "PROFILE":
+                # The summary proposal itself completes the job.
+                return {"outcome": run_profile(LeaseGuard(self.backend, lost), claim, self.model)}
             if claim.kind != "PLAN":
                 # Onboarding is one short pass per message; no graph checkpoint needed.
                 outcome = run_intake(LeaseGuard(self.backend, lost), claim, self.model)

@@ -64,7 +64,7 @@ class WorkerService:
     def scan_once(self):
         # Notifications are hints. Neither their job ID nor their arrival grants authority.
         jobs = [j for j in self.backend.pending_jobs()
-                if (self.rooms is None or 'room_id' not in j or int(j['room_id']) in self.rooms)
+                if (self.rooms is None or 'room_id' not in j or int(j['room_id']) in self.rooms or j.get('kind') == 'PROFILE')
                 and ('kind' not in j or j['kind'] in self.kinds)]
         if not jobs:
             self.observed = None

@@ -5,7 +5,8 @@ import time
 from typing import Protocol
 
 from .contracts import (Brief, BriefDraft, Candidate, Claim, Decision, Explanation, IntakeContext, IntakeExtraction,
-                        IntakeQuestion, Message, Question, Snapshot, SolverResult, TripBrief, ValidationReport, VoiceDraft)
+                        IntakeQuestion, Message, ProfileSummary, Question, Snapshot, SolverResult, TripBrief, ValidationReport,
+                        VoiceDraft)
 
 
 class Clock(Protocol):
@@ -75,6 +76,7 @@ class ModelPort(Protocol):
     def extract(self, context: dict) -> IntakeExtraction: ...
     def ask(self, context: dict) -> IntakeQuestion: ...
     def brief(self, context: dict) -> BriefDraft: ...
+    def profile_summary(self, context: dict) -> ProfileSummary: ...
 
 
 class ResearchPort(Protocol):

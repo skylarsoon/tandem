@@ -5,8 +5,8 @@ import copy
 import json
 from pathlib import Path
 
-from .contracts import (Act, Brief, BriefDraft, Candidate, Decision, IntakeExtraction, Preferences, Snapshot, TripBrief,
-                        VoiceDraft, VoiceSegment)
+from .contracts import (Act, Brief, BriefDraft, Candidate, Decision, IntakeExtraction, Preferences, ProfileSummary, Snapshot,
+                        TripBrief, VoiceDraft, VoiceSegment)
 
 
 HOUR = 3600
@@ -153,6 +153,9 @@ class ScriptedModel:
         self.voices.append(copy.deepcopy(context))
         return VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k, text=v) for k, v in context["facts"].items()))
 
+    def profile_summary(self, context):
+        return ProfileSummary(summary="You: " + " ".join(f.rstrip(".") + "." for f in context["facts"])[:1100])
+
 
 # ---------- Onboarding personas ----------
 
@@ -161,6 +164,7 @@ PERSONAS = json.loads((Path(__file__).parent / "personas" / "travellers.json").r
 
 def persona(name: str) -> dict:
     return next(p for p in PERSONAS["travellers"] if p["name"] == name)
+
 
 
 class PersonaModel(ScriptedModel):

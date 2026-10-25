@@ -160,3 +160,20 @@ def test_from_onboarding_to_a_plan_with_just_in_time_questions(tmp_path):
     assert sum("Do you need one?" in p for p in asked["sam"]) == 1
     assert research.requests[0]["routes"][0]["origin"] == "SEA" and "TRANSFER" not in research.requests[0]["categories"]
     assert "laid off" not in json.dumps(backend.shared_report())
+
+
+def test_a_profile_shortens_onboarding_but_nothing_is_assumed(trip):
+    backend, worker = trip
+    dana = NAMES[0]
+    backend.set_profile(dana, {"A06": {"city": "Seattle", "country": "USA", "airports": ["SEA"]},
+                               "T06": {"selected": "own_room", "strength": "REQUIRED"}})
+    backend.describe_trip(PERSONAS["trip"]["description"])
+    drain(backend, worker)
+    backend.confirm_trip_brief()
+    drain(backend, worker)
+    opener = backend.conversation(dana)[-1]["body"]
+    assert "Flying from SEA like usual?" in opener
+    [origin] = [p for p in backend.patches_of(dana) if p["patch"]["key"] == "origin_airport"]
+    assert origin["state"] == "PENDING" and origin["patch"]["source_profile"] == "A06", "offered, waiting for a tap"
+    assert backend.intake_of(dana)["coverage"]["origin"] == "ANSWERED", "no need to ask where from"
+    assert "origin_airport" not in backend.brief_of(dana).answered, "not her limit until she confirms it"

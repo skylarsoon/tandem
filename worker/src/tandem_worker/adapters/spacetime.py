@@ -190,6 +190,13 @@ class SpacetimeBackend:
                                 for m in ctx["members"] if m["active"]})
 
     def _claim(self, job: dict, worker_id: str) -> Claim:
+        if job["kind"] == "PROFILE":
+            # A profile job belongs to no room: its snapshot is the one person's answers.
+            profile = self.http.procedure(self.token, "load_profile_context", job_id=job["job_id"], attempt=job["attempt"])
+            return Claim(job_id=str(job["job_id"]), worker_id=worker_id, attempt_token=str(job["attempt"]), kind="PROFILE",
+                generation=str(job["generation"]), snapshot_ref=digest(profile["answers"]),
+                graph_thread_ref=f"graph-v1:profile:{job['job_id']}",
+                lease_expiry=int(job["lease_expires_at_micros"]) / 1_000_000)
         # snapshot_ref = digest(Snapshot), exactly what FlightValidator stamps on its report.
         snapshot = self._snapshot(self.http.procedure(self.token, "load_execution_context",
                                                       job_id=job["job_id"], attempt=job["attempt"]))
@@ -210,6 +217,15 @@ class SpacetimeBackend:
         except ContractError as exc:
             raise ContractError(JOB_CLAIM_ERRORS.get(exc.code, exc.code)) from None
         return self._claim(job, worker_id)
+
+    # ---------- profile onboarding ----------
+
+    def load_profile(self, claim) -> dict:
+        return self.http.procedure(self.token, "load_profile_context", **self._attempt(claim))
+
+    def propose_profile_summary(self, claim, summary, key):
+        self.http.call(self.token, "propose_profile_summary", request_key=f"job{claim.generation}:{key}", summary=summary,
+                       **self._attempt(claim))
 
     def check(self, claim):
         self.http.procedure(self.token, "check_lease", **self._attempt(claim))
@@ -517,7 +533,8 @@ class SpacetimeBackend:
             confirmed_keys=tuple(c["key"] for c in ctx["constraints"] if c["member_id"] == me["member_id"]),
             intake_state=intake.get("state"), coverage=intake.get("coverage") or {},
             question_count=intake.get("question_count", 0),
-            preferences_confirmed=me["participation_preferences"]["confirmed"])
+            preferences_confirmed=me["participation_preferences"]["confirmed"],
+            profile=subject.get("profile") or {})
 
     def _member_id(self, claim, owner):
         member = self._members(self._context(claim)).get(owner)

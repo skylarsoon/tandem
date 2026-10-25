@@ -71,3 +71,22 @@ def test_four_travellers_onboard_through_conversation(tmp_path):
     assert (progress["ready"], progress["total"]) == (4, 4)
     room_text = json.dumps(mine(room, "luis", "room_events") + mine(room, "luis", "room_messages"))
     assert "laid off" not in room_text and "car broke down" not in room_text
+
+
+def test_the_agent_writes_a_profile_summary_its_owner_can_confirm(tmp_path):
+    from tandem_worker.fixtures import ScriptedModel
+    room = onboarding_room(("sam", "kai"), "sam")
+    http, sam = room.backend.http, room.tokens["sam"]
+    for qid, value in [("C01", "Sam"), ("C02", {"selected": ["beaches"]}),
+                       ("N01", {"items": [{"food": "peanuts", "checks": ["avoid_ingredient"]}]})]:
+        http.call(sam, "save_profile_answer", question_id=qid, value_json=json.dumps(value))
+    http.call(sam, "request_profile_summary")
+    [job] = [j for j in http.view(room.backend.token, "worker_pending_jobs") if j["kind"] == "PROFILE"
+             and j["id"] == max(x["id"] for x in http.view(room.backend.token, "worker_pending_jobs") if x["kind"] == "PROFILE")]
+    worker = Worker(room.backend, ScriptedModel("happy"), None, tmp_path / "checkpoints.sqlite", limits=room.backend.limits)
+    assert worker.run_one(str(job["id"]))["outcome"] == "PROPOSED"
+    [calibration] = http.view(sam, "my_profile_calibration")
+    assert calibration["state"] == "PROPOSED" and "peanuts" in calibration["summary"]
+    http.call(sam, "confirm_profile_summary", profile_revision=calibration["profile_revision"])
+    assert http.view(sam, "my_profile_calibration")[0]["state"] == "CONFIRMED"
+    assert http.view(room.tokens["kai"], "my_profile_calibration") == [], "nobody else sees it"

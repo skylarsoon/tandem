@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from pydantic import ValidationError
 
-from ..contracts import BriefDraft, ContractError, Decision, IntakeExtraction, IntakeQuestion, VoiceDraft
+from ..contracts import BriefDraft, ContractError, Decision, IntakeExtraction, IntakeQuestion, ProfileSummary, VoiceDraft
 
 
 def error_code(error):
@@ -184,3 +184,12 @@ class ClaudeModel:
             "say plan everything. group_size only if stated. vibe: a few of their own words. If anything required is "
             "missing, leave brief empty and put one short question per gap in unclear.",
             "brief")
+
+    def profile_summary(self, context):
+        return self._structured(context, ProfileSummary,
+            "Write the short summary a person's own planning agent shows them after they answer profile questions, "
+            "so they can check it sounds like them. Use ONLY the given facts: never add traits, needs, habits or "
+            "preferences they didn't give. Only items marked REQUIRED are musts; everything else is a preference. "
+            "State firm needs plainly and never guess why. If a correction is given, follow it where it differs from "
+            "the facts. Second person, warm and plain, 3 to 5 sentences, under 900 characters, no question at the end.",
+            "profile_summary")

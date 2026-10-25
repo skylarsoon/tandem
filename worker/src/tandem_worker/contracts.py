@@ -170,7 +170,7 @@ class Claim(Record):
     graph_thread_ref: str
     snapshot_ref: str
     lease_expiry: float
-    kind: Literal["PLAN", "INTERPRET", "INTAKE"] = "PLAN"
+    kind: Literal["PLAN", "INTERPRET", "INTAKE", "PROFILE"] = "PLAN"
 
 
 class Act(StrEnum):
@@ -493,6 +493,11 @@ class IntakeItem(Record):
     interpreted: bool = False
 
 
+class ProfileSummary(Record):
+    """The agent's "Does this sound like you?" summary of a person's profile."""
+    summary: str = Field(min_length=1, max_length=1200)
+
+
 class IntakeSettings(Record):
     speak_up_for_me: bool | None = None
     ask_me_first: bool | None = None
@@ -541,3 +546,6 @@ class IntakeContext(Record):
     coverage: dict = Field(default_factory=dict)
     question_count: int = 0
     preferences_confirmed: bool = False
+    # Their persistent profile answers (question id -> value): defaults to offer
+    # for this trip, never to assume.
+    profile: dict = Field(default_factory=dict)
