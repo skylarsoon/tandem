@@ -265,7 +265,8 @@ Design: `docs/superpowers/specs/2026-10-24-generic-rules-design.md`. What people
 - The job context carries `rules`, `needs` and `search_facts`; `my_rules` shows your own.
 - The worker reads them through `read_rules` and never checkpoints them.
 - The shortlist and the generic compiler (`compiler.py`) use them.
-- `tandem-worker optimizer-report` writes `docs/optimizer/scenarios.md`: every scenario step by step, with the optimizer checked against an independent recount and compared with `TripSolver`.
+- **Choosing the plan** is Elena's multi-selection optimizer by default (`"solver": "cumulative_fairness_v1"`; `"minimax_v1"` selects TripSolver). Its fairness is set in `decisions.json`: each person's burden is what they pay over the cheapest plan open to them, as a share of it, reaching 1 at double. It's scored as `5 × worst (with history H_i) + 3 × total + 1 × relative cost`. The chosen plan's burdens are sent with `publish_proposal` and recorded in the ledger once everyone agrees.
+- `tandem-worker optimizer-report` writes `docs/optimizer/scenarios.md`: every scenario step by step, with the optimizer checked against an independent recount of its own scoring, and compared with `TripSolver`.
 
 ## 6c. Profile onboarding (persistent, across rooms)
 

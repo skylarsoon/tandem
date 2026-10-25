@@ -13,8 +13,8 @@ def test_every_scenario_is_explained_and_the_winner_checks_out(name):
     feasible = lambda r: r["status"] in ("OPTIMAL", "FEASIBLE")
     assert feasible(t["optimizer"]) == feasible(t["trip_solver"]), t["agree"]
     if "recount" in t and feasible(t["optimizer"]):
-        assert t["recount"]["cheapest_valid"]["total_cents"] == t["optimizer"]["total_cents"], \
-            "the optimizer's pick is the cheapest combination the independent recount finds valid"
+        assert sorted(t["recount"]["best"]["candidate_ids"]) == sorted(t["optimizer"]["selected"]), \
+            "the optimizer's pick is the best combination the independent recount finds, under the same scoring"
         assert t["recount"]["valid"] >= 1 and t["ranking"][0]["score"]["total"] >= 0
     assert render(name, t).startswith(f"## {name}")
 
@@ -25,10 +25,10 @@ def test_the_shortlist_says_why_options_were_left_out():
     assert p1["usable"] == 0 and p1["left_out"] == {"RULE:total_cents": 1}
 
 
-def test_cost_only_is_not_yet_fair():
-    """Why TripSolver stays until weighted fairness exists: the optimizer's cost-only
-    pick dumps the whole compromise on one person; TripSolver shares it."""
+def test_fairness_shares_the_compromise():
+    """The cheapest plan would put the whole compromise on c ($90 more); the optimizer
+    shares it ($50 each for a and b), as TripSolver's minimax does."""
     t = trace(*scenario("fair-split"))
-    assert t["optimizer"]["total_cents"] < t["trip_solver"]["total_cents"]
-    assert t["optimizer"]["worst_extra_cents"] > t["trip_solver"]["worst_extra_cents"]
-    assert t["agree"].startswith("DIFFERENT PLAN")
+    assert t["optimizer"]["total_cents"] == t["trip_solver"]["total_cents"] == 40_000
+    assert t["ranking"][0]["burden"] == {"a": 0.5, "b": 0.5, "c": 0.0}
+    assert t["agree"] == "AGREE: same plan"

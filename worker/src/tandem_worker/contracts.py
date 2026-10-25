@@ -350,6 +350,8 @@ class SolverResult(Record):
     status: Literal["OPTIMAL", "FEASIBLE", "INFEASIBLE", "MODEL_INVALID", "UNKNOWN"]
     selected: tuple[str, ...] = ()
     policy_version: str = "flight_cost_v1"
+    # Each person's compromise in the chosen plan (0..1), for the ledger once it's agreed.
+    burdens: dict[str, float] = Field(default_factory=dict)
     impacts: tuple[Impact, ...] = ()
     group: GroupSummary | None = None
     conflicts: tuple[Conflict, ...] = ()

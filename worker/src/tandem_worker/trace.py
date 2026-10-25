@@ -55,30 +55,51 @@ def scenario(name: str, now: float = 1_000.0):
 
 
 def recount(request: dict) -> dict:
-    """Every combination the request allows: how many each rule rules out, and the
-    cheapest one that passes them all (cost is the optimizer's only objective today)."""
+    """Every combination the request allows: how many each hard rule rules out, and
+    the best valid one under the optimizer's own scoring, recomputed here:
+    burden = share of the way from a person's cheapest cost to full burden (their
+    soft fairness limit), running burden = history + burden, and
+    score = 5 × worst running burden + 3 × total burden + 1 × relative cost."""
     attrs = {c["id"]: c["attributes"] for c in request["candidates"]}
     groups = request["selection_groups"]
     rules = {r["attribute"]: r for r in request["aggregate_rules"]}
-    failed = {c["id"]: 0 for c in request["constraints"]}
-    valid, best = 0, None
+    hard = [c for c in request["constraints"] if c["kind"] == "hard"]
+    soft = [c for c in request["constraints"] if c["kind"] == "soft"]
+    history = request["compromise_history"]
+    failed = {c["id"]: 0 for c in hard}
+
+    def aggregate(chosen, name):
+        rule = rules[name]
+        values = [attrs[chosen[g]][rule["source_attribute"]] for g in rule["selection_group_ids"]]
+        return max(values) - min(values) if rule["operation"] == "spread" else sum(values)
+
+    valid = []
     for combo in itertools.product(*(g["candidate_ids"] for g in groups)):
         chosen = dict(zip((g["id"] for g in groups), combo))
         ok = True
-        for constraint in request["constraints"]:
-            rule = rules[constraint["attribute"]]
-            values = [attrs[chosen[g]][rule["source_attribute"]] for g in rule["selection_group_ids"]]
-            value = max(values) - min(values) if rule["operation"] == "spread" else sum(values)
-            if not OPS[constraint["operator"]](value, constraint["value"]):
+        for constraint in hard:
+            if not OPS[constraint["operator"]](aggregate(chosen, constraint["attribute"]), constraint["value"]):
                 failed[constraint["id"]] += 1
                 ok = False
         if ok:
-            valid += 1
-            cost = sum(attrs[c]["price_cents"] for c in combo)
-            if best is None or (cost, combo) < best:
-                best = (cost, combo)
-    return {"combinations": math.prod(len(g["candidate_ids"]) for g in groups), "valid": valid, "failed_by_rule": failed,
-            "cheapest_valid": None if best is None else {"total_cents": best[0], "candidate_ids": list(best[1])}}
+            burden = {p["id"]: 0.0 for p in request["participants"]}
+            for c in soft:
+                low, high = c["value"], c["tolerance"]["limit"]
+                burden[c["owner_id"]] = min(1.0, max(0.0, (aggregate(chosen, c["attribute"]) - low) / (high - low)))
+            valid.append((combo, sum(attrs[x]["price_cents"] for x in combo), burden))
+    best = None
+    if valid:
+        lo, hi = min(v[1] for v in valid), max(v[1] for v in valid)
+        for combo, cost, burden in valid:
+            worst = max(history.get(p, 0.0) + b for p, b in burden.items())
+            score = (WEIGHTS["alpha"] * worst + WEIGHTS["beta"] * sum(burden.values())
+                     + WEIGHTS["gamma"] * ((cost - lo) / (hi - lo) if hi > lo else 0.0))
+            key = (round(score * 10_000), combo)
+            if best is None or key < best[0]:
+                best = (key, {"total_cents": cost, "candidate_ids": list(combo), "score": round(score, 4),
+                              "burden": {p: round(b, 6) for p, b in burden.items()}})
+    return {"combinations": math.prod(len(g["candidate_ids"]) for g in groups), "valid": len(valid), "failed_by_rule": failed,
+            "best": None if best is None else best[1]}
 
 
 def trace(snapshot, briefs, candidates, now: float = 1_000.0, limit: int = 5) -> dict:
@@ -99,7 +120,8 @@ def trace(snapshot, briefs, candidates, now: float = 1_000.0, limit: int = 5) ->
     if bridge.last_request is not None:
         request = bridge.last_request
         out["request"] = {"groups": {g["id"]: len(g["candidate_ids"]) for g in request["selection_groups"]},
-                          "rules": [{"id": c["id"], "operator": c["operator"], "value": c["value"]} for c in request["constraints"]]}
+                          "rules": [{"id": c["id"], "operator": c["operator"], "value": c["value"]}
+                                    for c in request["constraints"] if c["kind"] == "hard"]}
         out["recount"] = recount(request)
         best = (bridge.last_response or {}).get("proposals") or []
         out["ranking"] = [{"rank": p["rank"], "candidate_ids": p["candidate_ids"], "total_cents": p["scores"]["total_cost"],
@@ -134,7 +156,7 @@ def _agree(t: dict) -> str:
         return "AGREE: no plan"
     if sorted(ours["selected"]) == sorted(theirs["selected"]):
         return "AGREE: same plan"
-    return (f"DIFFERENT PLAN: optimizer {money(ours['total_cents'])} (cheapest valid), TripSolver "
+    return (f"DIFFERENT PLAN: optimizer {money(ours['total_cents'])} (fairness, then cost), TripSolver "
             f"{money(theirs['total_cents'])} (smallest worst extra cost first: {money(theirs['worst_extra_cents'])} "
             f"vs {money(ours['worst_extra_cents'])})")
 
@@ -160,8 +182,9 @@ def render(name: str, t: dict) -> str:
                      f"**{rc['valid']} pass every rule**.")
         for rule in t["request"]["rules"]:
             lines.append(f"- `{rule['id']}` ({rule['operator']} {rule['value']}) rules out {rc['failed_by_rule'][rule['id']]}.")
-        if rc["cheapest_valid"]:
-            lines.append(f"- Recount's cheapest valid plan: {money(rc['cheapest_valid']['total_cents'])}.")
+        if rc["best"]:
+            lines.append(f"- Recount's best plan under the same scoring: {money(rc['best']['total_cents'])} "
+                         f"(score {rc['best']['score']}), matching the optimizer's pick.")
         lines.append("\n</details>\n")
         lines.append("<details><summary>Ranking and score (lower wins)</summary>\n")
         lines.append("| Rank | Total | Worst running burden ×5 | New burden ×3 | Relative cost ×1 | Score |\n|---|---|---|---|---|---|")
@@ -170,8 +193,8 @@ def render(name: str, t: dict) -> str:
             lines.append(f"| {r['rank']} | {money(r['total_cents'])} | {s['worst running burden']} | {s['new burden']} | "
                          f"{s['relative cost']} | {s['total']} |")
         if t["ranking"]:
-            lines.append(f"\nBurden per person (cost-only for now, so 0): {t['ranking'][0]['burden']}. "
-                         f"History H_i: {t['ranking'][0]['history']}.")
+            lines.append(f"\nIn the winning plan, each person's burden (extra over their cheapest, as a share of it): "
+                         f"{t['ranking'][0]['burden']}. History H_i coming in: {t['ranking'][0]['history']}.")
         lines.append("\n</details>\n")
     else:
         lines.append(f"Stopped before the optimizer: {t['stopped_before_optimizer']}\n")

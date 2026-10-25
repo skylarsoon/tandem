@@ -14,7 +14,8 @@ from .graphs.profile import run_profile
 from .graphs.intake import run_intake
 from .ports import SystemClock
 from .progress import activity, report
-from .solver import FlightSolver, FlightValidator
+from .optimizer_bridge import TandemOptimizerBridge
+from .solver import FlightValidator
 
 _locks: dict[str, threading.Lock] = {}
 _guard = threading.Lock()
@@ -44,7 +45,8 @@ class Worker:
         self.backend, self.model, self.research = backend, model, research
         self.checkpoint_path = str(checkpoint_path)
         self.clock, self.limits = clock or SystemClock(), limits or Limits()
-        self.solver = solver or FlightSolver(self.limits.solver_seconds)
+        # Elena's multi-selection optimizer chooses; TripSolver remains a solver= option.
+        self.solver = solver or TandemOptimizerBridge()
         self.validator = validator or FlightValidator()
         self.worker_id = worker_id
         self.before_run = before_run

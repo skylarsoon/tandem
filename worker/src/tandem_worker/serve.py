@@ -33,8 +33,8 @@ class ServeConfig(Record):
     limits: LiveLimits = Field(default_factory=LiveLimits)
     # How the group-dinner search is phrased; everything else comes from the room.
     dinner_query: str = "restaurant for large groups"
-    # Who chooses the plan: TripSolver (minimax_v1) or the multi-selection optimizer.
-    solver: Literal["minimax_v1", "cumulative_fairness_v1"] = "minimax_v1"
+    # Who chooses the plan: the multi-selection optimizer (default) or TripSolver (minimax_v1).
+    solver: Literal["minimax_v1", "cumulative_fairness_v1"] = "cumulative_fairness_v1"
 
 
 def _airport(code: str) -> dict:

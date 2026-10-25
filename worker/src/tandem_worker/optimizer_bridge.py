@@ -5,9 +5,10 @@ needs as data, nothing trip-specific here. Preparing "no plan" explanations and
 presenting the chosen plan (each person's private impact, the room-safe
 summary) are still TripSolver's, so they read the same whichever chooses.
 
-Burden is cost-only for now: onboarding records hard limits, not weighted soft
-preferences, so every combination adds the same (zero) new burden and the
-cheapest valid one wins. Each person's cumulative burden (H_i) is passed through.
+Fairness (contracts/decisions.json): each person's burden is what they pay over
+the cheapest plan open to them, as a share of it. The optimizer weighs the worst
+running burden (with each person's history H_i from the ledger), the total, then
+cost; the chosen plan's burdens go to the ledger when it's published.
 This module neither writes to SpacetimeDB nor approves.
 """
 from __future__ import annotations
@@ -70,7 +71,9 @@ class TandemOptimizerBridge(TripSolver):
         by_id = {c.id: c for g in compiled.groups for c in g.options}
         flight_of = {g.owner: by_id[picked[g.id]] for g in compiled.groups if g.owner is not None}
         shared_of = {g.category: by_id[picked[g.id]] for g in compiled.groups if g.owner is None}
-        return self.finish(options, "OPTIMAL", flight_of, shared_of)  # exhaustive over every combination
+        plan = self.finish(options, "OPTIMAL", flight_of, shared_of)  # exhaustive over every combination
+        burdens = {p["participant_id"]: round(p["new_compromise_burden"], 6) for p in response["proposals"][0]["per_person"]}
+        return plan.model_copy(update={"burdens": burdens})
 
 
 def make_solver(policy: str, time_limit: float = 5):

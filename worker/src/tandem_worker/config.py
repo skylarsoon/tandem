@@ -40,8 +40,8 @@ class LiveConfig(Record):
     limits: LiveLimits = Field(default_factory=LiveLimits)
     # Shared parts of the trip, searched once for the group (see trip_actors).
     trip: TripSearches | None = None
-    # Who chooses the plan: TripSolver (minimax_v1) or the multi-selection optimizer.
-    solver: Literal["minimax_v1", "cumulative_fairness_v1"] = "minimax_v1"
+    # Who chooses the plan: the multi-selection optimizer (default) or TripSolver (minimax_v1).
+    solver: Literal["minimax_v1", "cumulative_fairness_v1"] = "cumulative_fairness_v1"
 
     @model_validator(mode="after")
     def validate_owners(self):

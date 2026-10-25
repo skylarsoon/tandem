@@ -116,8 +116,19 @@ def compile_request(snapshot, room_rules: RoomRules, candidates: list[Candidate]
             aggregates.append({"attribute": name, "operation": "spread", "source_attribute": rule["spread"], "selection_group_ids": across})
             constraints.append({"id": name, "kind": "hard", "attribute": name, "operator": rule["operator"],
                                 "value": settings.get(rule["value_setting"], rule["default"])})
+    fairness = decisions().get("fairness")
+    cheapest = {g.id: min((r["attributes"]["person_cost"] for r in rows if r["id"] in {c.id for c in g.options}), default=0)
+                for g in groups}
     for i, owner in enumerate(members):
         mine = [g.id for g in groups if g.owner == owner or (g.owner is None and shapes[g.category]["pays"] != "each")]
+        alone = sum(cheapest[g] for g in mine)
+        if fairness and alone > 0:
+            # Their compromise: what they pay over the cheapest plan open to them, as a share of
+            # it (a soft limit with partial credit: 0 at their cheapest, 1 at full_at times it).
+            name = f"pays_{i}"
+            aggregates.append({"attribute": name, "operation": "sum", "source_attribute": "person_cost", "selection_group_ids": mine})
+            constraints.append({"id": f"fair_{i}", "kind": "soft", "owner_id": owner, "attribute": name, "operator": "lte",
+                                "value": alone, "importance": 1, "tolerance": {"limit": fairness["full_at"] * alone}})
         for j, rule in enumerate(r for r in room_rules.binding(owner) if r.aggregate == "my_cost"):
             name = f"my_cost_{i}_{j}"
             aggregates.append({"attribute": name, "operation": "sum", "source_attribute": "person_cost", "selection_group_ids": mine})

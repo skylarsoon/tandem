@@ -30,6 +30,10 @@ Each fixture scenario run through the real pipeline: rules → shortlist → gen
 
 - 1 combinations (1 flight_0 × 1 flight_1 × 1 flight_2 × 1 flight_3); **1 pass every rule**.
 - `arrive_together` (lte 7200) rules out 0.
+- `fair_0` (lte 180000) rules out 0.
+- `fair_1` (lte 180000) rules out 0.
+- `fair_2` (lte 180000) rules out 0.
+- `fair_3` (lte 180000) rules out 0.
 - Recount's cheapest valid plan: $1,800.
 
 </details>
@@ -81,9 +85,12 @@ Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, '
 
 <details><summary>Combinations the optimizer tried</summary>
 
-- 2 combinations (1 flight_0 × 1 flight_1 × 1 flight_2 × 2 flight_3); **1 pass every rule**.
+- 2 combinations (1 flight_0 × 1 flight_1 × 1 flight_2 × 2 flight_3); **0 pass every rule**.
 - `arrive_together` (lte 7200) rules out 1.
-- Recount's cheapest valid plan: $1,495.
+- `fair_0` (lte 120000) rules out 0.
+- `fair_1` (lte 128000) rules out 0.
+- `fair_2` (lte 140000) rules out 0.
+- `fair_3` (lte 160000) rules out 1.
 
 </details>
 
@@ -91,9 +98,9 @@ Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, '
 
 | Rank | Total | Worst running burden ×5 | New burden ×3 | Relative cost ×1 | Score |
 |---|---|---|---|---|---|
-| 1 | $1,495 | 0.0 | 0.0 | 0.0 | 0.0 |
+| 1 | $1,495 | 1.5625 | 0.9375 | 0.0 | 2.5 |
 
-Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.0}. History H_i: {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.0}.
+Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.3125}. History H_i: {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.0}.
 
 </details>
 
@@ -134,9 +141,12 @@ Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, '
 
 <details><summary>Combinations the optimizer tried</summary>
 
-- 16 combinations (2 flight_0 × 2 flight_1 × 2 flight_2 × 2 flight_3); **2 pass every rule**.
+- 16 combinations (2 flight_0 × 2 flight_1 × 2 flight_2 × 2 flight_3); **0 pass every rule**.
 - `arrive_together` (lte 7200) rules out 14.
-- Recount's cheapest valid plan: $1,495.
+- `fair_0` (lte 120000) rules out 8.
+- `fair_1` (lte 128000) rules out 8.
+- `fair_2` (lte 140000) rules out 8.
+- `fair_3` (lte 160000) rules out 8.
 
 </details>
 
@@ -144,10 +154,10 @@ Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, '
 
 | Rank | Total | Worst running burden ×5 | New burden ×3 | Relative cost ×1 | Score |
 |---|---|---|---|---|---|
-| 1 | $1,495 | 0.0 | 0.0 | 0.0 | 0.0 |
-| 2 | $1,820 | 0.0 | 0.0 | 1.0 | 1.0 |
+| 1 | $1,495 | 1.5625 | 0.9375 | 0.0 | 2.5 |
+| 2 | $1,820 | 2.5 | 4.192 | 1.0 | 7.692 |
 
-Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.0}. History H_i: {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.0}.
+Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.3125}. History H_i: {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.0}.
 
 </details>
 
@@ -225,8 +235,12 @@ Stopped before the optimizer: [{'code': 'NO_CANDIDATES', 'owner': 'p1'}]
 
 <details><summary>Combinations the optimizer tried</summary>
 
-- 2 combinations (1 flight_0 × 1 flight_1 × 1 flight_2 × 1 flight_3 × 2 stay × 1 transfer); **2 pass every rule**.
+- 2 combinations (1 flight_0 × 1 flight_1 × 1 flight_2 × 1 flight_3 × 2 stay × 1 transfer); **1 pass every rule**.
 - `arrive_together` (lte 7200) rules out 0.
+- `fair_0` (lte 252000) rules out 1.
+- `fair_1` (lte 260000) rules out 1.
+- `fair_2` (lte 272000) rules out 1.
+- `fair_3` (lte 292000) rules out 1.
 - Recount's cheapest valid plan: $2,690.
 
 </details>
@@ -236,7 +250,7 @@ Stopped before the optimizer: [{'code': 'NO_CANDIDATES', 'owner': 'p1'}]
 | Rank | Total | Worst running burden ×5 | New burden ×3 | Relative cost ×1 | Score |
 |---|---|---|---|---|---|
 | 1 | $2,690 | 0.0 | 0.0 | 0.0 | 0.0 |
-| 2 | $3,090 | 0.0 | 0.0 | 1.0 | 1.0 |
+| 2 | $3,090 | 0.7937 | 1.7899 | 1.0 | 3.5835 |
 
 Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.0}. History H_i: {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, 'p4': 0.0}.
 
@@ -281,6 +295,10 @@ Burden per person (cost-only for now, so 0): {'p1': 0.0, 'p2': 0.0, 'p3': 0.0, '
 
 - 1 combinations (1 flight_0 × 1 flight_1 × 1 flight_2 × 1 flight_3 × 1 stay × 1 transfer); **1 pass every rule**.
 - `arrive_together` (lte 7200) rules out 0.
+- `fair_0` (lte 292000) rules out 0.
+- `fair_1` (lte 300000) rules out 0.
+- `fair_2` (lte 312000) rules out 0.
+- `fair_3` (lte 332000) rules out 0.
 - Recount's cheapest valid plan: $3,090.
 
 </details>
@@ -408,6 +426,10 @@ Stopped before the optimizer: [{'code': 'STAY_UNAVAILABLE', 'requirement': 'RATI
 
 - 2 combinations (1 flight_0 × 1 flight_1 × 1 flight_2 × 2 flight_3); **0 pass every rule**.
 - `arrive_together` (lte 7200) rules out 2.
+- `fair_0` (lte 120000) rules out 0.
+- `fair_1` (lte 128000) rules out 0.
+- `fair_2` (lte 140000) rules out 0.
+- `fair_3` (lte 160000) rules out 1.
 
 </details>
 
@@ -431,7 +453,7 @@ Stopped before the optimizer: [{'code': 'STAY_UNAVAILABLE', 'requirement': 'RATI
 
 ## fair-split
 
-**DIFFERENT PLAN: optimizer $390 (cheapest valid), TripSolver $400 (smallest worst extra cost first: $50 vs $90).**
+**AGREE: same plan.**
 
 <details><summary>What each person needs</summary>
 
@@ -453,9 +475,11 @@ Stopped before the optimizer: [{'code': 'STAY_UNAVAILABLE', 'requirement': 'RATI
 
 <details><summary>Combinations the optimizer tried</summary>
 
-- 8 combinations (2 flight_0 × 2 flight_1 × 2 flight_2); **2 pass every rule**.
+- 8 combinations (2 flight_0 × 2 flight_1 × 2 flight_2); **0 pass every rule**.
 - `arrive_together` (lte 3600) rules out 6.
-- Recount's cheapest valid plan: $390.
+- `fair_0` (lte 30000) rules out 4.
+- `fair_1` (lte 30000) rules out 4.
+- `fair_2` (lte 30000) rules out 4.
 
 </details>
 
@@ -463,10 +487,10 @@ Stopped before the optimizer: [{'code': 'STAY_UNAVAILABLE', 'requirement': 'RATI
 
 | Rank | Total | Worst running burden ×5 | New burden ×3 | Relative cost ×1 | Score |
 |---|---|---|---|---|---|
-| 1 | $390 | 0.0 | 0.0 | 0.0 | 0.0 |
-| 2 | $400 | 0.0 | 0.0 | 1.0 | 1.0 |
+| 1 | $400 | 2.5 | 3.0 | 1.0 | 6.5 |
+| 2 | $390 | 4.5 | 2.7 | 0.0 | 7.2 |
 
-Burden per person (cost-only for now, so 0): {'a': 0.0, 'b': 0.0, 'c': 0.0}. History H_i: {'a': 0.0, 'b': 0.0, 'c': 0.0}.
+Burden per person (cost-only for now, so 0): {'a': 0.5, 'b': 0.5, 'c': 0.0}. History H_i: {'a': 0.0, 'b': 0.0, 'c': 0.0}.
 
 </details>
 
@@ -475,8 +499,8 @@ Burden per person (cost-only for now, so 0): {'a': 0.0, 'b': 0.0, 'c': 0.0}. His
 | | Optimizer | TripSolver |
 |---|---|---|
 | Result | OPTIMAL | OPTIMAL |
-| Total | $390 | $400 |
-| Picks | a-am, b-am, c-am | a-pm, b-pm, c-pm |
+| Total | $400 | $400 |
+| Picks | a-pm, b-pm, c-pm | a-pm, b-pm, c-pm |
 | Why no plan | — | — |
 
 </details>

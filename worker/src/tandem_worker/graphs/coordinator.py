@@ -353,8 +353,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         progress(backend, claim, "VALIDATE", "COMPLETED", round=state["round"], cycle=state["cycle"])
         progress(backend, claim, "PUBLISH", "STARTED", round=state["round"], cycle=state["cycle"])
         activity(backend, claim, "mediator", "WRITING")
+        # Each person's compromise in this plan reaches the ledger only if everyone agrees to it.
         ref = backend.publish_proposal(claim, tuple(state["selected"]), candidates, report, "publish",
-            explanation(result.group, result.impacts, zone, candidates) if result.group else None)
+            explanation(result.group, result.impacts, zone, candidates) if result.group else None,
+            **({"burdens": result.burdens} if result.burdens else {}))
         return {"proposal_ref": ref, "outcome": "AWAITING_REVIEW"}
 
     def exhausted(state):

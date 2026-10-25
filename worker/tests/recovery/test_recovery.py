@@ -93,8 +93,8 @@ def test_lost_message_response_replays_receipt_after_restart(setup_worker):
 def test_lost_publication_response_does_not_duplicate_proposal(setup_worker):
     backend, worker, job, *_ = setup_worker()
     original = backend.publish_proposal
-    def crash(*args):
-        original(*args)
+    def crash(*args, **kwargs):
+        original(*args, **kwargs)
         raise SystemExit("simulated process loss")
     backend.publish_proposal = crash
     with pytest.raises(SystemExit):
