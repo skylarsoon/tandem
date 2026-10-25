@@ -24,6 +24,7 @@ from .adapters.trip_actors import ACTORS, ActivitySearch, DinnerSearch, StaySear
 from .budget import ProviderBudget
 from .config import LiveLimits
 from .contracts import ContractError, Record, Snapshot, digest
+from .itinerary import pair_itineraries
 from .live import CheckedResearch, Providers, trip_gateways
 from .optimizer_bridge import make_solver
 from .ports import SystemClock
@@ -63,6 +64,11 @@ def searches_for(request: dict, dinner_query: str) -> tuple[list[MemoSearch], Tr
             departure_date=date.fromisoformat(route["date"]), origin_timezone=_airport(route["origin"])["tz"],
             destination_timezone=_airport(route["destination"])["tz"], initial_filters=MemoFilters(max_stops=stops),
             targeted_filters=targeted))
+        if route.get("return_date"):  # the way home, searched one way and paired after (itinerary.py)
+            flights.append(MemoSearch(owner=route["owner"], origin=route["destination"], destination=route["origin"],
+                departure_date=date.fromisoformat(route["return_date"]), origin_timezone=_airport(route["destination"])["tz"],
+                destination_timezone=_airport(route["origin"])["tz"], initial_filters=MemoFilters(max_stops=stops),
+                targeted_filters=targeted, leg="return"))
     trip, shared = request.get("trip"), {}
     if trip:
         airport = _airport(request["routes"][0]["destination"]) if request.get("routes") else None
@@ -105,7 +111,7 @@ class RoomResearch:
             normalizer_version=NORMALIZER_VERSION, max_concurrent_runs=limits.max_concurrent_runs)
         config = type("Trip", (), {"trip": trip, "limits": limits})
         shared = trip_gateways(config, self.client, self.ledger, snapshot, self.clock, self.budget)
-        return TripResearch(gateway, shared).search(request)
+        return pair_itineraries(TripResearch(gateway, shared).search(request))
 
 
 def make_room_providers(config: ServeConfig, settings, directory, *, clock=None, claude_client=None, apify_client=None):

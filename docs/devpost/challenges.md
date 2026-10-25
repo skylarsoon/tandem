@@ -175,6 +175,10 @@ Now only firm statements become limits. A hedged one is kept as a preference: it
 
 **A dietary need that would block every dinner.** Making Dana's "vegetarian meals required" a firm rule seemed right, but restaurant listings rarely say what they serve, and the database refuses any pick whose required fact is unknown. So the catalog marks dietary options "unknown doesn't block": venues known not to fit are excluded, venues that don't say stay possible, and one confirmed to fit wins.
 
+**The flight search only goes one way.** The scraper we use returns one-way fares, so "back by the 24th" had nothing to check. Each person now gets a second search home on their own return date, and the two are paired into round-trip itineraries (their cheapest few each way) before anything is stored, priced as both legs together, complete only if both prices are. A live check from San Francisco: 10 fares each way became 24 itineraries, including a red-eye home that lands on the 25th.
+
+**A bug that wasn't.** We'd suspected the scraper of reporting a San Francisco to Honolulu nonstop as one stop. Reading the raw rows of a live search settled it: those fares really connect through Los Angeles, and every stated stop count matched the flight legs listed. We count stops from the legs anyway, so the two can never disagree.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

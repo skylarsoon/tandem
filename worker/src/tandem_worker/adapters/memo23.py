@@ -30,6 +30,9 @@ class MemoFilters(Record):
 
 class MemoSearch(ApprovedFlightSearch):
     travelers: Literal[1] = 1
+    # The actor searches one way: a round trip is an outbound search and a return search,
+    # paired afterwards into itineraries (itinerary.py).
+    leg: Literal["outbound", "return"] = "outbound"
     origin_timezone: str
     destination_timezone: str
     initial_filters: MemoFilters = Field(default_factory=MemoFilters)
@@ -220,7 +223,7 @@ def _candidate(row, search: MemoSearch, run, price, *, complete, freshness_secon
     identity = digest([search.origin, search.destination, departed, arrived, row.get("carrier-code"),
                        sorted((k, v) for k, v in row.items() if k.startswith("segments-") and k.endswith("flight-number"))])
     candidate_id = "apify-" + digest([search.owner, identity, run["run_id"], run["observed_at"], price])[:28]
-    return Candidate(id=candidate_id, owner=search.owner, total_cents=price,
+    return Candidate(id=candidate_id, owner=search.owner, total_cents=price, leg=search.leg,
         arrival_epoch=arrived, departure_epoch=departed, departure_timezone=search.origin_timezone,
         arrival_timezone=search.destination_timezone, observed_at=run["observed_at"],
         arrival_local=datetime.fromtimestamp(arrived, ZoneInfo(search.destination_timezone)).strftime("%H:%M"),

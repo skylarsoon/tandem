@@ -157,6 +157,8 @@ class Candidate(Record):
     return_arrival_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     return_stops: int | None = Field(default=None, ge=0)
     return_duration_minutes: int | None = Field(default=None, ge=0)
+    # A one-way search's result, before it's paired into an itinerary (None: already whole).
+    leg: Literal["outbound", "return"] | None = None
     checked_bags_included: int | None = None
     # valid_until is a local freshness deadline, never a held fare's expiry.
     provider_expires_at: float | None = None
