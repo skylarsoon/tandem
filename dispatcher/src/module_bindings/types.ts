@@ -396,6 +396,12 @@ export type MyPrivateMessages = __Infer<typeof MyPrivateMessages>;
 export const MyProfile = __t.object("MyProfile", {});
 export type MyProfile = __Infer<typeof MyProfile>;
 
+export const MyProfileAnswers = __t.object("MyProfileAnswers", {});
+export type MyProfileAnswers = __Infer<typeof MyProfileAnswers>;
+
+export const MyProfileCalibration = __t.object("MyProfileCalibration", {});
+export type MyProfileCalibration = __Infer<typeof MyProfileCalibration>;
+
 export const MyProposalImpacts = __t.object("MyProposalImpacts", {});
 export type MyProposalImpacts = __Infer<typeof MyProposalImpacts>;
 
@@ -500,6 +506,46 @@ export const Profile = __t.object("Profile", {
   updatedAt: __t.timestamp(),
 });
 export type Profile = __Infer<typeof Profile>;
+
+export const ProfileAnswer = __t.object("ProfileAnswer", {
+  id: __t.u64(),
+  owner: __t.identity(),
+  questionId: __t.string(),
+  key: __t.string(),
+  status: __t.string(),
+  valueJson: __t.string(),
+  catalogVersion: __t.u32(),
+  updatedAt: __t.timestamp(),
+});
+export type ProfileAnswer = __Infer<typeof ProfileAnswer>;
+
+export const ProfileAnswerRow = __t.object("ProfileAnswerRow", {
+  id: __t.u64(),
+  questionId: __t.string(),
+  key: __t.string(),
+  status: __t.string(),
+  valueJson: __t.string(),
+  catalogVersion: __t.u32(),
+  updatedAt: __t.timestamp(),
+});
+export type ProfileAnswerRow = __Infer<typeof ProfileAnswerRow>;
+
+export const ProfileCalibration = __t.object("ProfileCalibration", {
+  owner: __t.identity(),
+  state: __t.string(),
+  summary: __t.option(__t.string()),
+  correction: __t.option(__t.string()),
+  profileRevision: __t.u64(),
+  jobId: __t.option(__t.u64()),
+  updatedAt: __t.timestamp(),
+});
+export type ProfileCalibration = __Infer<typeof ProfileCalibration>;
+
+export const ProfileJob = __t.object("ProfileJob", {
+  jobId: __t.u64(),
+  owner: __t.identity(),
+});
+export type ProfileJob = __Infer<typeof ProfileJob>;
 
 export const Proposal = __t.object("Proposal", {
   id: __t.u64(),

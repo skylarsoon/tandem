@@ -66,7 +66,7 @@ export default function Page() {
           <h1>A plan everyone can choose.</h1>
           <p>Personal agents explore. People decide.</p>
         </div>
-        <span className="badge">Prototype</span>
+        <a className="badge" href="/profile">Your agent profile →</a>
       </header>
       {error ? (
         <p role="alert" className="notice">

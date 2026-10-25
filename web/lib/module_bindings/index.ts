@@ -37,13 +37,16 @@ import {
 import AddWorkerReducer from "./add_worker_reducer";
 import AnswerQuestionReducer from "./answer_question_reducer";
 import AskOwnerReducer from "./ask_owner_reducer";
+import ClearProfileAnswerReducer from "./clear_profile_answer_reducer";
 import CloseThreadsReducer from "./close_threads_reducer";
 import CompleteOperationReducer from "./complete_operation_reducer";
 import ConfirmConstraintPatchReducer from "./confirm_constraint_patch_reducer";
 import ConfirmIntakeReducer from "./confirm_intake_reducer";
 import ConfirmOriginReducer from "./confirm_origin_reducer";
 import ConfirmParticipationPreferencesReducer from "./confirm_participation_preferences_reducer";
+import ConfirmProfileSummaryReducer from "./confirm_profile_summary_reducer";
 import ConfirmTripBriefReducer from "./confirm_trip_brief_reducer";
+import CorrectProfileSummaryReducer from "./correct_profile_summary_reducer";
 import CreateRoomReducer from "./create_room_reducer";
 import EmitEventReducer from "./emit_event_reducer";
 import FailJobReducer from "./fail_job_reducer";
@@ -52,18 +55,22 @@ import JoinRoomReducer from "./join_room_reducer";
 import ParkJobReducer from "./park_job_reducer";
 import ProposeConstraintPatchReducer from "./propose_constraint_patch_reducer";
 import ProposeParticipationPreferencesReducer from "./propose_participation_preferences_reducer";
+import ProposeProfileSummaryReducer from "./propose_profile_summary_reducer";
 import ProposeTripBriefReducer from "./propose_trip_brief_reducer";
 import RecordCandidatesReducer from "./record_candidates_reducer";
 import RecordMessageProcessedReducer from "./record_message_processed_reducer";
 import RejectConstraintPatchReducer from "./reject_constraint_patch_reducer";
 import RenewLeaseReducer from "./renew_lease_reducer";
 import ReplyToOwnerReducer from "./reply_to_owner_reducer";
+import RequestProfileSummaryReducer from "./request_profile_summary_reducer";
 import RespondToProposalReducer from "./respond_to_proposal_reducer";
+import SaveProfileAnswerReducer from "./save_profile_answer_reducer";
 import SetAgentActivityReducer from "./set_agent_activity_reducer";
 import SetConstraintReducer from "./set_constraint_reducer";
 import SetReminderDelayReducer from "./set_reminder_delay_reducer";
 import SetRoomSettingsReducer from "./set_room_settings_reducer";
 import SetTripDescriptionReducer from "./set_trip_description_reducer";
+import SkipProfileQuestionReducer from "./skip_profile_question_reducer";
 import SubmitAgentMessageReducer from "./submit_agent_message_reducer";
 import SubmitPrivateMessageReducer from "./submit_private_message_reducer";
 import UpdateIntakeReducer from "./update_intake_reducer";
@@ -76,6 +83,7 @@ import * as BeginOperationProcedure from "./begin_operation_procedure";
 import * as CheckLeaseProcedure from "./check_lease_procedure";
 import * as ClaimJobProcedure from "./claim_job_procedure";
 import * as LoadExecutionContextProcedure from "./load_execution_context_procedure";
+import * as LoadProfileContextProcedure from "./load_profile_context_procedure";
 import * as PublishProposalProcedure from "./publish_proposal_procedure";
 
 // Import all table schema definitions
@@ -88,6 +96,8 @@ import MyIntakeRow from "./my_intake_table";
 import MyParticipationPreferencesRow from "./my_participation_preferences_table";
 import MyPrivateMessagesRow from "./my_private_messages_table";
 import MyProfileRow from "./my_profile_table";
+import MyProfileAnswersRow from "./my_profile_answers_table";
+import MyProfileCalibrationRow from "./my_profile_calibration_table";
 import MyProposalImpactsRow from "./my_proposal_impacts_table";
 import MyQuestionsRow from "./my_questions_table";
 import MyRoomsRow from "./my_rooms_table";
@@ -173,6 +183,20 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyProfileRow),
+  myProfileAnswers: __table({
+    name: 'my_profile_answers',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyProfileAnswersRow),
+  myProfileCalibration: __table({
+    name: 'my_profile_calibration',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyProfileCalibrationRow),
   myProposalImpacts: __table({
     name: 'my_proposal_impacts',
     indexes: [
@@ -299,13 +323,16 @@ const reducersSchema = __reducers(
   __reducerSchema("add_worker", AddWorkerReducer),
   __reducerSchema("answer_question", AnswerQuestionReducer),
   __reducerSchema("ask_owner", AskOwnerReducer),
+  __reducerSchema("clear_profile_answer", ClearProfileAnswerReducer),
   __reducerSchema("close_threads", CloseThreadsReducer),
   __reducerSchema("complete_operation", CompleteOperationReducer),
   __reducerSchema("confirm_constraint_patch", ConfirmConstraintPatchReducer),
   __reducerSchema("confirm_intake", ConfirmIntakeReducer),
   __reducerSchema("confirm_origin", ConfirmOriginReducer),
   __reducerSchema("confirm_participation_preferences", ConfirmParticipationPreferencesReducer),
+  __reducerSchema("confirm_profile_summary", ConfirmProfileSummaryReducer),
   __reducerSchema("confirm_trip_brief", ConfirmTripBriefReducer),
+  __reducerSchema("correct_profile_summary", CorrectProfileSummaryReducer),
   __reducerSchema("create_room", CreateRoomReducer),
   __reducerSchema("emit_event", EmitEventReducer),
   __reducerSchema("fail_job", FailJobReducer),
@@ -314,18 +341,22 @@ const reducersSchema = __reducers(
   __reducerSchema("park_job", ParkJobReducer),
   __reducerSchema("propose_constraint_patch", ProposeConstraintPatchReducer),
   __reducerSchema("propose_participation_preferences", ProposeParticipationPreferencesReducer),
+  __reducerSchema("propose_profile_summary", ProposeProfileSummaryReducer),
   __reducerSchema("propose_trip_brief", ProposeTripBriefReducer),
   __reducerSchema("record_candidates", RecordCandidatesReducer),
   __reducerSchema("record_message_processed", RecordMessageProcessedReducer),
   __reducerSchema("reject_constraint_patch", RejectConstraintPatchReducer),
   __reducerSchema("renew_lease", RenewLeaseReducer),
   __reducerSchema("reply_to_owner", ReplyToOwnerReducer),
+  __reducerSchema("request_profile_summary", RequestProfileSummaryReducer),
   __reducerSchema("respond_to_proposal", RespondToProposalReducer),
+  __reducerSchema("save_profile_answer", SaveProfileAnswerReducer),
   __reducerSchema("set_agent_activity", SetAgentActivityReducer),
   __reducerSchema("set_constraint", SetConstraintReducer),
   __reducerSchema("set_reminder_delay", SetReminderDelayReducer),
   __reducerSchema("set_room_settings", SetRoomSettingsReducer),
   __reducerSchema("set_trip_description", SetTripDescriptionReducer),
+  __reducerSchema("skip_profile_question", SkipProfileQuestionReducer),
   __reducerSchema("submit_agent_message", SubmitAgentMessageReducer),
   __reducerSchema("submit_private_message", SubmitPrivateMessageReducer),
   __reducerSchema("update_intake", UpdateIntakeReducer),
@@ -340,6 +371,7 @@ const proceduresSchema = __procedures(
   __procedureSchema("check_lease", CheckLeaseProcedure.params, CheckLeaseProcedure.returnType),
   __procedureSchema("claim_job", ClaimJobProcedure.params, ClaimJobProcedure.returnType),
   __procedureSchema("load_execution_context", LoadExecutionContextProcedure.params, LoadExecutionContextProcedure.returnType),
+  __procedureSchema("load_profile_context", LoadProfileContextProcedure.params, LoadProfileContextProcedure.returnType),
   __procedureSchema("publish_proposal", PublishProposalProcedure.params, PublishProposalProcedure.returnType),
 );
 

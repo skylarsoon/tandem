@@ -230,6 +230,32 @@ New constraint keys: `origin_airport` (IATA), `arrival_window` (`{"earliest": "H
 
 ---
 
+## 6c. Profile onboarding (persistent, across rooms)
+
+"Let your agent get to know you": a short core flow (9 questions), then optional sections. All questions, options and limits live in **`contracts/profile_questions.json`** (version 1, 46 questions). It's the single source: run `scripts/sync-profile-catalog.py` after editing it, and it copies the catalog to the module (`spacetimedb/src/profile_catalog.ts`), the web app (`web/lib/profile_catalog.ts`) and the worker. A test fails if a copy is stale. The web page is `/profile`.
+
+| Call | Who | Arguments | What it does |
+|---|---|---|---|
+| `save_profile_answer` | owner | `questionId`, `valueJson` | Checked against the catalog by input type: valid choices, `max`, exclusive choices ("None", "No preference") alone, rankings need `confirmed: true`, "own room" needs `REQUIRED`/`PREFERRED`, airports as IATA. Shapes are in `profile_rules.ts`. |
+| `skip_profile_question` | owner | `questionId` | Stored as `SKIPPED` ("not now"). It's never read as flexible or unrestricted. `C01` (name) can't be skipped. |
+| `clear_profile_answer` | owner | `questionId` | Back to "not shared yet" (no row). |
+| `request_profile_summary` | owner | none | Queues a `PROFILE` job (no room). It needs a name (C01). An older pending request is cancelled. |
+| `confirm_profile_summary` | owner | `profileRevision` | "Yes, that's me", for that exact summary. It's refused (`STALE_SNAPSHOT`) if the answers changed since. |
+| `correct_profile_summary` | owner | `correction` (≤1000) | "Not quite": the person's words go to their agent for a new summary. This is context only, never a requirement. |
+| `load_profile_context` | worker | `jobId`, `attempt` | That one person's answers and calibration state. |
+| `propose_profile_summary` | worker | `jobId`, `attempt`, `requestKey`, `summary` (≤1200) | Sets the calibration to `PROPOSED` and finishes the job. It's refused if the answers changed after the job started. |
+
+**Views:** `my_profile_answers` (your rows: `question_id, key, status, value_json`) and `my_profile_calibration` (`state` `PENDING`/`PROPOSED`/`CONFIRMED`, `summary`, `correction`, `profile_revision`). The existing `my_profile` keeps the display name, avatar, ranking and self-description in step with C01, A01, C03 and F03.
+
+**Rules:**
+- **Three distinct "no answer" states:** a missing row is unknown; `SKIPPED` is "not now"; an explicit "None" / "No preference" is an answer.
+- **Needs (N01–N05) are private,** like every answer. Agents share only the minimum planning requirement.
+
+**In a room:**
+- **The agent's context:** an onboarding job's `subject.profile` carries that person's answered profile questions.
+- **Suggestions, not assumptions:** their agent *suggests* from it (usual airport A06 → "Flying from SEA like usual?"; "I need my own room" T06; "usually a checked bag" T04; and C09 as the default for "check with me first"). Each suggestion is a constraint patch with `source_profile: "<question id>"`. The module checks the question was really answered, and the patch only applies once the person confirms it for that room.
+- **One direction only:** a room answer never changes the profile.
+
 ## 6b. Compromise ledger (fairness across decisions)
 
 The optimizer scores, per person and decision, how much they'd give up: a **burden** from 0 to 1. Their running total across approved decisions, **H_i**, goes into the next optimization so the person who gave up most gets priority next. The ledger records H_i from human approval only:
