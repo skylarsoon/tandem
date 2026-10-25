@@ -171,6 +171,10 @@ Now only firm statements become limits. A hedged one is kept as a preference: it
 
 **Everyone's wishes counted the same.** Bella said "I strongly prefer nonstop" and ranked comfort first; Alex said "I'm fine with layovers to save money" and ranked affordability first. To the optimizer they were the same preference. Now each person's own priority ranking (from their profile) sets how much each of their preferences weighs, through a small catalog that maps priorities to what they're about. Bella gets the $780 nonstop and is asked before paying more; Alex gets the $310 two-stop he'd choose himself. Preferences reach Elena's optimizer as scores between 0 and 1 per option, with unknown counting as unmet, because her optimizer quietly drops an option whose fact a preference needs, and drops everything if no option has it.
 
+**"Same flight as Alex" had nowhere to go.** A preference about two people's choices fit neither a person's own rule nor a group rule. It's now a wish only its owner holds, scored by how many different flights the two pick (one is best), which needed one small addition to the optimizer: counting distinct values. Dana ranked togetherness first, so she flies with Alex; Alex is never told she asked.
+
+**A dietary need that would block every dinner.** Making Dana's "vegetarian meals required" a firm rule seemed right, but restaurant listings rarely say what they serve, and the database refuses any pick whose required fact is unknown. So the catalog marks dietary options "unknown doesn't block": venues known not to fit are excluded, venues that don't say stay possible, and one confirmed to fit wins.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

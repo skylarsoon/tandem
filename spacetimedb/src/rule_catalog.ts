@@ -2,7 +2,7 @@
 
 export const RULE_ATTRIBUTES = {
   "version": 1,
-  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), date (local YYYY-MM-DD), text. shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up. trip_bound: the attribute must sit inside the trip's dates (room settings start_date/end_date) for every pick: by_end means on or before the end date (e.g. arriving), from_start on or after the start date (e.g. leaving to go home). search_date: a person's own firm rule on this attribute moves their search: outbound searches no earlier than their earliest allowed date, return no later than their latest. lowest/highest: how a preference for the lowest or highest value reads (\"travel time as short as possible\"). same_as: how a preference to share a pick with another member reads (\"the same flight as Alex\").",
+  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), date (local YYYY-MM-DD), text, set (a list of tags, checked with contains). shared_by_setting: for a shared pick, people without their own need for this attribute share it, that many to one (a room setting), so the pick must hold their explicit needs plus their share, rounded up. trip_bound: the attribute must sit inside the trip's dates (room settings start_date/end_date) for every pick: by_end means on or before the end date (e.g. arriving), from_start on or after the start date (e.g. leaving to go home). search_date: a person's own firm rule on this attribute moves their search: outbound searches no earlier than their earliest allowed date, return no later than their latest. lowest/highest: how a preference for the lowest or highest value reads (\"travel time as short as possible\"). same_as: how a preference to share a pick with another member reads (\"the same flight as Alex\"). unknown_ok: a hard rule on this attribute excludes options known not to meet it, but an option that doesn't report it isn't blocked (most venues don't say what they serve); it's weighed as unknown.",
   "categories": {
     "FLIGHT": {
       "total_cents": {
@@ -148,6 +148,11 @@ export const RULE_ATTRIBUTES = {
           0,
           5
         ]
+      },
+      "dietary_options": {
+        "type": "set",
+        "label": "dietary options",
+        "unknown_ok": true
       }
     }
   },

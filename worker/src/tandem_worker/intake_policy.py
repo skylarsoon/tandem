@@ -278,7 +278,7 @@ def _rule_type(item: IntakeItem) -> str | None:
 
 
 WORDS = {"lte": "at most", "lt": "under", "gte": "at least", "gt": "over", "eq": "is", "neq": "isn't",
-         "in": "one of", "not_in": "none of", "between": "between"}
+         "in": "one of", "not_in": "none of", "between": "between", "contains": "include"}
 
 
 def describe_rule(rule: Rule) -> str:

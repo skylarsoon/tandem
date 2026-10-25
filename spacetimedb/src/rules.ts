@@ -19,7 +19,7 @@ export type Catalog = {
 };
 export type Verdict = 'SATISFIED' | 'VIOLATED' | 'UNKNOWN' | 'NOT_APPLICABLE';
 
-const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between', 'lowest', 'highest', 'same_as'];
+const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between', 'lowest', 'highest', 'same_as', 'contains'];
 // A preference for the cheapest, shortest, earliest...: a ranking among the options found,
 // never a check on one option, so only ever soft.
 const RANKINGS = ['lowest', 'highest'];
@@ -92,6 +92,12 @@ export function validateRule(rule: Rule, catalog: Catalog): void {
     checkWeighting(rule, kind);
     return;
   }
+  if ((kind === 'set') !== (op === 'contains')) bad('a set (a list of tags) is checked with contains, and only a set is');
+  if (op === 'contains') {
+    if (typeof rule.value !== 'string' || !rule.value.trim()) bad('contains needs one tag');
+    checkWeighting(rule, kind);
+    return;
+  }
   if ((kind === 'bool' || kind === 'text') && !['eq', 'neq', 'in', 'not_in'].includes(op)) bad(`${op} doesn't apply to ${kind}`);
   if (op === 'in' || op === 'not_in') {
     if (!Array.isArray(rule.value) || rule.value.length === 0) bad(`${op} needs a non-empty list`);
@@ -139,6 +145,11 @@ export function evaluateRule(rule: Rule, facts: Record<string, unknown>, catalog
   const actual = facts[rule.attribute!];
   if (actual === undefined || actual === null) return 'UNKNOWN';
   const kind = attributeType(rule, catalog);
+  if (kind === 'set') {
+    if (!Array.isArray(actual) || actual.some(t => typeof t !== 'string')) bad(`${JSON.stringify(actual)} isn't a list of tags`);
+    const tags = new Set((actual as string[]).map(t => t.toLowerCase()));
+    return tags.has((rule.value as string).toLowerCase()) ? 'SATISFIED' : 'VIOLATED';
+  }
   const a = scalar(actual, kind);
   const op = rule.operator;
   let ok: boolean;

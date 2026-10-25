@@ -334,7 +334,11 @@
       "category": "DINNER",
       "title": "Family-style dinner with vegetarian menu",
       "total_cents": 6500,
-      "rating": 4.5
+      "rating": 4.5,
+      "dietary_options": [
+        "vegetarian",
+        "vegan"
+      ]
     }
   ]
 }

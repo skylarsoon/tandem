@@ -24,7 +24,7 @@ from pydantic import Field
 
 from .contracts import ContractError, Record
 
-OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest", "same_as")
+OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest", "same_as", "contains")
 # A preference for the cheapest, shortest, earliest...: a ranking among the options found,
 # never a check on one option, so only ever soft.
 RANKINGS = ("lowest", "highest")
@@ -42,7 +42,8 @@ class Rule(Record):
     category: str | None = None   # with `attribute`: a rule on each candidate of that category
     attribute: str | None = None
     aggregate: str | None = None  # or a rule on a total (e.g. my_cost)
-    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest", "same_as"]
+    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest", "same_as",
+                      "contains"]
     value: Any = None
     kind: Literal["hard", "soft"] = "hard"
     importance: int | None = None  # soft rules only: 1-5, how much it matters to them
@@ -310,6 +311,13 @@ def validate(rule: Rule) -> None:
             raise RuleError(f"{op} is a wish about another member's pick: their name, soft")
         _check_weighting(rule, kind)
         return
+    if (kind == "set") != (op == "contains"):
+        raise RuleError("a set (a list of tags) is checked with contains, and only a set is")
+    if op == "contains":
+        if not isinstance(rule.value, str) or not rule.value.strip():
+            raise RuleError("contains needs one tag")
+        _check_weighting(rule, kind)
+        return
     if kind in ("bool", "text") and op not in ("eq", "neq", "in", "not_in"):
         raise RuleError(f"{op} doesn't apply to {kind}")
     if op in ("in", "not_in"):
@@ -355,6 +363,10 @@ def evaluate(rule: Rule, facts: dict) -> str:
     if actual is None:
         return "UNKNOWN"
     kind = attribute_type(rule)
+    if kind == "set":
+        if not isinstance(actual, (list, tuple)) or not all(isinstance(t, str) for t in actual):
+            raise RuleError(f"{actual!r} isn't a list of tags")
+        return "SATISFIED" if rule.value.lower() in {t.lower() for t in actual} else "VIOLATED"
     a, op = _scalar(actual, kind), rule.operator
     if op == "in":
         ok = a in [_scalar(v, kind) for v in rule.value]

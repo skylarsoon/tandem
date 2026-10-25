@@ -779,6 +779,84 @@
     "flight_identity": "UA11582026-11-20"
    },
    "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a vegetarian menu meets it",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "contains",
+    "value": "vegetarian"
+   },
+   "facts": {
+    "category": "DINNER",
+    "dietary_options": [
+     "Vegan",
+     "Vegetarian"
+    ]
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "a menu known to lack it doesn't",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "contains",
+    "value": "vegetarian"
+   },
+   "facts": {
+    "category": "DINNER",
+    "dietary_options": [
+     "gluten_free"
+    ]
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "a venue that doesn't say is unknown",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "contains",
+    "value": "vegetarian"
+   },
+   "facts": {
+    "category": "DINNER"
+   },
+   "expect": "UNKNOWN"
+  },
+  {
+   "name": "a list is only checked with contains",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "eq",
+    "value": "vegetarian"
+   },
+   "facts": {
+    "category": "DINNER",
+    "dietary_options": [
+     "vegetarian"
+    ]
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "contains needs a tag",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "contains",
+    "value": ""
+   },
+   "facts": {
+    "category": "DINNER",
+    "dietary_options": [
+     "vegetarian"
+    ]
+   },
+   "expect": "INVALID_RULE"
   }
  ],
  "legacy_cases": [

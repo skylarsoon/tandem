@@ -199,6 +199,11 @@ def compile_request(snapshot, room_rules: RoomRules, candidates: list[Candidate]
                 if rule.aggregate is None and rule.operator not in RELATIONS:
                     prefer(owner, g, lambda c, r=rule: score(r, c, g.options),
                            rule.importance or importance(ranking, attribute=rule.attribute), rule=rule)
+            # A must on a fact options rarely report (unknown_ok): it excludes options known not to
+            # meet it, and of the rest, one confirmed to meet it beats one that doesn't say.
+            for rule in room_rules.binding(owner, g.category):
+                if rule.owner == owner and catalog[g.category].get(rule.attribute, {}).get("unknown_ok"):
+                    prefer(owner, g, lambda c, r=rule: score(r, c, g.options), 5, rule=rule)
             # "Own room if possible": a shared pick that also holds this person's own share.
             for need in (x for x in room_rules.needs if x.owner == owner and x.kind == "soft" and x.category == g.category):
                 with_mine = required([*room_rules.needs, need.model_copy(update={"kind": "hard"})], members, g.category,

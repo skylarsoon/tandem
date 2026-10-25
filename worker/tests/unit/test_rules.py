@@ -59,7 +59,7 @@ def test_agrees_with_the_optimizers_own_evaluator():
     for case in CASES:
         rule = case["rule"]
         if case["expect"] in ("INVALID_RULE", "NOT_APPLICABLE") or rule["operator"] == "between" or \
-                attributes()["categories"].get(rule.get("category"), {}).get(rule.get("attribute"), {}).get("type") in ("time", "date"):
+                attributes()["categories"].get(rule.get("category"), {}).get(rule.get("attribute"), {}).get("type") in ("time", "date", "set"):
             continue
         theirs = evaluate_candidate(
             {"id": "c", "attributes": {k: v for k, v in case["facts"].items() if k != "category"}},

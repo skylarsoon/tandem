@@ -249,6 +249,9 @@ Design: `docs/superpowers/specs/2026-10-24-generic-rules-design.md`. What people
 - **One per thing:** a later rule on the same attribute or total, with the same comparison and the same kind, replaces the owner's earlier one; a must and a wish can sit side by side.
 - **The trip's dates bind every pick:** attributes marked `trip_bound` in `attributes.json` must fall inside the room's `start_date`/`end_date` (arrive by the end, leave for home after the start). A pick without that fact (one way, no return) isn't held to it. Enforced at publish and by the planner.
 - **Search dates:** a person's own firm rules on attributes marked `search_date` move their search (Chris: "not before the 21st" searches from the 21st).
+- **Preferences beyond thresholds:** `lowest` / `highest` ("as short / early / cheap as possible", soft only, no value: a ranking among the options found) and `same_as` (a wish to share another member's pick, value = their name in the room, soft only; the database checks the name). Both evaluate as `NOT_APPLICABLE` on one candidate.
+- **Sets:** type `set` (a list of tags, e.g. a venue's `dietary_options`) is checked with `contains`. An attribute marked `unknown_ok` doesn't block a hard rule when the option doesn't report it (most venues don't say what they serve); one known not to meet it is excluded.
+- **How preferences are weighed** (worker): each becomes a 0–1 score per option (unknown scores 0, never drops the option), owned by its person, at an importance from their priority ranking via `contracts/priorities.json` (an explicit `importance` wins). Shortfalls count in that person's burden, which feeds the compromise ledger.
 - **Outcomes:** evaluation answers `SATISFIED / VIOLATED / UNKNOWN / NOT_APPLICABLE`. A missing fact is `UNKNOWN`, which publication refuses.
 - **One meaning:** `spacetimedb/src/rules.ts` and `worker/.../rules.py` both pass `contracts/rule_cases.json`, and they agree with the optimizer's own evaluator.
 

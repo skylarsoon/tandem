@@ -439,7 +439,7 @@ class LocalBackend:
     def _check_rules(self, state, snapshot, records):
         """Like the database: each pick against its owner's rules (everyone's, for a shared pick)
         and the trip's dates. Unknown fails a person's rule; a pick without a trip-date fact isn't held to it."""
-        from .rules import evaluate
+        from .rules import attributes, evaluate
         rules = self._room_rules(state).within_trip(snapshot.start_date, snapshot.end_date)
         for record in records:
             facts = record.model_dump(mode="json")
@@ -448,7 +448,8 @@ class LocalBackend:
                 if rule.owner is not None and rule.owner not in owners:
                     continue
                 verdict = evaluate(rule, facts)
-                if verdict == "VIOLATED" or (verdict == "UNKNOWN" and rule.owner is not None):
+                unknown_ok = attributes()["categories"][record.category].get(rule.attribute, {}).get("unknown_ok")
+                if verdict == "VIOLATED" or (verdict == "UNKNOWN" and rule.owner is not None and not unknown_ok):
                     raise ContractError("INVALID_PROPOSAL")
 
     # ---------- agreement (the database's twin) ----------

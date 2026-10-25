@@ -147,3 +147,16 @@ def test_the_same_flight_as_someone_names_another_member_and_is_only_a_wish(read
     add_rule(room, "dave", {**together, "value": "Alice"}, "I'd love to fly with Alice")
     assert any(json.loads(r["rule_json"])["operator"] == "same_as" for r in my_rules(room, "dave"))
     assert not any(json.loads(r["rule_json"]).get("operator") == "same_as" for r in my_rules(room, "alice")), "private to Dave"
+
+
+def test_a_dietary_must_blocks_a_venue_known_not_to_fit_but_not_one_that_doesnt_say(ready_room, client, worker):
+    from test_decisions import activity, include, next_job
+    room, _ = ready_room
+    add_rule(room, "dave", {"category": "DINNER", "attribute": "dietary_options", "operator": "contains", "value": "vegetarian"},
+             "Vegetarian meals required")
+    job_id = next_job(room, worker)
+    steakhouse = record_shared(room, worker, job_id, "DINNER", 3000, dietary_options=["gluten_free"],
+                               cost_basis="ESTIMATE_PER_PERSON")
+    expect_error("INVALID_PROPOSAL", include, room, worker, job_id, "dinner:1", [steakhouse])
+    unsaid = record_shared(room, worker, job_id, "DINNER", 3500, cost_basis="ESTIMATE_PER_PERSON")
+    assert include(room, worker, job_id, "dinner:1", [unsaid])["version"] == 1

@@ -166,6 +166,8 @@ class Candidate(Record):
     bedrooms: int | None = Field(default=None, ge=0)
     rating: float | None = Field(default=None, ge=0, le=5)  # normalized to 0-5
     free_cancellation: bool | None = None
+    # What a venue serves, as tags ("vegetarian", "vegan"), when it says; None when it doesn't.
+    dietary_options: tuple[str, ...] | None = None
     check_in: str | None = None
     check_out: str | None = None
 

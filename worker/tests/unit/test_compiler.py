@@ -107,3 +107,14 @@ def test_own_room_if_possible_is_weighed_never_required():
     compiled, out = _solve(room, RoomRules(needs=(wish,), ranking={"a": ("comfort",)}), pool)
     assert [c.id for c in compiled.groups[0].options] == ["two", "three"], "not required: the two-bedroom stays an option"
     assert out["proposals"][0]["candidate_ids"] == ["three"], "a small premium for what someone said they'd like"
+
+
+def test_a_dietary_must_excludes_what_is_known_not_to_fit_and_prefers_what_is_confirmed():
+    room = Snapshot(room_id="r", members=("dana", "alex"), components=("DINNER",))
+    veg = Rule(owner="dana", category="DINNER", attribute="dietary_options", operator="contains", value="vegetarian")
+    pool = [offer("DINNER", "steakhouse", 3000, dietary_options=("gluten_free",)),  # known not to fit
+            offer("DINNER", "unsaid", 3500),                                       # doesn't say
+            offer("DINNER", "veg", 4000, dietary_options=("vegetarian", "vegan"))]  # confirmed
+    compiled, out = _solve(room, RoomRules(rules=(veg,)), pool)
+    assert [c.id for c in compiled.groups[0].options] == ["unsaid", "veg"], "known not to fit is out; unknown isn't blocked"
+    assert out["proposals"][0]["candidate_ids"] == ["veg"]

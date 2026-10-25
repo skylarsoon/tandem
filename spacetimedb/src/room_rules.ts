@@ -8,7 +8,7 @@ import { type Catalog, type LegacyTable, type Rule, RuleError, attributeType, ev
 // meanings live in the catalogs. Not exported from the module entry.
 
 export const CATALOG = RULE_ATTRIBUTES as unknown as Catalog & {
-  categories: Record<string, Record<string, { type: string; shared_by_setting?: string; trip_bound?: string }>>;
+  categories: Record<string, Record<string, { type: string; shared_by_setting?: string; trip_bound?: string; unknown_ok?: boolean }>>;
 };
 const LEGACY = LEGACY_KEYS as unknown as LegacyTable;
 
@@ -160,7 +160,10 @@ export function checkCandidateRules(rules: OwnedRule[], owners: Identity[], cate
       throw error;
     }
     if (verdict === 'VIOLATED') fail('INVALID_PROPOSAL', `candidate ${ref} breaks a traveller's confirmed ${rule.attribute} limit`);
-    if (verdict === 'UNKNOWN') fail('INVALID_PROPOSAL', `candidate ${ref} doesn't confirm ${rule.attribute}, which a traveller requires`);
+    // Unknown fails, unless the catalog says this fact is rarely reported (a venue's menu).
+    if (verdict === 'UNKNOWN' && !CATALOG.categories[category]?.[rule.attribute!]?.unknown_ok) {
+      fail('INVALID_PROPOSAL', `candidate ${ref} doesn't confirm ${rule.attribute}, which a traveller requires`);
+    }
   }
 }
 

@@ -399,3 +399,16 @@ def test_dana_flies_with_alex_and_alex_never_hears_about_her_wish(qa):
     assert "same flight" not in alex_sees and "I'd love it if we could take the same flight" not in alex_sees
     alex_agent = [c for c in worker.model.decisions if c["owner"] == "Alex"]
     assert not any("same flight" in json.dumps(c) for c in alex_agent), "her wish stays with her agent"
+
+
+def test_danas_vegetarian_need_comes_from_her_profile_and_waits_for_food(qa):
+    backend, worker, _ = qa
+    summary = next(m["body"] for m in backend.conversation("Dana") if m["body"].startswith("Here's what I've got"))
+    assert "Vegetarian dinners (a must) (from your profile; for this trip too?)" in summary
+    [veg] = [p["patch"] for p in backend.patches_of("Dana") if p["state"] == "CONFIRMED" and "rule" in p["patch"]
+             and p["patch"]["rule"]["attribute"] == "dietary_options"]
+    assert veg == {"rule": {"category": "DINNER", "attribute": "dietary_options", "operator": "contains", "value": "vegetarian",
+                            "kind": "hard"}, "source_profile": "N02"}
+    # It's for food: it doesn't touch the flight decision.
+    [(_, flights)] = live(plan(backend, worker), "flight")
+    assert picks(flights)["Dana"]["category"] == "FLIGHT"
