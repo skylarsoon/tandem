@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "about": "What candidates of each category carry, named exactly as their facts (Candidate fields). Rules may only refer to these. Types: money (integer cents), int, number, bool, time (local HH:MM), epoch (seconds), text.",
+  "categories": {
+    "FLIGHT": {
+      "total_cents": {"type": "money", "label": "fare"},
+      "arrival_local": {"type": "time", "label": "landing time"},
+      "arrival_epoch": {"type": "epoch", "label": "landing"},
+      "departure_epoch": {"type": "epoch", "label": "departure"},
+      "stops": {"type": "int", "label": "connections"},
+      "baggage_included": {"type": "bool", "label": "checked bag included"},
+      "checked_bags_included": {"type": "int", "label": "checked bags included"}
+    },
+    "STAY": {
+      "total_cents": {"type": "money", "label": "total price"},
+      "capacity": {"type": "int", "label": "guests"},
+      "bedrooms": {"type": "int", "label": "bedrooms"},
+      "rating": {"type": "number", "label": "rating", "range": [0, 5]},
+      "free_cancellation": {"type": "bool", "label": "free cancellation"}
+    },
+    "TRANSFER": {
+      "total_cents": {"type": "money", "label": "price"},
+      "capacity": {"type": "int", "label": "seats"}
+    },
+    "ACTIVITY": {
+      "total_cents": {"type": "money", "label": "price per person"},
+      "rating": {"type": "number", "label": "rating", "range": [0, 5]}
+    },
+    "DINNER": {
+      "total_cents": {"type": "money", "label": "price per person"},
+      "rating": {"type": "number", "label": "rating", "range": [0, 5]}
+    }
+  },
+  "aggregates": {
+    "my_cost": {"type": "money", "label": "your share of the whole trip", "about": "Everything this person pays across the decisions: their own picks plus their share of split ones."}
+  }
+}

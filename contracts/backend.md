@@ -232,7 +232,7 @@ New constraint keys: `origin_airport` (IATA), `arrival_window` (`{"earliest": "H
 
 ## 6c. Profile onboarding (persistent, across rooms)
 
-"Let your agent get to know you": a short core flow (9 questions), then optional sections. All questions, options and limits live in **`contracts/profile_questions.json`** (version 1, 46 questions). It's the single source: run `scripts/sync-profile-catalog.py` after editing it, and it copies the catalog to the module (`spacetimedb/src/profile_catalog.ts`), the web app (`web/lib/profile_catalog.ts`) and the worker. A test fails if a copy is stale. The web page is `/profile`.
+"Let your agent get to know you": a short core flow (9 questions), then optional sections. All questions, options and limits live in **`contracts/profile_questions.json`** (version 1, 46 questions). It's the single source: run `scripts/sync-catalogs.py` after editing it, and it copies the catalog to the module (`spacetimedb/src/profile_catalog.ts`), the web app (`web/lib/profile_catalog.ts`) and the worker. A test fails if a copy is stale. The web page is `/profile`.
 
 | Call | Who | Arguments | What it does |
 |---|---|---|---|

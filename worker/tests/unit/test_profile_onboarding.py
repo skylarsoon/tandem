@@ -11,11 +11,11 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def test_every_copy_of_the_question_catalog_matches_the_source():
     source = json.loads((ROOT / "contracts" / "profile_questions.json").read_text())
-    assert catalog() == source, "run scripts/sync-profile-catalog.py"
+    assert catalog() == source, "run scripts/sync-catalogs.py"
     for copy in ("spacetimedb/src/profile_catalog.ts", "web/lib/profile_catalog.ts"):
         text = (ROOT / copy).read_text()
         body = text[text.index("= ") + 2: text.rindex(" as const")]
-        assert json.loads(body) == source, f"{copy} is stale: run scripts/sync-profile-catalog.py"
+        assert json.loads(body) == source, f"{copy} is stale: run scripts/sync-catalogs.py"
 
 
 def test_answers_become_plain_facts_and_skips_say_nothing():

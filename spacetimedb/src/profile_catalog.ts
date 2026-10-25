@@ -1,4 +1,4 @@
-// Generated from contracts/profile_questions.json by scripts/sync-profile-catalog.py. Do not edit.
+// Generated from contracts/ by scripts/sync-catalogs.py. Do not edit.
 
 export const PROFILE_CATALOG = {
   "version": 1,
