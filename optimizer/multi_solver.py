@@ -94,7 +94,7 @@ def _validate(req, cost_attribute):
         if not isinstance(rule, Mapping) or not isinstance(rule.get('attribute'), str) or not rule['attribute'] or rule['attribute'] in names:
             _err('invalid aggregate attribute')
         names.add(rule['attribute'])
-        if rule.get('operation') not in ('sum', 'spread', 'max', 'min'):
+        if rule.get('operation') not in ('sum', 'spread', 'max', 'min', 'count_distinct'):
             _err('unsupported aggregate operation')
         if not isinstance(rule.get('source_attribute'), str) or not rule['source_attribute']:
             _err('aggregate requires source_attribute')
@@ -124,9 +124,16 @@ def _combination(selection, groups, req, cost_attribute):
         if any(v is None for v in values):
             attributes[rule['attribute']] = None
             continue
+        op = rule['operation']
+        if op == 'count_distinct':
+            # How many different values the picks have (e.g. 1 = everyone on the same flight).
+            # Any hashable value counts, so string ids work; numbers must still be finite.
+            if any(isinstance(v, (dict, list)) or (type(v) is float and not isfinite(v)) for v in values):
+                _err('count_distinct requires hashable, finite values')
+            attributes[rule['attribute']] = len(set(values))
+            continue
         if any(type(v) not in (int, float) or not isfinite(v) for v in values):
             _err('aggregate requires finite numeric values')
-        op = rule['operation']
         attributes[rule['attribute']] = (max(values) - min(values) if op == 'spread' else
                                          sum(values) if op == 'sum' else
                                          max(values) if op == 'max' else min(values))

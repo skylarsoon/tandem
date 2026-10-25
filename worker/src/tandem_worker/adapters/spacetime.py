@@ -54,6 +54,10 @@ def some(value):
     return None if value is None else {"some": value}
 
 
+# Arrivals as far apart as you like: the organizer turned arriving together off.
+NO_ARRIVAL_LIMIT = 10**9
+
+
 class StdbHttp:
     """Minimal HTTP client. Top-level argument names are sent camelCase (as the
     module declares them); nested objects and view columns are snake_case."""
@@ -177,7 +181,12 @@ class SpacetimeBackend:
         job, settings = ctx["job"], ctx["room"].get("settings") or {}
         return Snapshot(room_id=str(job["room_id"]), input_revision=job["input_revision"],
             membership_revision=job["membership_revision"], permission_revision=job["permission_revision"],
-            members=tuple(self._members(ctx)), arrival_overlap_seconds=settings.get("arrival_overlap_seconds", 7200),
+            members=tuple(self._members(ctx)),
+            # Arrivals are held together only when the organizer requires it.
+            arrival_overlap_seconds=settings.get("arrival_overlap_seconds", 7200)
+            if settings.get("arrive_together", "required") == "required" else NO_ARRIVAL_LIMIT,
+            arrive_together=settings.get("arrive_together", "required"), stages=tuple(settings.get("stages") or ()),
+            activities=settings.get("activities"),
             components=tuple(settings.get("components", ("FLIGHT",))), people_per_bedroom=settings.get("people_per_bedroom", 2),
             onboarding=(ctx.get("trip_brief") or {}).get("state") == "CONFIRMED",
             onboarded=tuple(sorted(self.owner_name(m) for m in ctx["members"] if m["active"] and any(
@@ -186,8 +195,17 @@ class SpacetimeBackend:
             start_date=settings.get("start_date"), end_date=settings.get("end_date"),
             commitments=tuple(Commitment(decision_id=c["decision_id"], scope=c["scope"], refs=tuple(c["selected_candidate_refs"]))
                               for c in ctx.get("commitments", [])),
+            committed_scaled=self._committed(ctx),
             compromise_history={self.owner_name(m): float(ctx.get("compromise_history", {}).get(str(m["member_id"]), 0.0))
                                 for m in ctx["members"] if m["active"]})
+
+    def _committed(self, ctx: dict) -> dict[str, int]:
+        from ..rules import committed_costs
+        members = {m["member_id"]: self.owner_name(m) for m in ctx["members"] if m["active"]}
+        facts = {c["candidate_ref"]: {**c["facts"], "category": c["category"]} for c in ctx.get("candidates", [])}
+        agreed = [Commitment(decision_id=c["decision_id"], scope=c["scope"], refs=tuple(c["selected_candidate_refs"]))
+                  for c in ctx.get("commitments", [])]
+        return committed_costs(agreed, facts, lambda f: members.get(f.get("owner_member_id")), tuple(members.values()))
 
     def _claim(self, job: dict, worker_id: str) -> Claim:
         if job["kind"] == "PROFILE":
@@ -259,9 +277,17 @@ class SpacetimeBackend:
             ask_me_first=prefs["ask_me_first"], give_me_time=prefs["give_me_time"], confirmed=prefs["confirmed"],
             revision=prefs["revision"]), prefs["reminders_opted_in"])
 
+    def read_profile(self, claim, owner):
+        ctx = self._context(claim)
+        member = self._members(ctx).get(owner)
+        if member is None:
+            raise ContractError("NOT_AUTHORIZED")
+        profile = member.get("profile") or {}
+        return {"summary": profile.get("summary"), "answers": profile.get("answers") or []}
+
     def read_rules(self, claim):
         """Everyone's rules, needs and search facts, keyed by owner name."""
-        from ..rules import Need, RoomRules, Rule, SearchFact
+        from ..rules import Need, RoomRules, Rule, SearchFact, legacy
         ctx = self._context(claim)
         owners = {m["member_id"]: name for name, m in self._members(ctx).items()}
         rules = tuple(Rule.model_validate({**r["rule"], "owner": owners[r["member_id"]], "state": r["state"],
@@ -269,9 +295,17 @@ class SpacetimeBackend:
                       for r in ctx.get("rules", []) if r["member_id"] in owners)
         needs = tuple(Need(owner=owners[n["member_id"]], category=n["category"], attribute=n["attribute"], needs=n["needs"])
                       for n in ctx.get("needs", []) if n["member_id"] in owners)
+        # "Own room if possible": the database stores only firm needs; a hedged one is a preference.
+        from ..rules import from_legacy
+        wishes = tuple(x for c in ctx.get("constraints", []) if c["member_id"] in owners and c.get("hardness") == "SOFT"
+                       and c["key"] in legacy()["keys"] for x in from_legacy(owners[c["member_id"]], c["key"], c)
+                       if isinstance(x, Need))
         facts = tuple(SearchFact(owner=owners[f["member_id"]], fact=f["fact"], value=f["value"])
                       for f in ctx.get("search_facts", []) if f["member_id"] in owners)
-        return RoomRules(rules=rules, needs=needs, facts=facts)
+        # Each person's own priority ranking (profile), for how much their preferences matter.
+        ranking = {owners[m["member_id"]]: tuple((m.get("profile") or {}).get("priority_ranking") or ())
+                   for m in ctx["members"] if m["member_id"] in owners}
+        return RoomRules(rules=rules, needs=needs + wishes, facts=facts, ranking=ranking)
 
     # ---------- receipt-backed operations ----------
 

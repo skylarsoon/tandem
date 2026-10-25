@@ -156,7 +156,10 @@ class ClaudeModel:
             "owner's equal share. `set_aside_by_owner` lists requirements your owner already agreed to drop for this trip: treat "
             "them as satisfied and don't ask again. Object, clarify or counterpropose only for HARD_LIMIT or BAGGAGE_UNKNOWN, "
             "which a search can fix. For any other concern, or if you truly need your owner's input, use NEEDS_OWNER_INPUT and put one "
-            "short, specific question for them in owner_question (only they see it).", "decision")
+            "short, specific question for them in owner_question (only they see it). `persona` is who your owner is, from "
+            "their own profile and the summary they confirmed, and `their_rules` what they told you for this trip in their own "
+            "words: judge the plan as they would (what they care about, how they like to be involved), within their limits. "
+            "Both are private: never repeat them to anyone but your owner.", "decision")
 
     def voice(self, context):
         return self._structured(context, VoiceDraft,
@@ -178,12 +181,22 @@ class ClaudeModel:
             "several airports use its main one and set interpreted=true. dates_ok only if they said the dates work (or "
             "don't). arrival_window values are 24-hour \"HH:MM\" strings at the destination (7am -> \"07:00\", 10pm -> "
             "\"22:00\"); include it whenever they say when they'd like to land; for phrases like 'no red-eyes' choose a "
-            "window and set interpreted=true. max_stops 0 for nonstop or 'no layovers' (interpreted=true). own_bedroom, "
-            "baggage_required and stay_min_rating only if stated. Any other firm limit on something listed in `checkable` "
+            "window and set interpreted=true. max_stops 0 for nonstop or 'no layovers' (interpreted=true); 'I'd prefer no more "
+            "than one stop' is max_stops 1, SOFT; 'nonstop would be nice/great' is max_stops 0, SOFT; 'okay with one "
+            "connection' only says what's acceptable, so it is no limit at all. own_bedroom, "
+            "baggage_required and stay_min_rating only if stated. Any other limit on something listed in `checkable` "
             "(what each category's options carry, with types) becomes key \"rule\" with rule {category, attribute, operator "
             "(eq, neq, lt, lte, gt, gte, in, not_in, between), value} in that attribute's units (money in cents, times "
-            "\"HH:MM\"); a limit on their whole-trip cost uses {aggregate: \"my_cost\", operator, value}. Anything "
-            "important that isn't checkable (e.g. 'home by Sunday') becomes a trip_note. private_rationale is the reason they gave for a limit, if any. settings: "
+            "\"HH:MM\", dates \"YYYY-MM-DD\" in the trip's year); hardness HARD if firm, SOFT if a preference ('I'd "
+            "prefer', 'ideally'). Their own dates are rules on FLIGHT: 'can't leave before the 21st' is departure_date gte "
+            "that day, 'back by the 24th' is return_arrival_date lte that day. 'As early / short / cheap as possible' (or "
+            "'minimize travel time', 'land as early as possible') is operator lowest on that attribute (arrival_epoch, "
+            "duration_minutes, total_cents), value null, SOFT; 'as late as possible' is highest. So are their readings: "
+            "'affordability matters more than convenience' is lowest total_cents, 'avoid exhausting travel' is lowest "
+            "duration_minutes (interpreted=true). Wanting the same flight as "
+            "someone in the group is operator same_as on FLIGHT flight_identity, value their name, SOFT. A limit on their "
+            "whole-trip cost uses {aggregate: \"my_cost\", operator, value}. Only what they said firmly is HARD. Anything "
+            "important that isn't checkable becomes a trip_note. private_rationale is the reason they gave for a limit, if any. settings: "
             "speak_up_for_me true if they want the group told when a plan breaks their limits, false if only them; "
             "ask_me_first true if they want to be checked with before paying more; include the quote. Unknown stays absent. "
             "unclear is ONLY for something they said that is ambiguous, never for topics they haven't mentioned; its reason "
@@ -204,7 +217,11 @@ class ClaudeModel:
             "brief only if the destination, its main airport's IATA code, and the start and end dates are all clear; "
             "dates are YYYY-MM-DD, using the next future occurrence after `today` when no year is given. components "
             "always include FLIGHT; add STAY if they want a place to stay, TRANSFER if they want an airport pickup or "
-            "say plan everything. group_size only if stated. vibe: a few of their own words. If anything required is "
+            "say plan everything. group_size only if stated. vibe: a few of their own words. arrive_together only if they "
+            "spoke to it: required if everyone must land together, off if separate arrivals are fine, preferred if "
+            "they'd like to but it isn't required. stages only if they said an order: the things to decide in that "
+            "order, from FLIGHT, STAY, TRANSFER, ACTIVITY and DINNER (e.g. flights, then a place, then activities is "
+            "[\"FLIGHT\",\"STAY\",\"ACTIVITY\"]). activities only if they said how many. If anything required is "
             "missing, leave brief empty and put one short question per gap in unclear.",
             "brief")
 

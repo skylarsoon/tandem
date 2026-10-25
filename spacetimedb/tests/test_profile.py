@@ -113,3 +113,25 @@ def test_rooms_see_profile_answers_only_as_suggestions(room, client, worker):
     assert any(p["id"] == pending and p["state"] == "PENDING" for p in client.view(room.people["dave"], "my_constraint_patches")), \
         "a suggestion waits for Dave to confirm it for this trip"
     expect_error("INVALID_EVIDENCE_REF", propose, room, worker, job_id, "dave", {**patch, "source_profile": "T06"})
+
+
+def test_a_planning_agent_knows_its_person_only_by_what_they_confirmed(ready_room, client, worker):
+    room, job_id = ready_room
+    dave = room.people["dave"]
+    answer(client, dave, "C01", "Dave")
+    answer(client, dave, "C03", {"ranked": ["comfort", "affordability"], "confirmed": True})
+    client.call(dave, "request_profile_summary")
+    [job] = [j for j in client.view(worker, "worker_pending_jobs") if j["kind"] == "PROFILE"]
+    claimed = client.procedure(worker, "claim_job", job_id=some(job["id"]), lease_seconds=60, request_key=key())
+    client.call(worker, "propose_profile_summary", job_id=job["id"], attempt=claimed["attempt"], request_key=key(),
+                summary="You're Dave: comfort first, then cost.")
+
+    def his(ctx):
+        return next(m for m in ctx["members"] if m["member_id"] == room.member_ids["dave"])["profile"]
+    assert his(room.context(worker, job_id))["summary"] is None, "proposed, not yet confirmed"
+    client.call(dave, "confirm_profile_summary", profile_revision=calibration(client, dave)["profile_revision"])
+    profile = his(room.context(worker, job_id))
+    assert profile["summary"] == "You're Dave: comfort first, then cost."
+    assert {a["question_id"] for a in profile["answers"]} == {"C01", "C03"}
+    answer(client, dave, "C03", {"ranked": ["affordability"], "confirmed": True})
+    assert his(room.context(worker, job_id))["summary"] is None, "his answers moved on: the old summary isn't him any more"

@@ -8,7 +8,7 @@ import { type Catalog, type LegacyTable, type Rule, RuleError, attributeType, ev
 // meanings live in the catalogs. Not exported from the module entry.
 
 export const CATALOG = RULE_ATTRIBUTES as unknown as Catalog & {
-  categories: Record<string, Record<string, { type: string; shared_by_setting?: string }>>;
+  categories: Record<string, Record<string, { type: string; shared_by_setting?: string; trip_bound?: string; unknown_ok?: boolean }>>;
 };
 const LEGACY = LEGACY_KEYS as unknown as LegacyTable;
 
@@ -62,8 +62,10 @@ export function mirrorLegacy(
       updatedAt: ctx.timestamp,
     });
   }
-  for (const need of converted.needs) {
-    ctx.db.participantNeed.insert({ id: 0n, roomId, owner, ...need, legacyKey: key, updatedAt: ctx.timestamp });
+  // Only a firm need is stored as one; "if possible" is a preference the planner weighs.
+  for (const need of converted.needs.filter(x => x.kind === 'hard')) {
+    ctx.db.participantNeed.insert({ id: 0n, roomId, owner, category: need.category, attribute: need.attribute, needs: need.needs,
+      legacyKey: key, updatedAt: ctx.timestamp });
   }
   for (const fact of converted.facts) {
     ctx.db.searchFact.insert({ id: 0n, roomId, owner, fact: fact.fact, valueJson: JSON.stringify(fact.value), legacyKey: key, updatedAt: ctx.timestamp });
@@ -72,7 +74,7 @@ export function mirrorLegacy(
 
 // A proposed patch can be checked before anyone confirms it: a generic rule must
 // fit the catalog; an old named limit must parse.
-export function checkRule(raw: unknown): void {
+export function checkRule(raw: unknown, ctx?: Ctx, roomId?: bigint, owner?: Identity): void {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('INVALID_RULE', 'a rule is an object');
   try {
     validateRule(raw as Rule, CATALOG);
@@ -80,6 +82,15 @@ export function checkRule(raw: unknown): void {
     if (error instanceof RuleError) fail('INVALID_RULE', error.message);
     throw error;
   }
+  if (ctx && roomId !== undefined && owner) checkRelation(ctx, roomId, owner, raw as Rule);
+}
+
+// "The same flight as Alex" must name another active member of this room, by their name here.
+function checkRelation(ctx: Ctx, roomId: bigint, owner: Identity, rule: Rule): void {
+  if (rule.operator !== 'same_as') return;
+  const named = [...ctx.db.membership.byRoomMember.filter(roomId)].some(
+    m => m.active && !m.member.isEqual(owner) && m.displayName === rule.value);
+  if (!named) fail('INVALID_RULE', 'same_as names another member of this room');
 }
 
 // An owner's rule in the generic language (entered directly, or a confirmed agent
@@ -87,19 +98,23 @@ export function checkRule(raw: unknown): void {
 export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: string): bigint {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('INVALID_RULE', 'a rule is an object');
   const rule = raw as Rule;
-  try {
-    validateRule(rule, CATALOG);
-  } catch (error) {
-    if (error instanceof RuleError) fail('INVALID_RULE', error.message);
-    throw error;
-  }
+  checkRule(rule, ctx, roomId, ctx.sender);
   const kind = rule.kind ?? 'hard';
+  // A later statement about the same thing (same attribute or total, same comparison, must or wish) replaces it.
+  for (const r of [...ctx.db.participantRule.byRoom.filter(roomId)]) {
+    if (!r.owner.isEqual(ctx.sender) || r.legacyKey !== undefined) continue;
+    const before = JSON.parse(r.ruleJson) as Rule;
+    if (before.category === rule.category && before.attribute === rule.attribute && before.aggregate === rule.aggregate &&
+        before.operator === rule.operator && (before.kind ?? 'hard') === kind) {
+      ctx.db.participantRule.id.delete(r.id);
+    }
+  }
   return ctx.db.participantRule.insert({
     id: 0n,
     roomId,
     owner: ctx.sender,
     ruleJson: JSON.stringify({ category: rule.category, attribute: rule.attribute, aggregate: rule.aggregate,
-      operator: rule.operator, value: rule.value, kind }),
+      operator: rule.operator, value: rule.value, kind, importance: rule.importance, tolerance: rule.tolerance }),
     kind,
     state: 'active',
     sourceQuote: quote,
@@ -111,7 +126,7 @@ export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: stri
 // Does this person have a money limit (any rule on a money attribute or total)?
 export function hasMoneyRule(ctx: Ctx, roomId: bigint, owner: Identity): boolean {
   return [...ctx.db.participantRule.byRoom.filter(roomId)].some(r => {
-    if (!r.owner.isEqual(owner) || r.state !== 'active') return false;
+    if (!r.owner.isEqual(owner) || !inForce(r.state)) return false;
     try {
       return attributeType(JSON.parse(r.ruleJson) as Rule, CATALOG) === 'money';
     } catch {
@@ -120,10 +135,15 @@ export function hasMoneyRule(ctx: Ctx, roomId: bigint, owner: Identity): boolean
   });
 }
 
+// In force unless set aside: 'kept' is a rule its owner was asked to relax and chose to keep.
+function inForce(state: string): boolean {
+  return state === 'active' || state === 'kept';
+}
+
 // The rules that bind right now: hard, and not set aside.
 export function bindingRules(ctx: Ctx, roomId: bigint): OwnedRule[] {
   return [...ctx.db.participantRule.byRoom.filter(roomId)]
-    .filter(r => r.kind === 'hard' && r.state === 'active')
+    .filter(r => r.kind === 'hard' && inForce(r.state))
     .map(r => ({ owner: r.owner, rule: JSON.parse(r.ruleJson) as Rule, quote: r.sourceQuote }));
 }
 
@@ -140,7 +160,24 @@ export function checkCandidateRules(rules: OwnedRule[], owners: Identity[], cate
       throw error;
     }
     if (verdict === 'VIOLATED') fail('INVALID_PROPOSAL', `candidate ${ref} breaks a traveller's confirmed ${rule.attribute} limit`);
-    if (verdict === 'UNKNOWN') fail('INVALID_PROPOSAL', `candidate ${ref} doesn't confirm ${rule.attribute}, which a traveller requires`);
+    // Unknown fails, unless the catalog says this fact is rarely reported (a venue's menu).
+    if (verdict === 'UNKNOWN' && !CATALOG.categories[category]?.[rule.attribute!]?.unknown_ok) {
+      fail('INVALID_PROPOSAL', `candidate ${ref} doesn't confirm ${rule.attribute}, which a traveller requires`);
+    }
+  }
+}
+
+// The trip's own dates bind every pick: attributes the catalog marks trip_bound stay
+// on or before the end (by_end, e.g. arriving) or on or after the start (from_start,
+// e.g. leaving for home). A pick without that fact (one-way: no way home) isn't held to it.
+export function checkTripBounds(settings: Record<string, unknown>, category: string, facts: Record<string, unknown>, ref: string): void {
+  for (const [attribute, spec] of Object.entries(CATALOG.categories[category] ?? {})) {
+    const value = spec.trip_bound === 'by_end' ? settings.end_date : spec.trip_bound === 'from_start' ? settings.start_date : undefined;
+    if (typeof value !== 'string') continue;
+    const rule: Rule = { category, attribute, operator: spec.trip_bound === 'by_end' ? 'lte' : 'gte', value };
+    if (evaluateRule(rule, { ...facts, category }, CATALOG) === 'VIOLATED') {
+      fail('INVALID_PROPOSAL', `candidate ${ref} falls outside the trip's dates (${attribute})`);
+    }
   }
 }
 
@@ -193,4 +230,56 @@ export function costLimitsHold(rules: OwnedRule[], owner: Identity, n: number, o
     if (!ok) return false;
   }
   return true;
+}
+
+type Agreed = { proposal: { id: bigint }; scope: string; selectedRefs: string[] };
+
+// Agreed decisions a confirmed change now breaks: a pick against its people's rules or
+// the trip's dates, or someone's whole-trip limit with everything agreed. Budget breaks
+// are resolved newest first, so older agreements stand where they still fit.
+export function brokenCommitments<C extends Agreed>(ctx: Ctx, roomId: bigint, agreed: C[]): C[] {
+  const room = ctx.db.room.id.find(roomId);
+  if (!room) return [];
+  const settings = JSON.parse(room.settingsJson) as Record<string, unknown>;
+  const active = [...ctx.db.membership.byRoomMember.filter(roomId)].filter(m => m.active);
+  const rules = bindingRules(ctx, roomId);
+  const counted = (c: C) => c.scope !== 'COMPLETE_PLAN' && c.scope !== 'GENERAL_AGREEMENT' && c.scope !== 'LEGACY';
+  const picks = (c: C) =>
+    c.selectedRefs.flatMap(ref => {
+      let row;
+      for (const x of ctx.db.candidate.byRoomRef.filter([roomId, ref])) row = x;
+      return row ? [{ ref, category: row.category, facts: JSON.parse(row.factsJson) as Record<string, unknown> }] : [];
+    });
+  const newest = [...agreed].sort((a, b) => (a.proposal.id < b.proposal.id ? 1 : -1));
+  const broken: C[] = [];
+  for (const c of newest) {
+    for (const { ref, category, facts } of picks(c)) {
+      const owners = category === 'FLIGHT'
+        ? active.filter(m => Number(m.id) === facts.owner_member_id).map(m => m.member)
+        : active.map(m => m.member);
+      try {
+        checkCandidateRules(rules, owners, category, facts, ref);
+        checkTripBounds(settings, category, facts, ref);
+      } catch {
+        broken.push(c);
+        break;
+      }
+    }
+  }
+  let kept = newest.filter(c => !broken.includes(c));
+  const over = () =>
+    active.some(m => {
+      let own = 0, shared = 0;
+      for (const c of kept.filter(counted)) {
+        for (const { category, facts } of picks(c)) {
+          const total = typeof facts.total_cents === 'number' ? facts.total_cents : 0;
+          if (category === 'FLIGHT') own += facts.owner_member_id === Number(m.id) ? total : 0;
+          else if (category === 'STAY' || category === 'TRANSFER') shared += total;
+          else own += total; // per head
+        }
+      }
+      return !costLimitsHold(rules, m.member, active.length, own, shared);
+    });
+  while (kept.length > 0 && over()) broken.push(kept.shift()!);
+  return broken;
 }

@@ -8,11 +8,13 @@ from zoneinfo import ZoneInfo
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from ..contracts import Act, Candidate, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
+from ..contracts import Act, Candidate, Conflict, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
+from ..explain_rules import declined_note, rule_conflict_note
 from ..progress import activity, report as progress
+from ..rules import dates_outside_trip, decisions, evaluate, remaining_stages, search_dates, stage_decisions
 from ..shortlist import dedupe, shortlist_choices
-from ..solver import POLICY, RELAXABLE, TripSolver, relax_nudge
+from ..solver import POLICY, RELAXABLE, TripSolver, flight_violation, relax_nudge
 from .personal import build_personal, nudges, question_for, send_message
 
 # Solver conflict → the research blocker a targeted search can act on, and what to search again.
@@ -20,10 +22,33 @@ RESEARCH_BLOCKER = {"HARD_LIMIT": "HARD_LIMIT", "BAGGAGE_UNAVAILABLE": "BAGGAGE_
                     "NO_CANDIDATES": "NO_MATCHING_CANDIDATE", "ARRIVAL_WINDOW": "ARRIVAL_OVERLAP",
                     "TRIP_LIMIT": "HARD_LIMIT", "STAY_UNAVAILABLE": "STAY_UNAVAILABLE",
                     "TRANSFER_UNAVAILABLE": "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME": "ARRIVAL_OVERLAP",
-                    "TOO_MANY_STOPS": "NO_MATCHING_CANDIDATE"}
+                    "TOO_MANY_STOPS": "NO_MATCHING_CANDIDATE", "RULE": "NO_MATCHING_CANDIDATE",
+                    "DECLINED": "NO_MATCHING_CANDIDATE"}
 RESEARCH_CATEGORIES = {"TRIP_LIMIT": ("FLIGHT", "STAY"), "STAY_UNAVAILABLE": ("STAY",), "TRANSFER_UNAVAILABLE": ("TRANSFER",)}
-# The decision this graph plans (the whole trip); other agreed decisions' flights are locked.
+# The decision a room without stages plans (the whole trip); other agreed decisions' picks are locked.
 DECISION = "trip"
+
+
+def next_decision(snapshot: Snapshot) -> tuple[str, str] | None:
+    """The first of the organizer's stage decisions not yet agreed: (category, id), or None."""
+    agreed = {c.decision_id for c in snapshot.commitments}
+    return next(((c, d) for c, d in stage_decisions(snapshot) if d not in agreed), None)
+
+
+def next_stage(snapshot: Snapshot) -> str | None:
+    found = next_decision(snapshot)
+    return found[0] if found else None
+
+
+def planned_decision(snapshot: Snapshot) -> tuple[str, str, str]:
+    """(decision id, scope, milestone) of what this job plans: one stage decision, as the
+    catalog says that kind of choice is decided, or the whole trip in a room without stages."""
+    found = next_decision(snapshot) if snapshot.stages and snapshot.components else None
+    if found is None:
+        return DECISION, "COMPLETE_PLAN", "TRAVEL"
+    category, decision_id = found
+    shape = decisions()["categories"][category]
+    return decision_id, shape["scope"], shape["milestone"]
 
 
 class CoordinatorState(TypedDict, total=False):
@@ -60,7 +85,13 @@ class CoordinatorState(TypedDict, total=False):
 
 def build_coordinator(backend, claim, model, research, solver, validator, clock, limits, checkpointer):
     def current():
-        return backend.load_execution_context(claim)
+        """The room as this job plans it: with the organizer's stages, only the first one not
+        yet agreed (no components once everything is decided)."""
+        snapshot = backend.load_execution_context(claim)
+        if not snapshot.stages:
+            return snapshot
+        stage = next_stage(snapshot)
+        return snapshot.model_copy(update={"components": (stage,) if stage else ()})
 
     def briefs_for(snapshot):
         return [backend.read_brief(claim, o) for o in snapshot.members]
@@ -84,6 +115,22 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     asked.append(backend.ask_owner(claim, question))
         return sorted(set(asked))
 
+    def empty_conflict(snapshot, rules, owner, brief, candidates, declined=()):
+        """Why someone has no option. The old named limits explain what they cover; when
+        options that pass those were still excluded, it was a rule they don't know (the
+        person's own dates, the trip's dates, any other rule): name every rule that
+        excluded something, and own dates that can't fit the trip at all. Never guess."""
+        mine = [c for c in candidates if c.owner == owner and c.total_cents is not None]
+        if declined and not mine:  # what was left, they were asked about and said no to
+            return Conflict(code="DECLINED", owner=owner, declined=len(declined))
+        broken = {r.attribute for c in mine for r in rules.binding(owner, c.category)
+                  if evaluate(r, c.model_dump(mode="json")) == "VIOLATED"}
+        broken |= dates_outside_trip(rules, owner, "FLIGHT", snapshot.start_date, snapshot.end_date)
+        known_ok = [c for c in mine if flight_violation(c, brief) is None]
+        if broken and (known_ok or not mine):
+            return Conflict(code="RULE", owner=owner, attributes=tuple(sorted(broken)))
+        return TripSolver.owner_conflict(owner, brief, candidates)
+
     def solution(state):
         # Impacts are private, so they live only in the solver receipt, not in state.
         def missing():
@@ -102,28 +149,40 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
 
     def discover(state):
         snapshot = current()
+        if not snapshot.components:
+            return {"candidates": [], "need_research": False}  # every stage is decided
         if state["round"] == 0 and not state["candidates"]:
             reused = backend.reusable_candidates(claim)
             if reused:
-                return {"candidates": candidates_data(reused), "need_research": False}
+                # Earlier jobs' results can hold the same offer twice (separate runs, new ids).
+                return {"candidates": candidates_data(dedupe(reused)), "need_research": False}
         purpose = "INITIAL" if state["round"] == 0 else "TARGETED"
         # Stable observation/request time across a replay, persisted in the op receipt.
         stamp = backend.operation(claim, f"research-time:{state['round']}", {}, "local", clock.now)
         trip = len(snapshot.components) > 1
-        initial = [*snapshot.components, "ACTIVITY", "DINNER"] if trip else ["FLIGHT"]
+        initial = [*snapshot.components, "ACTIVITY", "DINNER"] if trip else list(snapshot.components)
+        # A stage searches what comes later too: what's left of each budget is held for it.
+        initial += [c for c in remaining_stages(snapshot) if c not in initial]
         routes, facts = [], None
-        if snapshot.onboarding:
+        if snapshot.onboarding and "FLIGHT" not in initial:
+            facts = {"destination": snapshot.destination, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
+                     "party_size": len(snapshot.members), "pickup_time": state.get("pickup_time")}
+        elif snapshot.onboarding:
             # Search from what people confirmed; wait until everyone has said where they fly from.
             briefs = {o: backend.read_brief(claim, o) for o in snapshot.members}
             if any(b.origin_airport is None for b in briefs.values()):
                 return {"outcome": "WAITING_FOR_INTAKE"}
+            # Each person's own dates (their firm rules narrow the trip's) — a search needs them, like the airport.
+            rules = backend.read_rules(claim)
+            dates = {o: search_dates(rules, o, "FLIGHT", snapshot.start_date, snapshot.end_date) for o in briefs}
             routes = [{"owner": o, "origin": b.origin_airport, "destination": snapshot.destination_airport,
-                       "date": snapshot.start_date, "max_stops": b.max_stops} for o, b in briefs.items()]
+                       "date": dates[o][0], "return_date": dates[o][1], "max_stops": b.max_stops} for o, b in briefs.items()]
             facts = {"destination": snapshot.destination, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
                      "party_size": len(snapshot.members), "pickup_time": state.get("pickup_time")}
             # The airport transfer is searched once flights are chosen, for the group's latest landing.
             initial = [c for c in initial if c != "TRANSFER"]
-        request = {"purpose": purpose, "members": list(snapshot.members), "scope": "TRIP" if trip else "FLIGHTS_ONLY",
+        request = {"purpose": purpose, "members": list(snapshot.members),
+            "scope": "TRIP" if any(c != "FLIGHT" for c in initial) else "FLIGHTS_ONLY",
             "categories": initial if purpose == "INITIAL" else state.get("research_categories") or ["FLIGHT"],
             "routes": routes, "trip": facts,
             "room_id": snapshot.room_id,
@@ -158,16 +217,22 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
 
     def solve(state):
         snapshot = current()
+        if not snapshot.components:
+            return {"outcome": "ALL_DECIDED", "solver_status": "", "selected": []}
         if snapshot.onboarding and set(snapshot.onboarded) != set(snapshot.members):
             # Searched early; nothing is proposed until everyone has confirmed their onboarding.
             return {"outcome": "WAITING_FOR_INTAKE", "solver_status": "", "selected": []}
         excluded, now = set(state.get("excluded", ())), clock.now()
+        # A repeated stage (another activity) never picks what an earlier one of its kind agreed.
+        this = planned_decision(snapshot)[0].split(":")[0]
+        excluded |= {ref for c in snapshot.commitments if c.decision_id.split(":")[0] == this
+                     and c.decision_id != planned_decision(snapshot)[0] for ref in c.refs}
         briefs = briefs_for(snapshot)
         by_owner = {b.owner: b for b in briefs}
         relaxations = digest([b.model_dump(mode="json") for b in briefs])[:12]
-        locked = sorted({ref for c in snapshot.commitments if c.decision_id != DECISION for ref in c.refs})
-        # Everyone's rules (private: read here, never kept in the graph's state).
-        room_rules = backend.read_rules(claim)
+        locked = sorted({ref for c in snapshot.commitments if c.decision_id != planned_decision(snapshot)[0] for ref in c.refs})
+        # Everyone's rules (private: read here, never kept in the graph's state), and the trip's dates.
+        room_rules = backend.read_rules(claim).within_trip(snapshot.start_date, snapshot.end_date)
         takes_rules = "rules" in inspect.signature(solver.solve).parameters
 
         def shortlisted(excluded):
@@ -196,7 +261,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     if pick.empty_groups:
                         # Someone has no usable flight at all: say why, never solve as if they did.
                         return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
-                            TripSolver.owner_conflict(o, by_owner[o], candidates) for o in pick.empty_groups))
+                            empty_conflict(plan_for, room_rules, o, by_owner[o], candidates,
+                                           [c for c in state["candidates"] if c["id"] in excluded and c["owner"] == o])
+                            for o in pick.empty_groups))
                     if takes_rules:
                         return solver.solve(plan_for, briefs, list(pick.candidates), rules=room_rules)
                     return solver.solve(plan_for, briefs, list(pick.candidates))
@@ -219,6 +286,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
             declined = set(backend.declined_concession_owners(claim, draft)) if result.selected else set()
             refused = {c.id for c in candidates if c.id in result.selected and c.owner in declined}
+            if declined and not refused:  # a stage of shared picks: the shared pick they said no to
+                refused = {c.id for c in candidates if c.id in result.selected and c.owner is None}
             if not refused:
                 break
             excluded.update(refused)
@@ -226,7 +295,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         update = {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome,
                   "solve_key": key, "solve_request": request, "resolve": False, "group_window": [],
                   "excluded": sorted(excluded), **counts}
-        if result.group:
+        if result.group and result.group.earliest_arrival is not None:
             zone = next(c.arrival_timezone for c in candidates if c.id == result.selected[0])
             update["group_window"] = [result.group.earliest_arrival, result.group.latest_arrival, zone]
             if plan_for is not snapshot:
@@ -246,8 +315,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         candidates = {c["id"]: c for c in state["candidates"]}
         selected = {candidates[r]["owner"]: candidates[r] for r in state["selected"] if candidates[r]["owner"]}
         shared = [candidates[r] for r in state["selected"] if not candidates[r]["owner"]]
-        if set(selected) != set(snapshot.members):
+        if selected and set(selected) != set(snapshot.members) or not (selected or shared):
             raise ContractError("INVALID_COVERAGE")
+        # A stage of shared picks (a stay, an activity): each agent weighs the shared pick itself.
+        own = {m: selected.get(m) for m in snapshot.members}
         result = solution(state)
         impacts = {i.owner: i.model_dump(mode="json") for i in result.impacts}
         share = result.group.share_each_cents if result.group else 0
@@ -256,7 +327,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         nudged = [backend.ask_owner(claim, question_for(claim, owner, "MISSING_FACT", f"nudge:{topic}", prompt,
                                                         {"yes": yes, "no": no}))
                   for owner in snapshot.members
-                  for topic, prompt, yes, no in nudges(state["snapshot"], backend.read_brief(claim, owner), selected[owner], shared)]
+                  for topic, prompt, yes, no in nudges(state["snapshot"], backend.read_brief(claim, owner), own[owner] or {}, shared)]
         if nudged:
             return {"questions": nudged}
         window = state.get("group_window") or None
@@ -267,15 +338,16 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         eligible = set()
         for owner in snapshot.members:
             thread_id = "conversation-" + digest([claim.generation, state["round"], state["cycle"], owner])[:24]
+            mine = [own[owner]] if own[owner] else []
             initial = Payload(draft_ref=state["draft_ref"], evaluation="REQUESTED",
-                              candidate_refs=(selected[owner]["id"], *(c["id"] for c in shared)))
+                              candidate_refs=tuple(c["id"] for c in [*mine, *shared]))
             inbound_ref = send_message(backend, claim, state["snapshot"], "mediator", owner, Act.PROPOSE, initial,
                 thread_id, tuple(sorted(("mediator", owner))), state["round"], operation_ref=f"dispatch:{owner}:{state['cycle']}",
-                candidate=[selected[owner], *shared], group_window=window, share_cents=share)
+                candidate=[*mine, *shared], group_window=window, share_cents=share)
             sender, recipient, inbound_type = "mediator", owner, "PROPOSE"
             inbound_payload = initial.model_dump(mode="json")
             for turn in range(limits.thread_turns):
-                task = {"owner": recipient, "sender": sender, "candidate": selected[recipient],
+                task = {"owner": recipient, "sender": sender, "candidate": own[recipient] or shared[0],
                     "shared": shared, "share_cents": share,
                     "draft_ref": state["draft_ref"], "inbound_type": inbound_type, "inbound_ref": inbound_ref,
                     "inbound_payload": inbound_payload,
@@ -294,7 +366,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     return {"outcome": "NO_PROGRESS", "questions": []}
                 fingerprints.add(fingerprint)
                 if decision.research:
-                    evidence = task["inbound_evidence"] if decision.act == Act.COUNTERPROPOSE and task["inbound_payload"]["blocker"] == decision.blocker else [selected[recipient]]
+                    evidence = task["inbound_evidence"] if decision.act == Act.COUNTERPROPOSE and task["inbound_payload"]["blocker"] == decision.blocker else [own[recipient] or shared[0]]
                     return {"need_research": True, "research_cause_ref": result["message_ref"], "questions": [],
                         "research_target_owners": sorted({c["owner"] for c in evidence if c["owner"]}) or list(snapshot.members),
                         "research_blocker_code": decision.blocker if decision.blocker != "NONE" else "MISSING_FACT"}
@@ -337,6 +409,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             # they declined and re-solve, so the trade-off can shift to others.
             owners = {c["id"]: c["owner"] for c in state["candidates"]}
             refused = [ref for ref in state["selected"] if owners[ref] in {q.owner for q in declined}]
+            if not refused:  # a stage of shared picks: the shared pick they said no to
+                refused = [ref for ref in state["selected"] if owners[ref] is None]
             return {**update, "excluded": [*state.get("excluded", []), *refused], "resolve": True}
         return {**update, "outcome": "OWNER_DECLINED" if declined else ""}
 
@@ -348,8 +422,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         snapshot = current()
         candidates = [Candidate.model_validate(c) for c in state["candidates"]]
         briefs = briefs_for(snapshot)
-        report = validator.validate(snapshot, briefs, candidates, tuple(state["selected"]), clock.now())
-        report = ValidationReport.model_validate(report)
+        report = ValidationReport.model_validate(validator.validate(snapshot, briefs, candidates, tuple(state["selected"]), clock.now()))
+        if snapshot.stages:
+            # Checked against this stage of the claimed snapshot (current() narrowed it): bound to that claim.
+            report = report.model_copy(update={"snapshot_ref": claim.snapshot_ref})
         if not report.valid:
             evidence_only = bool(report.checks) and set(report.checks) <= {"INCOMPLETE_COST_EVIDENCE", "BAGGAGE_UNKNOWN"}
             return {"outcome": "EXPLORATORY_ONLY" if evidence_only else "VALIDATION_FAILED", "validation_checks": list(report.checks)}
@@ -359,9 +435,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         progress(backend, claim, "PUBLISH", "STARTED", round=state["round"], cycle=state["cycle"])
         activity(backend, claim, "mediator", "WRITING")
         # Each person's compromise in this plan reaches the ledger only if everyone agrees to it.
+        decision_id, scope, milestone = planned_decision(snapshot)
         ref = backend.publish_proposal(claim, tuple(state["selected"]), candidates, report, "publish",
             explanation(result.group, result.impacts, zone, candidates) if result.group else None,
-            **({"burdens": result.burdens} if result.burdens else {}))
+            **({"burdens": result.burdens} if result.burdens else {}), decision_id=decision_id, scope=scope, stage=milestone)
         return {"proposal_ref": ref, "outcome": "AWAITING_REVIEW"}
 
     def exhausted(state):
@@ -371,9 +448,12 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         conflicts = solution(state).conflicts
         briefs = briefs_for(snapshot)
         by_owner = {b.owner: b for b in briefs}
+        rules = backend.read_rules(claim).within_trip(snapshot.start_date, snapshot.end_date)
         for conflict in conflicts:
             if conflict.owner:
-                note = owner_conflict_note(conflict, by_owner[conflict.owner])
+                note = (rule_conflict_note(conflict, rules) if conflict.code == "RULE"
+                        else declined_note(conflict) if conflict.code == "DECLINED"
+                        else owner_conflict_note(conflict, by_owner[conflict.owner]))
                 backend.notify_owner(claim, conflict.owner, note, f"no-plan:{state['round']}:{conflict.owner}")
             # A shared requirement that blocks is told only to whoever set it.
             for holder in requirement_holders(conflict, briefs):

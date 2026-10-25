@@ -109,7 +109,7 @@ An **agreed** decision is a **commitment**. It stays agreed when other decisions
 
    | `scope` | `selectedCandidateRefs` | Checked |
    |---|---|---|
-   | `FLIGHT_BUNDLE` | one `FLIGHT` per active member | each flight against its owner's limits (below); arrivals within `arrival_overlap_seconds`; only one agreed flight decision per room |
+   | `FLIGHT_BUNDLE` | one `FLIGHT` per active member | each flight against its owner's limits and the trip's dates (below); arrivals within `arrival_overlap_seconds` when `arrive_together` is `required`; only one agreed flight decision per room |
    | `SINGLE_SHARED_BOOKING` | exactly one `STAY` or `TRANSFER` | the room's `components` include it; `capacity` fits everyone; only one agreed decision per category |
    | `ACTIVITY_DECISION` | one `ACTIVITY` / `DINNER` (include), or none (skip) | `capacity` fits everyone if known; not already agreed as another decision; doesn't overlap an agreed activity when both carry `start_epoch` / `end_epoch` |
    | `COMPLETE_PLAN` | flights + exactly one of each shared part in `components` | the whole trip on its own (today's worker publishes this, as decision `trip`) |
@@ -151,7 +151,7 @@ Job statuses: `PENDING` → `CLAIMED` → `WAITING_FOR_INPUT` / `SUCCEEDED` / `F
 |---|---|---|
 | `create_room` | `goal`, `displayName` | Creates the room (settings `{"arrival_overlap_seconds": 7200}`), the mediator agent, your membership and personal agent, five milestones, and an invite code. |
 | `join_room` | `inviteCode`, `displayName` | Bumps the membership revision. |
-| `set_room_settings` | `roomId`, `settingsJson` | Organizer only. Shared rules: `arrival_overlap_seconds`, `components` (`["FLIGHT"]` by default; `["FLIGHT","STAY","TRANSFER"]` plans the whole trip) and `people_per_bedroom` (1–8, default 2: how many travellers without an own-room request share a bedroom). New generation. |
+| `set_room_settings` | `roomId`, `settingsJson` | Organizer only. Shared rules: `arrival_overlap_seconds`, `arrive_together` (`required` (default) holds arrivals within the overlap; `preferred` and `off` don't), `components` (`["FLIGHT"]` by default; `["FLIGHT","STAY","TRANSFER"]` plans the whole trip), `stages` (the organizer's order: catalog categories, each decided on its own, e.g. `["FLIGHT","STAY","ACTIVITY"]`), `activities` (how many to plan), `people_per_bedroom` (1–8, default 2), `start_date ≤ end_date`. A confirmed trip brief sets them from the organizer's words. New generation. |
 | `upsert_profile` | `displayName`, `avatarRef`, `selfDescription`, `priorityRanking[]` | |
 | `confirm_participation_preferences` | `speakUpForMe`, `askMeFirst`, `giveMeTime`, `remindersOptedIn` | Defaults before confirmation: off / on / on / off, **unconfirmed**. Confirming or editing bumps the permission revision in all your rooms (new generation). |
 | `set_constraint` | `roomId`, `key`, `valueJson`, `unit`, `hardness` (`HARD`/`SOFT`), `authorizedRangeJson?`, `privateRationale?` | Form entry = confirmed. New generation. The room sees only "A participant updated their requirements". Keys the worker understands: `flight_budget_total` (USD cents; SOFT budgets use `authorized_range.max` as the cap), `trip_budget_total` (USD cents, HARD: own flight + equal share of stay and transfer), `baggage_required` (`true`), `own_bedroom` (`true`) and `stay_min_rating` (0–5). |
@@ -226,7 +226,12 @@ Instead of a form, each traveller's agent asks a few questions in their private 
 5. **If someone's own requirement blocks the plan** (own room, minimum rating, arrival times, stops), only they are asked whether to set it aside for this trip. Same nudge shape: a yes records the relaxed value, a no records `kept_<key>` so they're never asked again.
 6. **Planning in an onboarded room** searches from each person's confirmed airport and the brief. It waits (`WAITING_FOR_INTAKE`) until everyone is onboarded, and `publish_proposal` refuses with `INTAKE_INCOMPLETE` until then. The airport transfer is searched after flights are chosen, for the group's latest landing.
 
-New constraint keys: `origin_airport` (IATA), `arrival_window` (`{"earliest": "HH:MM", "latest": "HH:MM"}`, local at the destination), `max_stops`, `no_budget_limit`, `trip_note` (private, not used in planning yet), `kept_<key>`.
+New constraint keys: `origin_airport` (IATA), `arrival_window` (`{"earliest": "HH:MM", "latest": "HH:MM"}`, local at the destination), `max_stops`, `no_budget_limit`, `trip_note` (private, not used in planning yet), `kept_<key>`. Personal dates are rules (`FLIGHT.departure_date gte …`, `return_arrival_date lte …`), so "the dates don't work" is followed up with "which dates can you do?".
+
+7. **Changes after onboarding.** A later private message ("my budget is now $900") is read the same way; only what that message says becomes pending patches, each quoting it, with "Here's the change I heard". Nothing changes until the owner confirms (`confirm_constraint_patch`), which replans the room.
+7b. **Round trips.** The flight actor searches one way: each person gets an outbound search on their own date and a return search on their own way-home date, paired into itineraries (`worker/.../itinerary.py`, their cheapest 6 out × 4 back) before anything is recorded. An itinerary is one FLIGHT candidate with the return's epochs, dates, stops and travel time; its price is both legs, complete only if both are.
+8. **Stages.** With `stages`, each PLAN job decides only the first stage decision not yet agreed, published as its own decision (`decision_id` the category, e.g. `flight`, `stay`; a stage the catalog repeats, like activities, is `activity:1`…`activity:k`, k from `activities` or one per full trip day). Scope and milestone come from `decisions.json` (FLIGHT → `FLIGHT_BUNDLE`, STAY → `SINGLE_SHARED_BOOKING`, ACTIVITY → `ACTIVITY_DECISION`). Agreeing it queues the next. While planning one stage, each person's budget is what's left after what the group already agreed and after the cheapest the later stages can cost them (searched up front), so an early stage can't spend a later one's money.
+9. **Agreed decisions stand, unless a change breaks them.** A confirmed change (a rule, a named limit, the trip's dates) re-checks every agreed decision: a pick that now breaks someone's rules or the trip's dates, or a whole-trip limit that no longer holds with everything agreed (resolved newest first), is reopened (`SUPERSEDED`, its compromise stops counting) and planned again; the room gets a neutral `DECISION_REOPENED` event. Everything it doesn't break stays agreed.
 
 ---
 
@@ -240,14 +245,22 @@ Design: `docs/superpowers/specs/2026-10-24-generic-rules-design.md`. What people
 - `legacy_keys.json`: how the 12 old named limits become rules, needs and search facts.
 
 **Rules and evaluation**
-- **A rule:** `{category, attribute | aggregate, operator, value, kind}`. Operators are `eq, neq, lt, lte, gt, gte, in, not_in, between`; a `between` on times may wrap midnight.
+- **A rule:** `{category, attribute | aggregate, operator, value, kind, importance?, tolerance?}`. Operators are `eq, neq, lt, lte, gt, gte, in, not_in, between`; a `between` on times may wrap midnight. Types include `date` (`YYYY-MM-DD`, local).
+- **Preferences:** `importance` (1–5) and `tolerance` (`{"limit": …}`, partial credit up to there, on `lt/lte/gt/gte`) belong only to soft rules, and are stored with the rule.
+- **One per thing:** a later rule on the same attribute or total, with the same comparison and the same kind, replaces the owner's earlier one; a must and a wish can sit side by side.
+- **The trip's dates bind every pick:** attributes marked `trip_bound` in `attributes.json` must fall inside the room's `start_date`/`end_date` (arrive by the end, leave for home after the start). A pick without that fact (one way, no return) isn't held to it. Enforced at publish and by the planner.
+- **Search dates:** a person's own firm rules on attributes marked `search_date` move their search (Chris: "not before the 21st" searches from the 21st).
+- **Preferences beyond thresholds:** `lowest` / `highest` ("as short / early / cheap as possible", soft only, no value: a ranking among the options found) and `same_as` (a wish to share another member's pick, value = their name in the room, soft only; the database checks the name). Both evaluate as `NOT_APPLICABLE` on one candidate.
+- **Sets:** type `set` (a list of tags, e.g. a venue's `dietary_options`) is checked with `contains`. An attribute marked `unknown_ok` doesn't block a hard rule when the option doesn't report it (most venues don't say what they serve); one known not to meet it is excluded.
+- **How preferences are weighed** (worker): each becomes a 0–1 score per option (unknown scores 0, never drops the option), owned by its person, at an importance from their priority ranking via `contracts/priorities.json` (an explicit `importance` wins). Shortfalls count in that person's burden, which feeds the compromise ledger.
 - **Outcomes:** evaluation answers `SATISFIED / VIOLATED / UNKNOWN / NOT_APPLICABLE`. A missing fact is `UNKNOWN`, which publication refuses.
 - **One meaning:** `spacetimedb/src/rules.ts` and `worker/.../rules.py` both pass `contracts/rule_cases.json`, and they agree with the optimizer's own evaluator.
 
 **Tables** (private): `participant_rule`, `participant_need`, `search_fact`.
 - Every confirmed named limit is mirrored into them; confirming it again replaces what it produced.
-- A `SOFT` limit is a preference and isn't enforced, unless `enforce_soft` is set, as it is for bags.
-- A flexible budget is firm at the top of its authorized range.
+- A `SOFT` limit is a preference and isn't enforced (unless `enforce_soft`); a `SOFT` need (own room "if possible") binds nothing.
+- A flexible budget is a preference with partial credit up to the top of its authorized range (also firm there) or, with no range, up to `soft_tolerance` times itself. It's never a cap at the target.
+- A rule its owner chose to keep (`kept`) is in force like an `active` one.
 - A cleared value (set aside) produces nothing.
 
 **Calls**

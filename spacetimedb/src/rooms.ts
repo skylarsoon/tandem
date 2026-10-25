@@ -13,7 +13,7 @@ import {
   requireHuman,
   requireRoom,
 } from './guards';
-import { applyParticipationPreferences } from './effects';
+import { applyParticipationPreferences, reopenBroken } from './effects';
 import { startIntake } from './onboarding';
 
 const DEFAULT_REMINDER_DELAY_SECONDS = 600;
@@ -190,6 +190,7 @@ export const setRoomSettings = spacetimedb.reducer(
     if (!r.organizer.isEqual(ctx.sender)) fail('NOT_AUTHORIZED', 'only the organizer can change room settings');
     const settings = validateRoomSettings(parseJson(settingsJson, 'settingsJson'));
     ctx.db.room.id.update({ ...r, settingsJson });
+    reopenBroken(ctx, roomId);  // new dates can leave an agreed pick outside the trip
     invalidateRoom(ctx, roomId, { input: true }, 'room settings changed');
     emitEvent(ctx, roomId, 'ROOM_SETTINGS_UPDATED', settings);
   }

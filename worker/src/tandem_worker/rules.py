@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -23,9 +24,16 @@ from pydantic import Field
 
 from .contracts import ContractError, Record
 
-OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between")
-ORDERED = {"money", "int", "number", "epoch", "time"}
+OPERATORS = ("eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest", "same_as", "contains")
+# A preference for the cheapest, shortest, earliest...: a ranking among the options found,
+# never a check on one option, so only ever soft.
+RANKINGS = ("lowest", "highest")
+# Wanting the same pick as another member (value: their name): about two people's choices,
+# so never a check on one option, and only ever a wish (no one can require another's choice).
+RELATIONS = ("same_as",)
+ORDERED = {"money", "int", "number", "epoch", "time", "date"}
 TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class Rule(Record):
@@ -34,11 +42,12 @@ class Rule(Record):
     category: str | None = None   # with `attribute`: a rule on each candidate of that category
     attribute: str | None = None
     aggregate: str | None = None  # or a rule on a total (e.g. my_cost)
-    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between"]
-    value: Any
+    operator: Literal["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between", "lowest", "highest", "same_as",
+                      "contains"]
+    value: Any = None
     kind: Literal["hard", "soft"] = "hard"
-    importance: int | None = Field(default=None, ge=1, le=5)  # soft rules only; asked later
-    tolerance: dict | None = None                              # soft partial credit: {"limit": …}
+    importance: int | None = None  # soft rules only: 1-5, how much it matters to them
+    tolerance: dict | None = None  # soft rules only: {"limit": …}, partial credit up to there
     state: Literal["active", "set_aside", "kept"] = "active"
     source_quote: str = ""
     source_message_id: int | None = None
@@ -47,11 +56,13 @@ class Rule(Record):
 
 
 class Need(Record):
-    """A person's share of what a shared pick must hold (e.g. 1 bedroom of their own)."""
+    """A person's share of what a shared pick must hold (e.g. 1 bedroom of their own).
+    A soft one ("own room if possible") is a preference: weighed, never required."""
     owner: str
     category: str
     attribute: str
     needs: float = Field(gt=0)
+    kind: Literal["hard", "soft"] = "hard"
 
 
 class SearchFact(Record):
@@ -67,11 +78,159 @@ class RoomRules(Record):
     rules: tuple[Rule, ...] = ()
     needs: tuple[Need, ...] = ()
     facts: tuple[SearchFact, ...] = ()
+    # The trip's own dates (from the catalog's trip_bound marks): they bind every pick.
+    bounds: tuple[Rule, ...] = ()
+    # Each person's own priority ranking (profile C03), most important first: how much
+    # their preferences matter (contracts/priorities.json). Private, like the rest.
+    ranking: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+
+    def soft(self, owner: str | None = None, category: str | None = None) -> list[Rule]:
+        """Preferences in force (optionally one owner's, on one category's candidates)."""
+        return [r for r in self.rules if r.kind == "soft" and r.state in ("active", "kept")
+                and (owner is None or r.owner == owner) and (category is None or r.category == category)]
 
     def binding(self, owner: str | None = None, category: str | None = None) -> list[Rule]:
-        """Hard, active rules (optionally one owner's, on one category's candidates)."""
-        return [r for r in self.rules if r.kind == "hard" and r.state == "active"
-                and (owner is None or r.owner == owner) and (category is None or r.category == category)]
+        """Hard rules in force, active or kept (optionally one owner's, on one category's
+        candidates), plus the trip's dates, which bind everyone."""
+        own = [r for r in self.rules if r.kind == "hard" and r.state in ("active", "kept")
+               and (owner is None or r.owner == owner) and (category is None or r.category == category)]
+        return own + [b for b in self.bounds if category is None or b.category == category]
+
+    def within_trip(self, start_date: str | None, end_date: str | None) -> "RoomRules":
+        return self.model_copy(update={"bounds": trip_bound_rules(start_date, end_date)})
+
+
+@lru_cache(maxsize=1)
+def priorities() -> dict:
+    return json.loads((Path(__file__).parent / "priorities.json").read_text())
+
+
+def importance(ranking: tuple[str, ...], *, attribute: str | None = None, aggregate: str | None = None,
+               relation: str | None = None, group_rule: str | None = None, fairness: bool = False) -> int:
+    """How much one of a person's preferences matters, from their own ranking (priorities.json):
+    the importance of the best-ranked priority that covers it."""
+    table = priorities()
+    covering = [name for name, p in table["priorities"].items()
+                if (attribute and attribute in p.get("attributes", ())) or (aggregate and aggregate in p.get("aggregates", ()))
+                or (relation and relation in p.get("relations", ())) or (group_rule and group_rule in p.get("group_rules", ()))
+                or (fairness and p.get("fairness"))]
+    if not covering:
+        return table["unmapped"]
+    ranks = [ranking.index(name) for name in covering if name in ranking]
+    return table["by_rank"][min(ranks)] if ranks and min(ranks) < len(table["by_rank"]) else table["unranked"]
+
+
+def comparable(value: Any, kind: str) -> Any:
+    """A value of an attribute's type in comparable form (times as minutes, dates as days)."""
+    return _scalar(value, kind)
+
+
+def stage_decisions(snapshot) -> list[tuple[str, str]]:
+    """The organizer's stages as decisions, in order: (category, decision id). A stage the
+    catalog repeats (repeats_setting) is that many decisions, or one per full trip day."""
+    from datetime import date as _date
+    out = []
+    for category in snapshot.stages:
+        setting = decisions()["categories"][category].get("repeats_setting")
+        if setting is None:
+            out.append((category, category.lower()))
+            continue
+        count = getattr(snapshot, setting, None)
+        if count is None and snapshot.start_date and snapshot.end_date:
+            count = max(1, (_date.fromisoformat(snapshot.end_date) - _date.fromisoformat(snapshot.start_date)).days - 1)
+        out += [(category, f"{category.lower()}:{i}") for i in range(1, (count or 1) + 1)]
+    return out
+
+
+def remaining_stages(snapshot) -> dict[str, int]:
+    """Decisions still to come after the one being planned: category -> how many."""
+    if not snapshot.stages or not snapshot.components:
+        return {}
+    agreed = {c.decision_id for c in snapshot.commitments}
+    left = [(c, d) for c, d in stage_decisions(snapshot) if d not in agreed]
+    out: dict[str, int] = {}
+    for category, _ in left[1:]:  # the first is the one being planned now
+        out[category] = out.get(category, 0) + 1
+    return out
+
+
+def committed_costs(commitments, facts_by_ref: dict, owner_of, members) -> dict[str, int]:
+    """What the group's agreed decisions already cost each person, exactly, scaled by n (as
+    the database checks budgets: n × their own picks and per-head items, plus whole shared
+    totals). A complete plan already contains its parts, so only partial decisions count."""
+    n, shapes = len(members), decisions()["categories"]
+    out = {m: 0 for m in members}
+    for commitment in commitments:
+        if commitment.scope in ("COMPLETE_PLAN", "GENERAL_AGREEMENT", "LEGACY"):
+            continue
+        for ref in commitment.refs:
+            facts = facts_by_ref.get(ref)
+            if not facts or facts.get("total_cents") is None or facts.get("category") not in shapes:
+                continue
+            pays = shapes[facts["category"]]["pays"]
+            if pays == "each":
+                owner = owner_of(facts)
+                if owner in out:
+                    out[owner] += n * facts["total_cents"]
+            else:
+                for m in members:
+                    out[m] += facts["total_cents"] if pays == "split" else n * facts["total_cents"]
+    return out
+
+
+def search_dates(rules: RoomRules, owner: str, category: str, start: str | None, end: str | None) -> tuple[str | None, str | None]:
+    """The dates to search for one person: the trip's dates, narrowed by their own firm rules
+    on attributes the catalog marks search_date (e.g. "can't leave before the 21st")."""
+    from datetime import timedelta
+    shift = lambda day, days: (date.fromisoformat(day) + timedelta(days=days)).isoformat()  # noqa: E731
+    out, back = start, end
+    spec = attributes()["categories"].get(category, {})
+    for rule in rules.binding(owner, category):
+        role = spec.get(rule.attribute, {}).get("search_date")
+        if rule.owner != owner or role is None:
+            continue
+        low = {"gte": rule.value, "eq": rule.value, "gt": rule.value and shift(rule.value, 1),
+               "between": rule.value[0] if isinstance(rule.value, list) else None}.get(rule.operator)
+        high = {"lte": rule.value, "eq": rule.value, "lt": rule.value and shift(rule.value, -1),
+                "between": rule.value[1] if isinstance(rule.value, list) else None}.get(rule.operator)
+        if role == "outbound" and low is not None:
+            out = low if out is None else max(out, low)
+        if role == "return" and high is not None:
+            back = high if back is None else min(back, high)
+    return out, back
+
+
+def dates_outside_trip(rules: RoomRules, owner: str, category: str, start: str | None, end: str | None) -> set[str]:
+    """The person's own date rules that can't fit the trip at all (leaving after it ends,
+    back before it starts, or leaving after they must be back): the root of "no plan",
+    whatever options were found."""
+    out, back = search_dates(rules, owner, category, start, end)
+    if not ((end and out and out > end) or (start and back and back < start) or (out and back and out > back)):
+        return set()
+    spec = attributes()["categories"].get(category, {})
+    return {r.attribute for r in rules.binding(owner, category) if r.owner == owner and spec.get(r.attribute, {}).get("search_date")}
+
+
+def _day(iso: str) -> str:
+    d = date.fromisoformat(iso)
+    return f"{d:%b} {d.day}"
+
+
+def trip_bound_rules(start_date: str | None, end_date: str | None) -> tuple[Rule, ...]:
+    """Each attribute the catalog marks trip_bound, held to the trip's dates: by_end on or
+    before the end (arriving), from_start on or after the start (leaving for home). A pick
+    without that fact (a one-way flight has no way home) isn't held to it."""
+    out = []
+    for category, attrs in attributes()["categories"].items():
+        for name, spec in attrs.items():
+            bound = spec.get("trip_bound")
+            if bound == "by_end" and end_date:
+                out.append(Rule(category=category, attribute=name, operator="lte", value=end_date,
+                                source_quote=f"the trip ends {_day(end_date)}"))
+            elif bound == "from_start" and start_date:
+                out.append(Rule(category=category, attribute=name, operator="gte", value=start_date,
+                                source_quote=f"the trip starts {_day(start_date)}"))
+    return tuple(out)
 
 
 class RuleError(ContractError):
@@ -107,7 +266,14 @@ def attribute_type(rule: Rule) -> str:
 
 
 def _scalar(value: Any, kind: str) -> Any:
-    """A value of an attribute's type, in comparable form (times as minutes)."""
+    """A value of an attribute's type, in comparable form (times as minutes, dates as days)."""
+    if kind == "date":
+        if isinstance(value, str) and DATE.match(value):
+            try:
+                return date.fromisoformat(value).toordinal()
+            except ValueError:
+                pass
+        raise RuleError(f"{value!r} isn't a date (YYYY-MM-DD)")
     if kind == "time":
         if not isinstance(value, str) or not TIME.match(value):
             raise RuleError(f"{value!r} isn't a time (HH:MM)")
@@ -134,6 +300,24 @@ def validate(rule: Rule) -> None:
         raise RuleError("a rule names one attribute or one aggregate")
     kind = attribute_type(rule)
     op = rule.operator
+    if op in RANKINGS:
+        if rule.kind != "soft" or kind not in ORDERED or rule.value is not None or rule.tolerance is not None:
+            raise RuleError(f"{op} is a preference on an ordered attribute, with no value")
+        _check_weighting(rule, kind)
+        return
+    if op in RELATIONS:
+        if rule.kind != "soft" or rule.aggregate is not None or not isinstance(rule.value, str) or not rule.value.strip() \
+                or rule.tolerance is not None:
+            raise RuleError(f"{op} is a wish about another member's pick: their name, soft")
+        _check_weighting(rule, kind)
+        return
+    if (kind == "set") != (op == "contains"):
+        raise RuleError("a set (a list of tags) is checked with contains, and only a set is")
+    if op == "contains":
+        if not isinstance(rule.value, str) or not rule.value.strip():
+            raise RuleError("contains needs one tag")
+        _check_weighting(rule, kind)
+        return
     if kind in ("bool", "text") and op not in ("eq", "neq", "in", "not_in"):
         raise RuleError(f"{op} doesn't apply to {kind}")
     if op in ("in", "not_in"):
@@ -149,6 +333,21 @@ def validate(rule: Rule) -> None:
             raise RuleError("between needs low ≤ high (only times may wrap past midnight)")
     else:
         _scalar(rule.value, kind)
+    _check_weighting(rule, kind)
+
+
+def _check_weighting(rule: Rule, kind: str) -> None:
+    """How much a preference matters, and how far from it still earns partial credit."""
+    if (rule.importance is not None or rule.tolerance is not None) and rule.kind != "soft":
+        raise RuleError("only a preference (soft) has an importance or a tolerance")
+    if rule.importance is not None and (type(rule.importance) is not int or not 1 <= rule.importance <= 5):
+        raise RuleError("importance is a whole number from 1 to 5")
+    if rule.tolerance is not None:
+        if rule.operator not in ("lt", "lte", "gt", "gte") or not isinstance(rule.tolerance, dict) or set(rule.tolerance) != {"limit"}:
+            raise RuleError("a tolerance is {limit} on lt, lte, gt or gte")
+        limit, value = _scalar(rule.tolerance["limit"], kind), _scalar(rule.value, kind)
+        if (limit <= value) if rule.operator in ("lt", "lte") else (limit >= value):
+            raise RuleError("a tolerance limit lies past the preferred value")
 
 
 def evaluate(rule: Rule, facts: dict) -> str:
@@ -158,10 +357,16 @@ def evaluate(rule: Rule, facts: dict) -> str:
     if facts.get("category", rule.category) != rule.category:
         return "NOT_APPLICABLE"
     validate(rule)
+    if rule.operator in RANKINGS or rule.operator in RELATIONS:
+        return "NOT_APPLICABLE"  # a ranking among options, or about two people's picks: not a check on one
     actual = facts.get(rule.attribute)
     if actual is None:
         return "UNKNOWN"
     kind = attribute_type(rule)
+    if kind == "set":
+        if not isinstance(actual, (list, tuple)) or not all(isinstance(t, str) for t in actual):
+            raise RuleError(f"{actual!r} isn't a list of tags")
+        return "SATISFIED" if rule.value.lower() in {t.lower() for t in actual} else "VIOLATED"
     a, op = _scalar(actual, kind), rule.operator
     if op == "in":
         ok = a in [_scalar(v, kind) for v in rule.value]
@@ -193,7 +398,9 @@ def from_legacy(owner: str, key: str, row: dict) -> list[Record]:
     if spec["as"] == "search_fact":
         return [SearchFact(owner=owner, fact=spec["fact"], value=value)]
     if spec["as"] == "need":
-        return [Need(owner=owner, category=spec["category"], attribute=spec["attribute"], needs=spec["needs"])]
+        # A need someone hedged ("own room if possible") is a preference, never a must.
+        return [Need(owner=owner, category=spec["category"], attribute=spec["attribute"], needs=spec["needs"],
+                     kind="hard" if row.get("hardness", "HARD") == "HARD" else "soft")]
     if spec["as"] != "rule":
         return []
     target = {"aggregate": spec["aggregate"]} if "aggregate" in spec else {"category": spec["category"], "attribute": spec["attribute"]}
@@ -203,10 +410,14 @@ def from_legacy(owner: str, key: str, row: dict) -> list[Record]:
         value = spec["value"]
     out = []
     if row.get("hardness") == "SOFT" and "flexible_limit" in spec:
-        # Flexible: firm at the top of the range they gave; what they'd like stays a soft preference.
-        limit = (row.get("authorized_range") or {}).get("max", value)
-        out.append(Rule(**target, operator=spec["operator"], value=limit, **common))
-        out.append(Rule(**target, operator=spec["operator"], value=value, kind="soft", **common))
+        # Flexible: what they'd like is a preference with partial credit up to their stated top,
+        # or up to the catalog's tolerance if they named none. Only a stated top is also firm.
+        top = (row.get("authorized_range") or {}).get("max")
+        if top is not None:
+            out.append(Rule(**target, operator=spec["operator"], value=top, **common))
+        limit = top if top is not None else round(value * spec["soft_tolerance"]) if "soft_tolerance" in spec else None
+        tolerance = {"limit": limit} if limit is not None and limit > value else None
+        out.append(Rule(**target, operator=spec["operator"], value=value, kind="soft", tolerance=tolerance, **common))
     else:
         firm = row.get("hardness", "HARD") == "HARD" or spec.get("enforce_soft", False)
         out.append(Rule(**target, operator=spec["operator"], value=value, kind="hard" if firm else "soft", **common))

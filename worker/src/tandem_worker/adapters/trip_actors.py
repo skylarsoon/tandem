@@ -301,6 +301,11 @@ class booking_taxis:
 
 # --- ACTIVITY: axlymxp/booking-attractions-scraper ------------------------
 
+# Booking lists rides in its attractions catalogue; they aren't things to do. Only words
+# that name a ride (a tour "with hotel pick-up" is still a tour).
+NOT_AN_ACTIVITY = re.compile(r"\b(shuttles?|airport transfers?|taxis?|limo(usine)?s?|chauffeur|car service)\b", re.I)
+
+
 class booking_attractions:
     ACTOR_ID = "boYdMVP9TW1cfQxuE"
     BUILD = "1.0.1"
@@ -338,6 +343,9 @@ class booking_attractions:
         if not title or not isinstance(identity, str) or not identity:
             raise ValueError("UNSUPPORTED_ROW")
         url = https_url(row.get("url"), {"www.booking.com"}, "/attractions/")
+        labels = [x for x in (text(row.get(k)) for k in ("category", "type", "product_type")) if x]
+        if NOT_AN_ACTIVITY.search(" ".join([*labels, title, url.path.replace("-", " ")])):
+            raise ValueError("NOT_AN_ACTIVITY")
         cancellation = row.get("has_free_cancellation")
         # review_score is Booking's attractions scale, 0-5 (e.g. 4.7 next to
         # category averages of the same magnitude), unlike its 0-10 hotel score.

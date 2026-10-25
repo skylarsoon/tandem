@@ -4,9 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 
 
 def digest(value: object) -> str:
@@ -87,8 +87,15 @@ class Snapshot(Record):
     start_date: str | None = None
     end_date: str | None = None
     destination: str | None = None
+    # The organizer's order of decisions (catalog categories) and how arrivals relate.
+    stages: tuple[str, ...] = ()
+    arrive_together: Literal["required", "preferred", "off"] = "required"
+    activities: int | None = None
     # Agreed decisions: what later planning builds on and must not silently drop.
     commitments: tuple[Commitment, ...] = ()
+    # What those agreed decisions already cost each person, scaled by n (rules.committed_costs):
+    # what's left of a budget for this stage. Agreed prices are in the shared terms, so not private.
+    committed_scaled: dict[str, int] = Field(default_factory=dict)
     # Each traveller's cumulative approved compromise in this room (H_i, from the ledger).
     compromise_history: dict[str, float] = Field(default_factory=dict)
 
@@ -97,14 +104,16 @@ class Snapshot(Record):
         if not self.members or len(set(self.members)) != len(self.members) or "mediator" in self.members:
             raise ValueError("INVALID_MEMBERSHIP")
         from .rules import decisions
-        if set(self.components) - set(decisions()["categories"]):
+        if (set(self.components) | set(self.stages)) - set(decisions()["categories"]):
             raise ValueError("UNKNOWN_COMPONENT")
         return self
 
 
 Category = Literal["FLIGHT", "STAY", "TRANSFER", "ACTIVITY", "DINNER"]
 # A complete total can go into an approvable plan; the others are observations or estimates.
-COMPLETE_BASIS = {"FLIGHT": "COMPLETE_FLIGHT_TOTAL", "STAY": "COMPLETE_STAY_TOTAL", "TRANSFER": "COMPLETE_TRANSFER_TOTAL"}
+# Activities and dinners only ever have a per-person estimate, approved as such (as the database's PRICE_BASIS).
+COMPLETE_BASIS = {"FLIGHT": "COMPLETE_FLIGHT_TOTAL", "STAY": "COMPLETE_STAY_TOTAL", "TRANSFER": "COMPLETE_TRANSFER_TOTAL",
+                  "ACTIVITY": "ESTIMATE_PER_PERSON", "DINNER": "ESTIMATE_PER_PERSON"}
 SHARED = ("STAY", "TRANSFER")
 
 
@@ -137,6 +146,19 @@ class Candidate(Record):
     # Local wall-clock arrival "HH:MM" at the destination, and connections.
     arrival_local: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     stops: int | None = Field(default=None, ge=0)
+    # Local dates and travel times, derived from the epochs and zones when not given.
+    departure_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    arrival_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    duration_minutes: int | None = Field(default=None, ge=0)
+    # A round trip is one itinerary: the way home leaves the destination, lands at the origin.
+    return_departure_epoch: int | None = None
+    return_arrival_epoch: int | None = None
+    return_departure_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    return_arrival_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    return_stops: int | None = Field(default=None, ge=0)
+    return_duration_minutes: int | None = Field(default=None, ge=0)
+    # A one-way search's result, before it's paired into an itinerary (None: already whole).
+    leg: Literal["outbound", "return"] | None = None
     checked_bags_included: int | None = None
     # valid_until is a local freshness deadline, never a held fare's expiry.
     provider_expires_at: float | None = None
@@ -146,8 +168,34 @@ class Candidate(Record):
     bedrooms: int | None = Field(default=None, ge=0)
     rating: float | None = Field(default=None, ge=0, le=5)  # normalized to 0-5
     free_cancellation: bool | None = None
+    # What a venue serves, as tags ("vegetarian", "vegan"), when it says; None when it doesn't.
+    dietary_options: tuple[str, ...] | None = None
     check_in: str | None = None
     check_out: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def derived_facts(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+
+        def local_date(epoch, zone):
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            return datetime.fromtimestamp(epoch, ZoneInfo(zone)).date().isoformat()
+
+        out_zone, there_zone = data.get("departure_timezone"), data.get("arrival_timezone")
+        for field, epoch, zone in (("departure_date", "departure_epoch", out_zone), ("arrival_date", "arrival_epoch", there_zone),
+                                   ("return_departure_date", "return_departure_epoch", there_zone),
+                                   ("return_arrival_date", "return_arrival_epoch", out_zone)):
+            if data.get(field) is None and data.get(epoch) is not None and zone:
+                data[field] = local_date(data[epoch], zone)
+        for field, start, end in (("duration_minutes", "departure_epoch", "arrival_epoch"),
+                                  ("return_duration_minutes", "return_departure_epoch", "return_arrival_epoch")):
+            if data.get(field) is None and data.get(start) is not None and data.get(end) is not None and data[end] >= data[start]:
+                data[field] = (data[end] - data[start]) // 60
+        return data
 
     @model_validator(mode="after")
     def valid_evidence(self):
@@ -278,20 +326,23 @@ class Question(Record):
 class Impact(Record):
     """One traveller's position in a plan. Private to that traveller."""
     owner: str
-    candidate: str
-    price_cents: int  # what they pay in total: flight plus their share
+    candidate: str | None = None  # their own pick, if the plan has one (a stage of shared picks has none)
+    price_cents: int  # what they pay in total: their own pick plus their share
     cheapest_alone_cents: int
     extra_cents: int = Field(ge=0)
     reason: Literal["NONE", "ARRIVAL_WINDOW", "SHARED_CHOICE"] = "NONE"
     flight_cents: int | None = None
-    share_cents: int = 0  # equal share of the stay and transfer
+    share_cents: int = 0  # their share of the shared picks (split, or per head)
+    # Their preferences this plan doesn't fully meet, in plain words with their quote.
+    unmet: tuple[str, ...] = ()
 
 
 class GroupSummary(Record):
     """Room-safe facts about a plan: no caps, reasons or names."""
     total_cents: int
-    earliest_arrival: int
-    latest_arrival: int
+    # Arrivals, when the plan includes travel.
+    earliest_arrival: int | None = None
+    latest_arrival: int | None = None
     arrival_window_seconds: int
     travellers_paying_extra: int = 0
     max_extra_cents: int = 0
@@ -310,8 +361,13 @@ class GroupSummary(Record):
 class Conflict(Record):
     """Why no plan exists. Owner-specific conflicts go only to that owner."""
     code: Literal["HARD_LIMIT", "BAGGAGE_UNAVAILABLE", "NO_CANDIDATES", "ARRIVAL_WINDOW",
-                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME", "TOO_MANY_STOPS"]
+                  "TRIP_LIMIT", "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE", "ARRIVAL_TIME", "TOO_MANY_STOPS", "RULE",
+                  "DECLINED"]
     owner: str | None = None
+    # RULE: the attributes whose rules (the owner's own, or the trip's dates) left them no option.
+    attributes: tuple[str, ...] = ()
+    # DECLINED: how many options they were asked about and said no to.
+    declined: int = 0
     cheapest_cents: int | None = None
     # TRIP_LIMIT: the cheapest trip for this owner and their limit; STAY_UNAVAILABLE:
     # which requirement no stay meets (never whose).
@@ -388,6 +444,8 @@ class Route(Record):
     origin: str = Field(pattern=r"^[A-Z]{3}$")
     destination: str = Field(pattern=r"^[A-Z]{3}$")
     date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    # The way home: the latest day this person can come back (their rules, else the trip's end).
+    return_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     max_stops: int | None = Field(default=None, ge=0, le=3)
 
 
@@ -475,6 +533,21 @@ class TripBrief(Record):
     components: tuple[Literal["FLIGHT", "STAY", "TRANSFER"], ...] = ("FLIGHT",)
     group_size: int | None = Field(default=None, ge=1, le=20)
     vibe: str = Field(default="", max_length=200)
+    # Only what the organizer said: how arrivals relate, the order to decide things in
+    # (catalog categories, any of them), and how many group activities to plan.
+    arrive_together: Literal["required", "preferred", "off"] | None = None
+    stages: tuple[str, ...] | None = None
+    activities: int | None = Field(default=None, ge=0, le=20)
+
+    @model_validator(mode="after")
+    def dates_in_order(self):
+        if self.start_date > self.end_date:
+            raise ValueError("TRIP_DATES_OUT_OF_ORDER")
+        from .rules import decisions
+        if self.stages is not None and (not self.stages or len(set(self.stages)) != len(self.stages)
+                                        or set(self.stages) - set(decisions()["categories"])):
+            raise ValueError("UNKNOWN_STAGE")
+        return self
 
 
 class BriefDraft(Record):
@@ -484,16 +557,42 @@ class BriefDraft(Record):
     unclear: tuple[str, ...] = ()
 
 
+# The model's output is schema-constrained, and a structured-output schema closes every
+# object to the fields it names: an untyped dict could only ever come back empty. So the
+# dicts a traveller's words become are given their shapes here (and stay dicts in code).
+_NULLABLE = lambda schema: {"anyOf": [schema, {"type": "null"}]}  # noqa: E731
+_TEXT = _NULLABLE({"type": "string"})
+RULE_SCHEMA = _NULLABLE({"type": "object", "additionalProperties": False,
+    "required": ["category", "attribute", "aggregate", "operator", "value"],
+    "properties": {"category": _TEXT, "attribute": _TEXT, "aggregate": _TEXT,
+                   "operator": {"type": "string", "enum": ["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between",
+                                                           "lowest", "highest", "same_as", "contains"]},
+                   "value": {"anyOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "null"},
+                                       {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "number"}]}}]}}})
+VALUE_SCHEMA = {"anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "number"}, {"type": "boolean"}, {"type": "null"},
+                          {"type": "object", "additionalProperties": False, "required": ["earliest", "latest"],
+                           "properties": {"earliest": _TEXT, "latest": _TEXT}}]}
+RANGE_SCHEMA = _NULLABLE({"type": "object", "additionalProperties": False, "required": ["max"],
+                          "properties": {"max": {"type": "integer"}}})
+
+
 class IntakeItem(Record):
     """One thing the traveller said, with their exact words. `interpreted` marks a
     reading the summary must spell out (e.g. "no red-eyes" → land 06:00-23:00)."""
     key: IntakeKey
-    value: str | int | float | bool | dict[str, str] | None = None
+    value: Annotated[str | int | float | bool | dict[str, str | None] | None, WithJsonSchema(VALUE_SCHEMA)] = None
     # key "rule": anything checkable, in the generic language
     # ({category, attribute | aggregate, operator, value}; see contracts/attributes.json).
-    rule: dict | None = None
+    rule: Annotated[dict | None, WithJsonSchema(RULE_SCHEMA)] = None
     hardness: Literal["HARD", "SOFT"] = "HARD"
-    authorized_range: dict[str, int] | None = None
+    authorized_range: Annotated[dict[str, int] | None, WithJsonSchema(RANGE_SCHEMA)] = None
+
+    @model_validator(mode="after")
+    def drop_empty_rule_fields(self):
+        # The schema makes every rule field present; a rule names only what it uses.
+        if self.rule:
+            object.__setattr__(self, "rule", {k: v for k, v in self.rule.items() if v is not None})
+        return self
     unit: str = ""
     private_rationale: str = Field(default="", max_length=300)
     source_message_id: int

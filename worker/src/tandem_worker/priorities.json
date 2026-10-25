@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "about": "How much a preference matters, from the person's own priority ranking (profile question C03): each priority covers attributes (and totals, relations, the fairness of what they pay). A preference's importance is by_rank at its best-ranked priority, unranked if they ranked none that covers it, unmapped if no priority covers it. An importance the person gave explicitly wins. Data only: change it here, then run scripts/sync-catalogs.py.",
+  "priorities": {
+    "affordability": {
+      "attributes": [
+        "total_cents"
+      ],
+      "aggregates": [
+        "my_cost"
+      ],
+      "fairness": true
+    },
+    "time_efficiency": {
+      "attributes": [
+        "duration_minutes",
+        "return_duration_minutes",
+        "stops",
+        "return_stops",
+        "arrival_epoch",
+        "departure_date"
+      ]
+    },
+    "comfort": {
+      "attributes": [
+        "stops",
+        "return_stops",
+        "duration_minutes",
+        "return_duration_minutes",
+        "baggage_included",
+        "bedrooms",
+        "rating"
+      ]
+    },
+    "togetherness": {
+      "relations": [
+        "same_as"
+      ],
+      "group_rules": [
+        "arrive_together"
+      ]
+    },
+    "experience_quality": {
+      "attributes": [
+        "rating"
+      ]
+    },
+    "discovery": {
+      "attributes": []
+    }
+  },
+  "by_rank": [
+    5,
+    4,
+    3,
+    2,
+    1
+  ],
+  "unranked": 2,
+  "unmapped": 3
+}

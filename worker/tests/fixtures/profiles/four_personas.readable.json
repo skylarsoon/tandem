@@ -1,0 +1,63 @@
+{
+  "fixture_name": "tandem_four_persona_onboarding",
+  "purpose": "Human-readable onboarding fixture for subsequent agent and optimization tests. Not an insert-ready SpaceTimeDB payload.",
+  "schema_version": "qa-human-readable-v1",
+  "users": [
+    {
+      "test_user_id": "alex",
+      "answers": {
+        "q1_display_name": "Alex",
+        "q2_enjoyed_activities": ["Nature and scenery", "Hiking and outdoor adventures", "Local culture and neighborhoods", "Food and local restaurants"],
+        "q3_ranked_priorities": ["Affordability", "Group togetherness", "Discovery", "Experience quality", "Time efficiency"],
+        "q4_spending_tendency": "Keep costs as low as reasonably possible",
+        "q5_ideal_day": "Full and active — see and do as much as possible",
+        "q6_planning_style": "A loose outline",
+        "q7_group_time": "Mostly together",
+        "q8_needs_boundaries": {"selected_categories": ["None to add right now"], "details": []},
+        "q9_compromise_involvement": "Suggest compromises within my stated preferences, then let me review"
+      }
+    },
+    {
+      "test_user_id": "bella",
+      "answers": {
+        "q1_display_name": "Bella",
+        "q2_enjoyed_activities": ["Beaches and water", "Rest and wellness", "Food and local restaurants", "Shopping and markets"],
+        "q3_ranked_priorities": ["Comfort", "Experience quality", "Time efficiency", "Group togetherness", "Affordability"],
+        "q4_spending_tendency": "Prioritize the experience even if it costs more",
+        "q5_ideal_day": "Slow and spacious — one main activity and plenty of downtime",
+        "q6_planning_style": "Book the essentials and leave room to explore",
+        "q7_group_time": "Together for key activities, with room to split up",
+        "q8_needs_boundaries": {"selected_categories": ["None to add right now"], "details": []},
+        "q9_compromise_involvement": "Ask me before suggesting a compromise on my behalf"
+      }
+    },
+    {
+      "test_user_id": "chris",
+      "answers": {
+        "q1_display_name": "Chris",
+        "q2_enjoyed_activities": ["Hiking and outdoor adventures", "Sports and games", "Nature and scenery", "Beaches and water"],
+        "q3_ranked_priorities": ["Time efficiency", "Experience quality", "Discovery", "Affordability", "Comfort"],
+        "q4_spending_tendency": "Save on basics and splurge on what matters",
+        "q5_ideal_day": "Full and active — see and do as much as possible",
+        "q6_planning_style": "A detailed schedule in advance",
+        "q7_group_time": "Together for key activities, with room to split up",
+        "q8_needs_boundaries": {"selected_categories": ["None to add right now"], "details": []},
+        "q9_compromise_involvement": "Suggest compromises within my stated preferences, then let me review"
+      }
+    },
+    {
+      "test_user_id": "dana",
+      "answers": {
+        "q1_display_name": "Dana",
+        "q2_enjoyed_activities": ["Art, museums, and history", "Local culture and neighborhoods", "Food and local restaurants", "Classes and hands-on experiences"],
+        "q3_ranked_priorities": ["Group togetherness", "Experience quality", "Comfort", "Affordability", "Discovery"],
+        "q4_spending_tendency": "Balance cost and comfort",
+        "q5_ideal_day": "Balanced — a few activities with breaks",
+        "q6_planning_style": "Book the essentials and leave room to explore",
+        "q7_group_time": "Mostly together",
+        "q8_needs_boundaries": {"selected_categories": ["Dietary requirements"], "details": [{"category": "Dietary requirements", "human_readable_requirement": "Vegetarian meals required", "note": "QA scenario detail; mapping to N01–N05 pending"}]},
+        "q9_compromise_involvement": "It depends — ask me for each plan."
+      }
+    }
+  ]
+}

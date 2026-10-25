@@ -506,6 +506,357 @@
     "total_cents": 100
    },
    "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a preference with importance and tolerance is checked like any rule",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 40000,
+    "kind": "soft",
+    "importance": 4,
+    "tolerance": {
+     "limit": 80000
+    }
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 45000
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "importance on a hard rule is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 50000,
+    "importance": 3
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 45000
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "importance outside 1-5 is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 50000,
+    "kind": "soft",
+    "importance": 6
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 45000
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a tolerance needs an ordering operator",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "stops",
+    "operator": "eq",
+    "value": 0,
+    "kind": "soft",
+    "tolerance": {
+     "limit": 1
+    }
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "stops": 0
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a tolerance limit on the wrong side of the preference is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "total_cents",
+    "operator": "lte",
+    "value": 40000,
+    "kind": "soft",
+    "tolerance": {
+     "limit": 30000
+    }
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "total_cents": 45000
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "leaving on a date or later: the day before is too early",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "departure_date",
+    "operator": "gte",
+    "value": "2026-11-21"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "departure_date": "2026-11-20"
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "leaving on a date or later: that day is fine",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "departure_date",
+    "operator": "gte",
+    "value": "2026-11-21"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "departure_date": "2026-11-21"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "back home by a date compares across months",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "return_arrival_date",
+    "operator": "lte",
+    "value": "2026-11-24"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "return_arrival_date": "2026-12-01"
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "a date range",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "departure_date",
+    "operator": "between",
+    "value": [
+     "2026-11-20",
+     "2026-11-22"
+    ]
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "departure_date": "2026-11-21"
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "a date that doesn't exist is invalid",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "departure_date",
+    "operator": "gte",
+    "value": "2026-02-30"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "departure_date": "2026-03-01"
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a missing return date is unknown, never fine",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "return_arrival_date",
+    "operator": "lte",
+    "value": "2026-11-24"
+   },
+   "facts": {
+    "category": "FLIGHT"
+   },
+   "expect": "UNKNOWN"
+  },
+  {
+   "name": "as short as possible is a ranking, not a check",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "duration_minutes",
+    "operator": "lowest",
+    "kind": "soft",
+    "importance": 4
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "duration_minutes": 300
+   },
+   "expect": "NOT_APPLICABLE"
+  },
+  {
+   "name": "as short as possible can't be a must",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "duration_minutes",
+    "operator": "lowest"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "duration_minutes": 300
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a ranking has no value",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "duration_minutes",
+    "operator": "highest",
+    "value": 300,
+    "kind": "soft"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "duration_minutes": 300
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a ranking needs an ordered attribute",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "baggage_included",
+    "operator": "lowest",
+    "kind": "soft"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "baggage_included": true
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "the same flight as someone is about two picks, not one",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "flight_identity",
+    "operator": "same_as",
+    "value": "Alex",
+    "kind": "soft"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "flight_identity": "UA11582026-11-20"
+   },
+   "expect": "NOT_APPLICABLE"
+  },
+  {
+   "name": "no one can require another member's choice",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "flight_identity",
+    "operator": "same_as",
+    "value": "Alex"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "flight_identity": "UA11582026-11-20"
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "the same as whom: a name is needed",
+   "rule": {
+    "category": "FLIGHT",
+    "attribute": "flight_identity",
+    "operator": "same_as",
+    "value": "",
+    "kind": "soft"
+   },
+   "facts": {
+    "category": "FLIGHT",
+    "flight_identity": "UA11582026-11-20"
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "a vegetarian menu meets it",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "contains",
+    "value": "vegetarian"
+   },
+   "facts": {
+    "category": "DINNER",
+    "dietary_options": [
+     "Vegan",
+     "Vegetarian"
+    ]
+   },
+   "expect": "SATISFIED"
+  },
+  {
+   "name": "a menu known to lack it doesn't",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "contains",
+    "value": "vegetarian"
+   },
+   "facts": {
+    "category": "DINNER",
+    "dietary_options": [
+     "gluten_free"
+    ]
+   },
+   "expect": "VIOLATED"
+  },
+  {
+   "name": "a venue that doesn't say is unknown",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "contains",
+    "value": "vegetarian"
+   },
+   "facts": {
+    "category": "DINNER"
+   },
+   "expect": "UNKNOWN"
+  },
+  {
+   "name": "a list is only checked with contains",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "eq",
+    "value": "vegetarian"
+   },
+   "facts": {
+    "category": "DINNER",
+    "dietary_options": [
+     "vegetarian"
+    ]
+   },
+   "expect": "INVALID_RULE"
+  },
+  {
+   "name": "contains needs a tag",
+   "rule": {
+    "category": "DINNER",
+    "attribute": "dietary_options",
+    "operator": "contains",
+    "value": ""
+   },
+   "facts": {
+    "category": "DINNER",
+    "dietary_options": [
+     "vegetarian"
+    ]
+   },
+   "expect": "INVALID_RULE"
   }
  ],
  "legacy_cases": [

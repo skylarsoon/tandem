@@ -7,6 +7,8 @@ from pydantic import ValidationError
 
 from ..contracts import Act, ContractError, Decision, Impact, Message, Payload, Question, ValidationMetadata, VoiceDraft, digest
 from ..explain import consultation_prompt
+from ..intake_policy import describe_rule
+from ..persona import persona
 from ..progress import activity
 from ..solver import RELAXABLE
 from ..policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
@@ -49,6 +51,8 @@ def nudges(snapshot, brief, candidate, shared):
         found.append(("rooming", f"The best-value place for the group{', ' + stay['title'] if stay.get('title') else ''}, "
                       f"has {rooms} bedroom{'s' if rooms != 1 else ''} for {n} of you. OK to share a room?",
                       _patch("own_bedroom", False), _patch("own_bedroom", True)))
+    if candidate.get("category", "FLIGHT") != "FLIGHT" or not candidate:
+        return found  # the rest is about their own flight; a stage of shared picks has none
     if candidate.get("baggage_included") is False and "baggage_required" not in asked:
         found.append(("bag", f"Your best-value fare (${candidate['total_cents'] / 100:,.2f}) doesn't include a checked bag. "
                       "Do you need one?", _patch("baggage_required", True), _patch("baggage_required", False)))
@@ -65,10 +69,10 @@ def nudges(snapshot, brief, candidate, shared):
     return found
 
 
-def owner_prompt(kind, payload, act, impact, window_seconds):
+def owner_prompt(kind, payload, act, impact, window_seconds, also=""):
     """Owner-only wording of exactly what the agent wants to do."""
     if kind == "CONSULTATION" and impact is not None:
-        return consultation_prompt(impact, window_seconds)
+        return consultation_prompt(impact, window_seconds, also)
     if kind == "DISCLOSURE":
         said = permitted_facts(act, payload)[f"act:{act.value}"]
         return f'May your agent tell the group: "{said}"? It will not share your limit or your reasons.'
@@ -95,7 +99,13 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         activity(backend, claim, task["owner"], "THINKING")
         # Requirements the owner set aside are their own recorded answers, already in the brief.
         original = brief = backend.read_brief(claim, task["owner"])
+        # Who they are and what they said, for their own agent only (never kept in graph state).
+        rules = backend.read_rules(claim)
+        own_words = [f"{describe_rule(r)} (“{r.source_quote}”)" if r.source_quote else describe_rule(r)
+                     for r in [*rules.binding(brief.owner), *rules.soft(brief.owner)] if r.owner == brief.owner]
         context = {"owner": brief.owner, "hard_cap_cents": brief.hard_cap_cents,
+            "persona": persona(backend.read_profile(claim, brief.owner)), "their_rules": own_words, "notes": list(brief.notes),
+            "arrival_window": brief.arrival_window, "max_stops": brief.max_stops,
             "private_reason": brief.private_reason, "preferences": brief.preferences.model_dump(mode="json"),
             "baggage_required": brief.baggage_required, "candidate": task["candidate"],
             "trip_cap_cents": brief.trip_cap_cents, "own_bedroom": brief.own_bedroom, "stay_min_rating": brief.stay_min_rating,
@@ -122,11 +132,18 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             raise ContractError("INVALID_MODEL_OUTPUT")
         # Model eligibility cannot override numeric checks or required evidence.
         candidate = task["candidate"]
-        trip_cost = None if candidate["total_cents"] is None else candidate["total_cents"] + context["share_cents"]
-        if (trip_cost is None or candidate["total_cents"] > brief.hard_cap_cents
-                or (brief.trip_cap_cents is not None and trip_cost > brief.trip_cap_cents)):
+        # Their own pick (a flight) counts in full; a shared pick only as their share. What the
+        # group already agreed counts toward their whole-trip limit.
+        flight = candidate.get("category", "FLIGHT") == "FLIGHT" and candidate.get("owner") == brief.owner
+        snapshot = task.get("snapshot") or {}
+        n = len(snapshot.get("members") or ()) or 1
+        committed = snapshot.get("committed_scaled", {}).get(brief.owner, 0)
+        own = candidate["total_cents"] if flight else 0
+        trip_cost = None if candidate["total_cents"] is None else own + context["share_cents"]
+        if (trip_cost is None or (flight and candidate["total_cents"] > brief.hard_cap_cents)
+                or (brief.trip_cap_cents is not None and n * trip_cost + committed > n * brief.trip_cap_cents)):
             decision = Decision(act=Act.OBJECT, evaluation="INELIGIBLE", blocker="HARD_LIMIT")
-        elif brief.baggage_required and candidate["baggage_included"] is not True and decision.evaluation == "ELIGIBLE":
+        elif flight and brief.baggage_required and candidate["baggage_included"] is not True and decision.evaluation == "ELIGIBLE":
             decision = Decision(act=Act.OBJECT, evaluation="INCOMPLETE_EVIDENCE", blocker="BAGGAGE_UNKNOWN", research=True)
         # A concern no search can act on (no over-limit, no missing bag) goes to the
         # owner, once, instead of burning research rounds; their yes settles it.
@@ -138,10 +155,15 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         # concession, whatever the model called it; Ask me first then consults them.
         impact = Impact.model_validate(context["impact"]) if context["impact"] else None
         consulted = backend.has_permission(claim, brief.owner, "CONSULTATION", task["draft_ref"])
-        if impact and impact.extra_cents > 0 and (decision.evaluation == "ELIGIBLE" or (
-                # Asking "is the extra cost OK?" is exactly the consultation Ask me first
-                # requires: route it there so the answer becomes a scoped, enforced grant.
+        # A compromise is paying more than their cheapest option or giving up one of their
+        # preferences. With "ask me first", it's put to them with the specifics (and anything
+        # their agent itself wanted to ask), and their answer becomes a scoped, enforced grant.
+        compromise = impact is not None and (impact.extra_cents > 0 or bool(impact.unmet))
+        also = ""
+        if compromise and (decision.evaluation == "ELIGIBLE" or (
                 decision.evaluation == "NEEDS_OWNER_INPUT" and brief.preferences.ask_me_first and not consulted)):
+            if decision.evaluation == "NEEDS_OWNER_INPUT" and decision.owner_question:
+                also = decision.owner_question.strip()
             decision = Decision(act=Act.EVALUATE, evaluation="ELIGIBLE", recipient="mediator", concession=True)
         payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
             candidate_refs=(candidate["id"], *(c["id"] for c in task.get("shared", []))))
@@ -150,7 +172,7 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             if kind != "PARTICIPATION" and backend.has_permission(claim, brief.owner, kind, task["draft_ref"]):
                 continue
             q = question_for(claim, brief.owner, kind, task["draft_ref"],
-                owner_prompt(kind, payload, decision.act, impact, task.get("window_seconds", 0)))
+                owner_prompt(kind, payload, decision.act, impact, task.get("window_seconds", 0), also))
             questions.append(backend.ask_owner(claim, q))
         if decision.evaluation == "NEEDS_OWNER_INPUT":
             q = question_for(claim, brief.owner, "MISSING_FACT", task["draft_ref"], decision.owner_question.strip())

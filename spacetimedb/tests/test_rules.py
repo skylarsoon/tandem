@@ -109,3 +109,54 @@ def test_a_rule_set_aside_stops_binding(ready_room, client, worker):
     [cap] = [r for r in my_rules(room, "bob") if r["legacy_key"] == "flight_budget_total"]
     expect_error("INVALID_STATE", client.call, room.people["bob"], "set_rule_state", rule_id=cap["id"], state="set_aside")
     expect_error("INVALID_ARGUMENT", client.call, room.people["bob"], "set_rule_state", rule_id=rule["id"], state="forgotten")
+
+
+def test_a_kept_rule_still_binds_and_a_preference_keeps_its_weight(ready_room, client, worker):
+    room, _ = ready_room
+    add_rule(room, "bob", RATING)
+    prefer = {"category": "STAY", "attribute": "rating", "operator": "gte", "value": 4.8, "kind": "soft",
+              "importance": 4, "tolerance": {"limit": 4.0}}
+    add_rule(room, "bob", prefer)
+    expect_error("INVALID_RULE", add_rule, room, "bob", {**RATING, "importance": 4})  # a must has no weight
+    mine = {json.loads(r["rule_json"])["kind"]: r for r in my_rules(room, "bob") if r["legacy_key"] is None}
+    assert json.loads(mine["soft"]["rule_json"]) == prefer
+    # Asked to relax it, Bob keeps it: "kept" is still in force.
+    client.call(room.people["bob"], "set_rule_state", rule_id=mine["hard"]["id"], state="kept")
+    job_id = stay_job(room, client, worker)
+    shared = dict(scope="SINGLE_SHARED_BOOKING", decision_id="stay", stage="STAY_EXPERIENCES")
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id,
+                 [record_shared(room, worker, job_id, "STAY", 90000, rating=4.0)], **shared)
+
+
+def test_a_later_statement_about_the_same_thing_replaces_the_earlier_one(ready_room, client, worker):
+    room, _ = ready_room
+    leave = {"category": "FLIGHT", "attribute": "departure_date", "operator": "gte"}
+    add_rule(room, "carol", {**leave, "value": "2026-11-21"}, "I can't leave before November 21")
+    add_rule(room, "carol", {**leave, "value": "2026-11-25"}, "I can't depart until November 25 now")
+    add_rule(room, "carol", {**leave, "value": "2026-11-22", "kind": "soft"})  # a wish sits beside the must
+    mine = [json.loads(r["rule_json"]) for r in my_rules(room, "carol") if r["legacy_key"] is None]
+    assert sorted((r["value"], r["kind"]) for r in mine) == [("2026-11-22", "soft"), ("2026-11-25", "hard")]
+
+
+def test_the_same_flight_as_someone_names_another_member_and_is_only_a_wish(ready_room, client, worker):
+    room, _ = ready_room
+    together = {"category": "FLIGHT", "attribute": "flight_identity", "operator": "same_as", "kind": "soft"}
+    expect_error("INVALID_RULE", add_rule, room, "dave", {**together, "value": "Zed"})      # not in the room
+    expect_error("INVALID_RULE", add_rule, room, "dave", {**together, "value": "Dave"})    # not themselves
+    expect_error("INVALID_RULE", add_rule, room, "dave", {**together, "value": "Alice", "kind": "hard"})
+    add_rule(room, "dave", {**together, "value": "Alice"}, "I'd love to fly with Alice")
+    assert any(json.loads(r["rule_json"])["operator"] == "same_as" for r in my_rules(room, "dave"))
+    assert not any(json.loads(r["rule_json"]).get("operator") == "same_as" for r in my_rules(room, "alice")), "private to Dave"
+
+
+def test_a_dietary_must_blocks_a_venue_known_not_to_fit_but_not_one_that_doesnt_say(ready_room, client, worker):
+    from test_decisions import activity, include, next_job
+    room, _ = ready_room
+    add_rule(room, "dave", {"category": "DINNER", "attribute": "dietary_options", "operator": "contains", "value": "vegetarian"},
+             "Vegetarian meals required")
+    job_id = next_job(room, worker)
+    steakhouse = record_shared(room, worker, job_id, "DINNER", 3000, dietary_options=["gluten_free"],
+                               cost_basis="ESTIMATE_PER_PERSON")
+    expect_error("INVALID_PROPOSAL", include, room, worker, job_id, "dinner:1", [steakhouse])
+    unsaid = record_shared(room, worker, job_id, "DINNER", 3500, cost_basis="ESTIMATE_PER_PERSON")
+    assert include(room, worker, job_id, "dinner:1", [unsaid])["version"] == 1

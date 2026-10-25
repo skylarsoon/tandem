@@ -10,6 +10,8 @@ export type Rule = {
   operator: string;
   value: unknown;
   kind?: string;
+  importance?: number; // soft rules only: 1-5, how much it matters to them
+  tolerance?: { limit: unknown }; // soft rules only: partial credit up to the limit
 };
 export type Catalog = {
   categories: Record<string, Record<string, { type: string }>>;
@@ -17,9 +19,16 @@ export type Catalog = {
 };
 export type Verdict = 'SATISFIED' | 'VIOLATED' | 'UNKNOWN' | 'NOT_APPLICABLE';
 
-const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between'];
-const ORDERED = ['money', 'int', 'number', 'epoch', 'time'];
+const OPERATORS = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'between', 'lowest', 'highest', 'same_as', 'contains'];
+// A preference for the cheapest, shortest, earliest...: a ranking among the options found,
+// never a check on one option, so only ever soft.
+const RANKINGS = ['lowest', 'highest'];
+// Wanting the same pick as another member (value: their name): about two people's choices,
+// so never a check on one option, and only ever a wish (no one can require another's choice).
+const RELATIONS = ['same_as'];
+const ORDERED = ['money', 'int', 'number', 'epoch', 'time', 'date'];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class RuleError extends Error {
   code = 'INVALID_RULE';
@@ -37,8 +46,16 @@ export function attributeType(rule: Rule, catalog: Catalog): string {
   return found?.type ?? bad(`nothing carries ${rule.category}.${rule.attribute ?? rule.aggregate}`);
 }
 
-// A value of an attribute's type, in comparable form (times as minutes).
+// A value of an attribute's type, in comparable form (times as minutes, dates as days).
 function scalar(value: unknown, kind: string): number | boolean | string {
+  if (kind === 'date') {
+    if (typeof value === 'string' && DATE.test(value)) {
+      const [y, m, d] = value.split('-').map(Number);
+      const ms = Date.UTC(y, m - 1, d);
+      if (new Date(ms).toISOString().slice(0, 10) === value) return ms / 86_400_000;
+    }
+    bad(`${JSON.stringify(value)} isn't a date (YYYY-MM-DD)`);
+  }
   if (kind === 'time') {
     if (typeof value !== 'string' || !TIME.test(value)) bad(`${JSON.stringify(value)} isn't a time (HH:MM)`);
     const [h, m] = value.split(':');
@@ -60,6 +77,27 @@ export function validateRule(rule: Rule, catalog: Catalog): void {
   if (rule.kind !== undefined && rule.kind !== 'hard' && rule.kind !== 'soft') bad(`unknown kind ${rule.kind}`);
   const kind = attributeType(rule, catalog);
   const op = rule.operator;
+  if (RANKINGS.includes(op)) {
+    if (rule.kind !== 'soft' || !ORDERED.includes(kind) || (rule.value !== undefined && rule.value !== null) || rule.tolerance !== undefined) {
+      bad(`${op} is a preference on an ordered attribute, with no value`);
+    }
+    checkWeighting(rule, kind);
+    return;
+  }
+  if (RELATIONS.includes(op)) {
+    if (rule.kind !== 'soft' || rule.aggregate !== undefined || typeof rule.value !== 'string' || !rule.value.trim() ||
+        rule.tolerance !== undefined) {
+      bad(`${op} is a wish about another member's pick: their name, soft`);
+    }
+    checkWeighting(rule, kind);
+    return;
+  }
+  if ((kind === 'set') !== (op === 'contains')) bad('a set (a list of tags) is checked with contains, and only a set is');
+  if (op === 'contains') {
+    if (typeof rule.value !== 'string' || !rule.value.trim()) bad('contains needs one tag');
+    checkWeighting(rule, kind);
+    return;
+  }
   if ((kind === 'bool' || kind === 'text') && !['eq', 'neq', 'in', 'not_in'].includes(op)) bad(`${op} doesn't apply to ${kind}`);
   if (op === 'in' || op === 'not_in') {
     if (!Array.isArray(rule.value) || rule.value.length === 0) bad(`${op} needs a non-empty list`);
@@ -73,6 +111,27 @@ export function validateRule(rule: Rule, catalog: Catalog): void {
   } else {
     scalar(rule.value, kind);
   }
+  checkWeighting(rule, kind);
+}
+
+// How much a preference matters, and how far from it still earns partial credit.
+function checkWeighting(rule: Rule, kind: string): void {
+  if ((rule.importance !== undefined || rule.tolerance !== undefined) && rule.kind !== 'soft') {
+    bad('only a preference (soft) has an importance or a tolerance');
+  }
+  if (rule.importance !== undefined && (!Number.isInteger(rule.importance) || rule.importance < 1 || rule.importance > 5)) {
+    bad('importance is a whole number from 1 to 5');
+  }
+  if (rule.tolerance !== undefined) {
+    const t = rule.tolerance as unknown;
+    if (!['lt', 'lte', 'gt', 'gte'].includes(rule.operator) || !t || typeof t !== 'object' || Array.isArray(t) ||
+        Object.keys(t).join() !== 'limit') {
+      bad('a tolerance is {limit} on lt, lte, gt or gte');
+    }
+    const limit = scalar(rule.tolerance.limit, kind) as number;
+    const value = scalar(rule.value, kind) as number;
+    if (['lt', 'lte'].includes(rule.operator) ? limit <= value : limit >= value) bad('a tolerance limit lies past the preferred value');
+  }
 }
 
 // SATISFIED / VIOLATED / UNKNOWN / NOT_APPLICABLE for one candidate's facts.
@@ -81,9 +140,16 @@ export function evaluateRule(rule: Rule, facts: Record<string, unknown>, catalog
   if (rule.aggregate !== undefined) bad('aggregate rules are evaluated on a whole plan, not one candidate');
   if ((facts.category ?? rule.category) !== rule.category) return 'NOT_APPLICABLE';
   validateRule(rule, catalog);
+  // A ranking among options, or about two people's picks: not a check on one.
+  if (RANKINGS.includes(rule.operator) || RELATIONS.includes(rule.operator)) return 'NOT_APPLICABLE';
   const actual = facts[rule.attribute!];
   if (actual === undefined || actual === null) return 'UNKNOWN';
   const kind = attributeType(rule, catalog);
+  if (kind === 'set') {
+    if (!Array.isArray(actual) || actual.some(t => typeof t !== 'string')) bad(`${JSON.stringify(actual)} isn't a list of tags`);
+    const tags = new Set((actual as string[]).map(t => t.toLowerCase()));
+    return tags.has((rule.value as string).toLowerCase()) ? 'SATISFIED' : 'VIOLATED';
+  }
   const a = scalar(actual, kind);
   const op = rule.operator;
   let ok: boolean;
@@ -103,7 +169,7 @@ export function evaluateRule(rule: Rule, facts: Record<string, unknown>, catalog
 
 // ---------- The old named limits, as rules (contracts/legacy_keys.json) ----------
 
-export type Need = { category: string; attribute: string; needs: number };
+export type Need = { category: string; attribute: string; needs: number; kind: 'hard' | 'soft' };
 export type SearchFact = { fact: string; value: unknown };
 export type LegacyTable = { keys: Record<string, Record<string, any>>; kept_prefix: string };
 export type LegacyRow = { value: unknown; hardness?: string; authorized_range?: unknown };
@@ -118,7 +184,11 @@ export function fromLegacy(key: string, row: LegacyRow, table: LegacyTable, cata
   let value = row.value;
   if (value === null || value === undefined || ('only_when' in spec && value !== spec.only_when)) return out;
   if (spec.as === 'search_fact') out.facts.push({ fact: spec.fact, value });
-  if (spec.as === 'need') out.needs.push({ category: spec.category, attribute: spec.attribute, needs: spec.needs });
+  // A need someone hedged ("own room if possible") is a preference, never a must.
+  if (spec.as === 'need') {
+    out.needs.push({ category: spec.category, attribute: spec.attribute, needs: spec.needs,
+      kind: (row.hardness ?? 'HARD') === 'HARD' ? 'hard' : 'soft' });
+  }
   if (spec.as !== 'rule') return out;
   const target = 'aggregate' in spec ? { aggregate: spec.aggregate as string } : { category: spec.category as string, attribute: spec.attribute as string };
   if ('value_from' in spec) {
@@ -128,10 +198,14 @@ export function fromLegacy(key: string, row: LegacyRow, table: LegacyTable, cata
     value = spec.value;
   }
   if (row.hardness === 'SOFT' && 'flexible_limit' in spec) {
-    // Flexible: firm at the top of the range they gave; what they'd like stays a soft preference.
-    const range = (row.authorized_range ?? {}) as { max?: unknown };
-    out.rules.push({ ...target, operator: spec.operator, value: range.max ?? value, kind: 'hard' });
-    out.rules.push({ ...target, operator: spec.operator, value, kind: 'soft' });
+    // Flexible: what they'd like is a preference with partial credit up to their stated top,
+    // or up to the catalog's tolerance if they named none. Only a stated top is also firm.
+    const top = ((row.authorized_range ?? {}) as { max?: number }).max;
+    if (top !== undefined) out.rules.push({ ...target, operator: spec.operator, value: top, kind: 'hard' });
+    const limit = top ?? ('soft_tolerance' in spec ? Math.round((value as number) * (spec.soft_tolerance as number)) : undefined);
+    const soft: Rule = { ...target, operator: spec.operator, value, kind: 'soft' };
+    if (limit !== undefined && limit > (value as number)) soft.tolerance = { limit };
+    out.rules.push(soft);
   } else {
     const firm = (row.hardness ?? 'HARD') === 'HARD' || spec.enforce_soft === true;
     out.rules.push({ ...target, operator: spec.operator, value, kind: firm ? 'hard' : 'soft' });

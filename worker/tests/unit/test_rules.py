@@ -10,7 +10,7 @@ import pytest
 
 from optimizer.constraint_evaluator import evaluate_candidate
 from tandem_worker.contracts import Candidate
-from tandem_worker.rules import Need, Rule, RuleError, SearchFact, attributes, evaluate, from_legacy, legacy
+from tandem_worker.rules import Need, RoomRules, Rule, RuleError, SearchFact, attributes, evaluate, from_legacy, legacy
 
 ROOT = Path(__file__).resolve().parents[3]
 SHARED = json.loads((ROOT / "contracts" / "rule_cases.json").read_text())
@@ -22,10 +22,10 @@ def python_conversion(key, row) -> dict:
     out = {"rules": [], "needs": [], "facts": []}
     for item in from_legacy("x", key, row):
         if isinstance(item, Rule):
-            out["rules"].append(item.model_dump(include={"category", "attribute", "aggregate", "operator", "value", "kind"},
+            out["rules"].append(item.model_dump(include={"category", "attribute", "aggregate", "operator", "value", "kind", "importance", "tolerance"},
                                                 exclude_none=True))
         elif isinstance(item, Need):
-            out["needs"].append({"category": item.category, "attribute": item.attribute, "needs": item.needs})
+            out["needs"].append({"category": item.category, "attribute": item.attribute, "needs": item.needs, "kind": item.kind})
         else:
             out["facts"].append({"fact": item.fact, "value": item.value})
     return out
@@ -58,7 +58,8 @@ def test_agrees_with_the_optimizers_own_evaluator():
     checked = 0
     for case in CASES:
         rule = case["rule"]
-        if case["expect"] in ("INVALID_RULE", "NOT_APPLICABLE") or rule["operator"] == "between" or rule.get("attribute") == "arrival_local":
+        if case["expect"] in ("INVALID_RULE", "NOT_APPLICABLE") or rule["operator"] == "between" or \
+                attributes()["categories"].get(rule.get("category"), {}).get(rule.get("attribute"), {}).get("type") in ("time", "date", "set"):
             continue
         theirs = evaluate_candidate(
             {"id": "c", "attributes": {k: v for k, v in case["facts"].items() if k != "category"}},
@@ -101,3 +102,26 @@ def test_old_named_limits_convert_as_data():
     assert from_legacy("ava", "no_budget_limit", {"value": True}) == [] and from_legacy("ava", "kept_own_bedroom", {"value": True}) == []
     with pytest.raises(RuleError):
         from_legacy("ava", "favourite_colour", {"value": "teal"})
+
+
+def test_the_trips_dates_bind_every_pick_that_has_the_fact():
+    bounds = RoomRules().within_trip("2026-11-20", "2026-11-24")
+    arrive = next(b for b in bounds.binding("chris", "FLIGHT") if b.attribute == "arrival_date")
+    assert (arrive.operator, arrive.value, arrive.owner) == ("lte", "2026-11-24", None)
+    assert evaluate(arrive, {"category": "FLIGHT", "arrival_date": "2026-11-25"}) == "VIOLATED"
+    assert evaluate(arrive, {"category": "FLIGHT", "arrival_date": "2026-11-24"}) == "SATISFIED"
+    home = next(b for b in bounds.binding(None, "FLIGHT") if b.attribute == "return_departure_date")
+    assert evaluate(home, {"category": "FLIGHT"}) == "UNKNOWN", "one-way: nothing to hold, and nothing excludes it"
+    assert RoomRules().within_trip(None, None).bounds == ()
+
+
+def test_a_persons_own_dates_move_their_searches():
+    from tandem_worker.rules import search_dates
+    chris = [Rule(owner="chris", category="FLIGHT", attribute="departure_date", operator="gte", value="2026-11-21"),
+             Rule(owner="chris", category="FLIGHT", attribute="return_arrival_date", operator="lte", value="2026-11-24"),
+             Rule(owner="chris", category="FLIGHT", attribute="departure_date", operator="gt", value="2026-11-25", kind="soft")]
+    rules = RoomRules(rules=tuple(chris)).within_trip("2026-11-20", "2026-11-24")
+    assert search_dates(rules, "chris", "FLIGHT", "2026-11-20", "2026-11-24") == ("2026-11-21", "2026-11-24")
+    assert search_dates(rules, "alex", "FLIGHT", "2026-11-20", "2026-11-24") == ("2026-11-20", "2026-11-24")
+    later = RoomRules(rules=(Rule(owner="chris", category="FLIGHT", attribute="departure_date", operator="gt", value="2026-11-24"),))
+    assert search_dates(later, "chris", "FLIGHT", "2026-11-20", "2026-11-24")[0] == "2026-11-25", "searched, so the reason is shown"

@@ -30,6 +30,9 @@ class MemoFilters(Record):
 
 class MemoSearch(ApprovedFlightSearch):
     travelers: Literal[1] = 1
+    # The actor searches one way: a round trip is an outbound search and a return search,
+    # paired afterwards into itineraries (itinerary.py).
+    leg: Literal["outbound", "return"] = "outbound"
     origin_timezone: str
     destination_timezone: str
     initial_filters: MemoFilters = Field(default_factory=MemoFilters)
@@ -213,14 +216,18 @@ def _candidate(row, search: MemoSearch, run, price, *, complete, freshness_secon
     bags = row.get("checked-bags-included")
     if bags is not None and (type(bags) is not int or bags < 0):
         bags = None
+    # The legs listed are what the trip is; a stated "stops" that disagrees with them loses.
+    legs = {k.split("-")[1] for k in row if k.startswith("segments-") and k.endswith("-flight-number")}
+    stated = row["stops"] if type(row.get("stops")) is int and row["stops"] >= 0 else None
+    stops = len(legs) - 1 if legs else stated
     identity = digest([search.origin, search.destination, departed, arrived, row.get("carrier-code"),
                        sorted((k, v) for k, v in row.items() if k.startswith("segments-") and k.endswith("flight-number"))])
     candidate_id = "apify-" + digest([search.owner, identity, run["run_id"], run["observed_at"], price])[:28]
-    return Candidate(id=candidate_id, owner=search.owner, total_cents=price,
+    return Candidate(id=candidate_id, owner=search.owner, total_cents=price, leg=search.leg,
         arrival_epoch=arrived, departure_epoch=departed, departure_timezone=search.origin_timezone,
         arrival_timezone=search.destination_timezone, observed_at=run["observed_at"],
         arrival_local=datetime.fromtimestamp(arrived, ZoneInfo(search.destination_timezone)).strftime("%H:%M"),
-        stops=row["stops"] if type(row.get("stops")) is int and row["stops"] >= 0 else None,
+        stops=stops,
         valid_until=run["observed_at"] + freshness_seconds, source_url=url, run_ref=run["run_id"],
         actor_id=ACTOR_ID, actor_build=run["build"], dataset_ref=run["dataset_id"], flight_identity=identity,
         mode="APIFY_OBSERVED",

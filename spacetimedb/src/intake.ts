@@ -21,7 +21,7 @@ import {
   validateRoomSettings,
   withReceipt,
 } from './guards';
-import { applyParticipationPreferences, applyPatch, constraintFromPatch, upsertConstraint } from './effects';
+import { applyParticipationPreferences, applyPatch, constraintFromPatch, upsertConstraint, reopenBroken } from './effects';
 import { hasMoneyRule } from './room_rules';
 import { MONEY_KEYS, findIntake, ownerConstraintKeys, queueAgent, startIntake } from './onboarding';
 
@@ -72,13 +72,17 @@ export const confirmTripBrief = spacetimedb.reducer({ roomId: t.u64(), revision:
   if (brief.revision !== args.revision) fail('STALE_SNAPSHOT', 'the brief changed; review it again');
   const proposed = JSON.parse(brief.briefJson) as Record<string, unknown>;
   const before = JSON.parse(r.settingsJson) as Record<string, unknown>;
+  // A brief that leaves something out keeps what the room already had.
   const settings = validateRoomSettings({
     ...before,
-    destination: proposed.destination,
-    destination_airport: proposed.destination_airport,
-    start_date: proposed.start_date,
-    end_date: proposed.end_date,
+    destination: proposed.destination ?? before.destination,
+    destination_airport: proposed.destination_airport ?? before.destination_airport,
+    start_date: proposed.start_date ?? before.start_date,
+    end_date: proposed.end_date ?? before.end_date,
     components: proposed.components ?? before.components,
+    arrive_together: proposed.arrive_together ?? before.arrive_together,
+    stages: proposed.stages ?? before.stages,
+    activities: proposed.activities ?? before.activities,
   });
   const reopen = [
     ...(before.destination_airport !== undefined && before.destination_airport !== settings.destination_airport ? ['origin'] : []),
@@ -88,6 +92,7 @@ export const confirmTripBrief = spacetimedb.reducer({ roomId: t.u64(), revision:
   ];
   ctx.db.tripBrief.roomId.update({ ...brief, state: 'CONFIRMED', updatedAt: ctx.timestamp });
   ctx.db.room.id.update({ ...r, settingsJson: JSON.stringify(settings) });
+  reopenBroken(ctx, r.id);  // new dates can leave an agreed pick outside the trip
   const updated = invalidateRoom(ctx, r.id, { input: true }, 'trip brief confirmed');
   for (const m of ctx.db.membership.byRoomMember.filter(r.id)) startIntake(ctx, updated, m, reopen);
   emitEvent(ctx, r.id, 'TRIP_BRIEF_CONFIRMED', {
@@ -189,6 +194,9 @@ export const proposeTripBrief = spacetimedb.reducer(
         start_date: proposed.start_date,
         end_date: proposed.end_date,
         components: proposed.components,
+        arrive_together: proposed.arrive_together ?? undefined,
+        stages: proposed.stages ?? undefined,
+        activities: proposed.activities ?? undefined,
       });
       if (!Array.isArray(proposed.components) || proposed.components.some(c => !BRIEF_COMPONENTS.includes(c as string))) {
         fail('INVALID_ARGUMENT', 'components');

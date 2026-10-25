@@ -20,8 +20,12 @@ def duration(seconds: int) -> str:
 
 def group_text(group: GroupSummary, zone: str | None, titles: dict[str, str] | None = None) -> str:
     titles = titles or {}
-    text = (f"Total {money(group.total_cents)}. Everyone lands between {local_time(group.earliest_arrival, zone).replace(' local time', '')} "
-            f"and {local_time(group.latest_arrival, zone)}, within the group's {duration(group.arrival_window_seconds)} window.")
+    text = f"Total {money(group.total_cents)}."
+    if group.earliest_arrival is not None:
+        within = (f", within the group's {duration(group.arrival_window_seconds)} window"
+                  if group.arrival_window_seconds < 10**8 else "")  # separate arrivals: no window to mention
+        text += (f" Everyone lands between {local_time(group.earliest_arrival, zone).replace(' local time', '')} "
+                 f"and {local_time(group.latest_arrival, zone)}{within}.")
     if group.cheapest_total_cents is not None:
         text += (f" Landing together costs {money(group.total_cents - group.cheapest_total_cents)} more than everyone's cheapest fares"
                  + (f", which would land {duration(group.cheapest_spread_seconds)} apart." if group.cheapest_spread_seconds else "."))
@@ -41,9 +45,22 @@ def group_text(group: GroupSummary, zone: str | None, titles: dict[str, str] | N
 
 
 def impact_text(impact: Impact, window_seconds: int) -> str:
+    text = _cost_text(impact, window_seconds)
+    if impact.unmet:  # what this plan gives up of theirs, in their words
+        text += " It doesn't fully give you: " + "; ".join(impact.unmet) + "."
+    return text
+
+
+def _cost_text(impact: Impact, window_seconds: int) -> str:
     why = {"ARRIVAL_WINDOW": f"so everyone lands within {duration(window_seconds)} of each other",
            "SHARED_CHOICE": "because of the stay and transfer the group's limits allow"}.get(
                impact.reason, "to keep the group's trade-offs balanced")
+    if impact.share_cents and impact.flight_cents is None:  # a stage of shared picks only
+        text = f"Your share is {money(impact.share_cents)}."
+        if impact.extra_cents == 0:
+            return text + " That's the cheapest option available to you."
+        return text + (f" That's {money(impact.extra_cents)} more than the cheapest option available to you "
+                       f"({money(impact.cheapest_alone_cents)}), {why}.")
     if impact.share_cents:
         text = (f"Your trip costs {money(impact.price_cents)}: your {money(impact.flight_cents)} flight plus a "
                 f"{money(impact.share_cents)} equal share of the stay and transfer.")
@@ -58,8 +75,13 @@ def impact_text(impact: Impact, window_seconds: int) -> str:
             f"({money(impact.cheapest_alone_cents)}), {why}.")
 
 
-def consultation_prompt(impact: Impact, window_seconds: int) -> str:
-    return impact_text(impact, window_seconds) + " May your agent accept this on your behalf?"
+def consultation_prompt(impact: Impact, window_seconds: int, also: str = "") -> str:
+    """What this plan asks of them, specifically: the cost, what of theirs it doesn't meet
+    (in their words), and anything their agent wanted to ask; then the one decision."""
+    text = impact_text(impact, window_seconds)
+    if also:
+        text += f" {also}"
+    return text + " May your agent accept this on your behalf?"
 
 
 def suggestions(candidates: list[Candidate], per_category: int = 3) -> tuple[Suggestion, ...]:
@@ -68,8 +90,13 @@ def suggestions(candidates: list[Candidate], per_category: int = 3) -> tuple[Sug
     for category in ("ACTIVITY", "DINNER"):
         ideas = sorted((c for c in candidates if c.category == category and c.title),
                        key=lambda c: (-(c.rating or 0), c.total_cents if c.total_cents is not None else 10**9, c.id))
+        seen, distinct = set(), []
+        for c in ideas:  # the same place from two searches is one idea
+            if c.title.casefold() not in seen:
+                seen.add(c.title.casefold())
+                distinct.append(c)
         result += [Suggestion(candidate=c.id, category=category, title=c.title, estimate_per_person_cents=c.total_cents,
-                              rating=c.rating, source_url=c.source_url) for c in ideas[:per_category]]
+                              rating=c.rating, source_url=c.source_url) for c in distinct[:per_category]]
     return tuple(result)
 
 
@@ -166,7 +193,9 @@ def room_conflict_event(conflicts: tuple[Conflict, ...]) -> dict:
                       "TOO_MANY_STOPS": f"{who}: no flight found has few enough connections.",
                       "BAGGAGE_UNAVAILABLE": f"{who}: no fare found confirms a required checked bag.",
                       "TRIP_LIMIT": f"{who}: the cheapest trip found is above a private limit.",
-                      "NO_CANDIDATES": f"{who}: no fare with a complete price was found."}[code])
+                      "NO_CANDIDATES": f"{who}: no fare with a complete price was found.",
+                      "RULE": f"{who}: no option found fits their limits.",
+                      "DECLINED": f"{who}: none of the options found works for them."}[code])
     for conflict in conflicts:
         if not conflict.owner and (conflict.code, conflict.requirement) in SHARED_TEXT:
             lines.append(SHARED_TEXT[(conflict.code, conflict.requirement)])

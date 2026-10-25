@@ -142,6 +142,47 @@ Our first idea for measuring compromise (extra cost as a share of your budget) w
 
 **Adding an argument broke every caller at once.** SpacetimeDB rejects a call that is missing an argument ("missing reducer argument `burdens`"), so adding one to `publish_proposal` broke the simulator, the worker and the tests together. Every caller is now updated in the same commit, and the module and the worker have to be deployed together.
 
+**Preferences were quietly turning into rules.** Preparing an end-to-end test with four personas, we followed each sentence through the pipeline and found three ways a preference got bent:
+- Bella's "around $800 for flights, but I'd pay more for comfort" became "never above $800";
+- Sam's "nonstop if possible" became a search filter, so connecting flights were never even searched;
+- "a bag would be nice" was thrown away for not being firm enough.
+
+Now only firm statements become limits. A hedged one is kept as a preference: it's shown back as "If possible: …" and earns partial credit up to the top the person named (or twice the target if they named none). It never filters a search.
+
+**A worker that could make four calls, ever.** A long-running worker shared one budget counter that never reset, with a default of four Claude calls and one search. A real room's onboarding ran out partway through. The service now has a daily ceiling, and each job gets its own limit.
+
+**The scraper's stop count.** A single-leg San Francisco to Honolulu flight came back as "1 stop". The rows also list every flight leg, so stops are now counted from the legs, and the stated number is only a fallback.
+
+**Options that silently disappear.** Pinning the optimizer's behaviour in a test showed that an option missing a fact a preference needs (say, no stop count) is dropped from the ranking, even if it's the cheapest. If every option lacks the fact, nothing gets planned at all. So preferences will reach the optimizer as precomputed scores where unknown counts as unmet, never as missing.
+
+**Everyone flew on the same day.** Chris can't leave before the 21st and must be back by the 24th, but the system searched everyone's flights on the trip's first day, had no notion of a flight home, and kept a hidden rule that everyone lands within two hours. Dates are now a type the rules understand, and a flight is one round-trip itinerary. A person's own date rules move their search. The trip's dates bind every pick, so nothing lands after the trip ends. The organizer's "happy to arrive on different flights" turns the two-hour rule off.
+
+**Nobody could change their mind.** Once onboarding was confirmed, a later "my budget is now $900" was silently ignored: the agent didn't handle messages after onboarding at all. Now it reads just that message, shows back the change with the person's words, and replans once they confirm.
+
+**Two rules, one receipt.** Every write the worker makes carries a request key, so a retry can't apply it twice. Onboarding keyed each item by its name, and every rule is named "rule". The first person with two rules (Chris: leave after the 21st, back by the 24th) made the second write look like a forged retry, and his onboarding stopped. Each item now gets its own key.
+
+**"No plan" that blamed the wrong thing.** When Chris's new date left no flight, the old explanation only knew the named limits, so it would have told him his fare limit was the problem. Now the explanation names every rule that ruled his options out, in his words, starting with dates that can't fit the trip at all: "none of the options found for you fits what you said, “I can't depart until November 25 now” … and the trip's dates (the trip ends Nov 24)". The room only hears "1 traveller: no option found fits their limits".
+
+**One big decision instead of a few small ones.** The organizer said "flights first, then accommodation, then activities", but the planner chose everything at once, and nothing happened after people agreed. The database already supported deciding one part at a time; the worker never used it, and much of it assumed every plan had a flight (each agent judged "your flight", the summary needed landing times, the validator wanted one flight each). Now the planner follows the organizer's order: one decision per stage, each agreed separately, the next starting on its own, three activities on three different days.
+
+**The first stage could spend the second stage's money.** Alex has $1,200 for the whole trip. Planned alone, flights could take most of it and leave nothing for the stay. While planning a stage, each person's budget is now what's left after what the group already agreed and after the cheapest the later stages can cost them.
+
+**Agreed is agreed, unless it no longer fits.** When Alex's budget drops to $900, the flights everyone already agreed still fit, so they stand; only the stay that was still being reviewed is planned again. But if a change breaks something agreed (a new limit on a fare already chosen, new trip dates), that decision is reopened and planned again, newest first, rather than silently kept.
+
+**Everyone's wishes counted the same.** Bella said "I strongly prefer nonstop" and ranked comfort first; Alex said "I'm fine with layovers to save money" and ranked affordability first. To the optimizer they were the same preference. Now each person's own priority ranking (from their profile) sets how much each of their preferences weighs, through a small catalog that maps priorities to what they're about. Bella gets the $780 nonstop and is asked before paying more; Alex gets the $310 two-stop he'd choose himself. Preferences reach Elena's optimizer as scores between 0 and 1 per option, with unknown counting as unmet, because her optimizer quietly drops an option whose fact a preference needs, and drops everything if no option has it.
+
+**"Same flight as Alex" had nowhere to go.** A preference about two people's choices fit neither a person's own rule nor a group rule. It's now a wish only its owner holds, scored by how many different flights the two pick (one is best), which needed one small addition to the optimizer: counting distinct values. Dana ranked togetherness first, so she flies with Alex; Alex is never told she asked.
+
+**A dietary need that would block every dinner.** Making Dana's "vegetarian meals required" a firm rule seemed right, but restaurant listings rarely say what they serve, and the database refuses any pick whose required fact is unknown. So the catalog marks dietary options "unknown doesn't block": venues known not to fit are excluded, venues that don't say stay possible, and one confirmed to fit wins.
+
+**The flight search only goes one way.** The scraper we use returns one-way fares, so "back by the 24th" had nothing to check. Each person now gets a second search home on their own return date, and the two are paired into round-trip itineraries (their cheapest few each way) before anything is stored, priced as both legs together, complete only if both prices are. A live check from San Francisco: 10 fares each way became 24 itineraries, including a red-eye home that lands on the 25th.
+
+**A bug that wasn't.** We'd suspected the scraper of reporting a San Francisco to Honolulu nonstop as one stop. Reading the raw rows of a live search settled it: those fares really connect through Los Angeles, and every stated stop count matched the flight legs listed. We count stops from the legs anyway, so the two can never disagree.
+
+**The rules no one could ever say.** Every offline test passed, yet the first live run showed Chris being asked "Which dates can you do?" three times while he kept answering. Reading Claude's actual replies from the database's operation log: every rule it extracted was an empty object, `"rule": {}`. Claude's answers are schema-constrained, and the SDK's strict mode closes every object to the fields it names; our rule field was an untyped dict, so empty was the only valid answer. Personal dates, "same flight as", "as short as possible", landing windows and stretch budgets had all been impossible to capture live since the day rules were added. Each of those fields now has an explicit shape, and a test fails if any model output ever has an object it can only leave empty.
+
+**Tests that pass but a live run that doesn't.** Every scenario in the QA brief passed offline, where each message's extraction is scripted. Running the same brief live (real Claude reading every message, playing every persona, powering every agent) found five more problems in four runs: rules Claude could never return, preferences read as notes or hardened into limits, a correct extraction our own evidence check threw away, and a "no plan" message that blamed the fares when the person had declined them. The fourth run passed all five scenarios, with every expected item extracted. The harness, its scorer and its report are in the repo, so the run can be repeated whenever onboarding or planning changes.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

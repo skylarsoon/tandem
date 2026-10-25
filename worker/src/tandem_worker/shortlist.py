@@ -174,6 +174,30 @@ def _shortlist_category(candidates, category, snapshot, rules, *, limit, now, lo
 
     options = {o: [c for c in candidates if c.owner == o and usable(c)] for o in snapshot.members}
     slots: list[Slot] = [("cheapest", lambda c: (c.total_cents, getattr(c, spread) if spread else 0))]
+    # Each person's best option for each of their preferences (a nonstop, the shortest), so the
+    # optimizer can weigh them; not only the cheapest survives the cut.
+    from .compiler import score
+    from .rules import RELATIONS
+    prefs = {o: [r for r in rules.soft(o, category) if r.aggregate is None] for o in snapshot.members}
+
+    def shareable(c, rule, other):
+        """An option `other` also has (the same flight): both of them keep it."""
+        return getattr(c, rule.attribute, None) in {getattr(o, rule.attribute, None) for o in options.get(other, [])}
+    for k in range(max((len(p) for p in prefs.values()), default=0)):
+        def best(c, k=k):
+            mine = prefs.get(c.owner, [])
+            if k >= len(mine):
+                return None
+            if mine[k].operator in RELATIONS:
+                return (0, c.total_cents) if shareable(c, mine[k], mine[k].value) else None
+            return (-score(mine[k], c, options[c.owner]), c.total_cents)
+        slots.append((f"preference_{k}", best))
+    # The person someone wants to share with keeps the options they could share, too.
+    wanted_by = {o: [(x, r) for x in snapshot.members for r in prefs[x] if r.operator in RELATIONS and r.value == o]
+                 for o in snapshot.members}
+    if any(wanted_by.values()):
+        slots.append(("shareable", lambda c: (0, c.total_cents) if any(shareable(c, r, x) for x, r in wanted_by[c.owner])
+                      else None))
     if spread:
         window = closest_window(options, spread)
         middle = None if window is None else (window[0] + window[1]) / 2
@@ -181,7 +205,7 @@ def _shortlist_category(candidates, category, snapshot, rules, *, limit, now, lo
         def anchor(c):
             at = getattr(c, spread)
             return None if window is None or not window[0] <= at <= window[1] else (abs(at - middle), c.total_cents)
-        slots.append(("group_anchor", anchor))
+        slots.insert(1, ("group_anchor", anchor))
 
     def span(values):
         values = list(values)

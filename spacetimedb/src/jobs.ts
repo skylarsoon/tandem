@@ -1,5 +1,5 @@
 import { t } from 'spacetimedb/server';
-import { ScheduleAt, Timestamp } from 'spacetimedb';
+import { type Identity, ScheduleAt, Timestamp } from 'spacetimedb';
 import spacetimedb, { leaseTimer } from './schema';
 import {
   type Ctx,
@@ -137,6 +137,11 @@ function parsed(text: string | undefined): unknown {
 // One consistent snapshot for the worker. It includes private constraint data
 // because the worker is the trusted processor; it must scope that data per
 // agent (architecture §5, §11) before any model call.
+function confirmedSummary(ctx: Ctx, owner: Identity, revision: bigint): string | null {
+  const c = ctx.db.profileCalibration.owner.find(owner);
+  return c && c.state === 'CONFIRMED' && c.profileRevision === revision && c.summary ? c.summary : null;
+}
+
 function buildContext(ctx: Ctx, j: JobRow) {
   const r = requireRoom(ctx, j.roomId);
   const byId = <T extends { id: bigint }>(rows: T[]) => rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -156,11 +161,17 @@ function buildContext(ctx: Ctx, j: JobRow) {
       display_name: m.displayName,
       role: m.role,
       active: m.active,
+      // Worker-only, read per person by that person's own agent: who they are, from their
+      // profile. The summary counts only if they confirmed it for their current answers.
       profile: profile
         ? {
             self_description: profile.selfDescription,
             priority_ranking: profile.priorityRanking,
             revision: num(profile.revision),
+            summary: confirmedSummary(ctx, m.member, profile.revision),
+            answers: [...ctx.db.profileAnswer.byOwner.filter(m.member)]
+              .filter(a => a.status === 'ANSWERED')
+              .map(a => ({ question_id: a.questionId, status: a.status, value: parsed(a.valueJson) })),
           }
         : null,
       participation_preferences: {

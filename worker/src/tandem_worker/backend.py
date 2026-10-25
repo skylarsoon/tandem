@@ -123,13 +123,42 @@ class LocalBackend:
             return Brief.model_validate(state["briefs"][owner])
 
     def read_rules(self, claim):
-        from .briefs import rules_from_brief
-        from .rules import Need, RoomRules, Rule, SearchFact
         with self._tx() as state:
             self._checked(state, claim)
-            items = [x for o in state["snapshot"]["members"] for x in rules_from_brief(Brief.model_validate(state["briefs"][o]))]
+            return self._room_rules(state)
+
+    def read_profile(self, claim, owner):
+        with self._tx() as state:
+            self._checked(state, claim)
+            if owner not in state["snapshot"]["members"]:
+                raise ContractError("NOT_AUTHORIZED")
+            answers = state.get("profiles", {}).get(owner, {})
+            return {"summary": state.get("profile_summaries", {}).get(owner),
+                    "answers": [{"question_id": q, "status": "ANSWERED", "value": v} for q, v in answers.items()]}
+
+    def set_profile_summary(self, owner: str, summary: str) -> None:
+        """The owner confirmed this summary of their profile ("Does this sound like you?")."""
+        with self._tx() as state:
+            state.setdefault("profile_summaries", {})[owner] = summary
+
+    def _room_rules(self, state):
+        """As the database keeps them: confirmed named limits through the shared conversion
+        (hard and soft), plus rules confirmed as rules. Rooms seeded with Briefs directly
+        (no onboarding rows) read their Briefs' limits."""
+        from .briefs import rules_from_brief
+        from .rules import Need, RoomRules, Rule, SearchFact, from_legacy
+        rows = self._onboarding(state)["constraints"] if "onboarding" in state else {}
+        items = []
+        for o in state["snapshot"]["members"]:
+            if rows.get(o):
+                items += [x for key, row in rows[o].items() for x in from_legacy(o, key, row)]
+            else:
+                items += rules_from_brief(Brief.model_validate(state["briefs"][o]))
+            items += [Rule.model_validate({**r, "owner": o}) for r in state.get("rules", {}).get(o, [])]
+        ranking = {o: tuple((state.get("profiles", {}).get(o, {}).get("C03") or {}).get("ranked") or ())
+                   for o in state["snapshot"]["members"]}
         return RoomRules(rules=tuple(x for x in items if isinstance(x, Rule)), needs=tuple(x for x in items if isinstance(x, Need)),
-                         facts=tuple(x for x in items if isinstance(x, SearchFact)))
+                         facts=tuple(x for x in items if isinstance(x, SearchFact)), ranking=ranking)
 
     def renew_lease(self, claim):
         with self._tx() as state:
@@ -382,9 +411,12 @@ class LocalBackend:
             records = [Candidate.model_validate(state["candidates"][ref]) for ref in selected]
             if not report.valid or report.snapshot_ref != claim.snapshot_ref or report.selected != tuple(selected) or report.candidate_digest != digest([primitive(c) for c in candidates]):
                 raise ContractError("INVALID_VALIDATION_REPORT")
-            # The backend re-checks every hard rule from its own records.
+            # The backend re-checks every hard rule from its own records, for what this proposal decides.
+            if scope != "COMPLETE_PLAN":
+                snapshot = snapshot.model_copy(update={"components": tuple(dict.fromkeys(r.category for r in records))})
             briefs = [Brief.model_validate(state["briefs"][o]) for o in snapshot.members]
             checked = TripValidator().validate(snapshot, briefs, records, tuple(selected), self.clock.now())
+            self._check_rules(state, snapshot, records)
             if "INVALID_COVERAGE" in checked.checks:
                 raise ContractError("INVALID_COVERAGE")
             if not checked.valid or not all(b.preferences.confirmed for b in briefs):
@@ -393,7 +425,8 @@ class LocalBackend:
             proposal_id = f"proposal-{digest(terms)[:16]}-{claim.generation}"
             state["proposals"][proposal_id] = dict(terms=terms, terms_digest=digest(terms), snapshot_ref=claim.snapshot_ref,
                 state="AWAITING_REVIEW", required_members=list(snapshot.members),
-                summary=explanation.summary if explanation else None)
+                summary=explanation.summary if explanation else None, decision_id=decision_id, scope=scope, stage=stage,
+                burdens=dict(burdens or {}), generation=claim.generation)
             if explanation:
                 if {n.impact.owner for n in explanation.impacts} - set(snapshot.members):
                     raise ContractError("INVALID_PROPOSAL")
@@ -402,6 +435,73 @@ class LocalBackend:
             job.update(status="SUCCEEDED", outcome=proposal_id, expiry=0)
             self._close_threads(state, claim.generation, "RESOLVED")
             return self._record(state, f"publish:{claim.job_id}:{key}", body, proposal_id)
+
+    def _check_rules(self, state, snapshot, records):
+        """Like the database: each pick against its owner's rules (everyone's, for a shared pick)
+        and the trip's dates. Unknown fails a person's rule; a pick without a trip-date fact isn't held to it."""
+        from .rules import attributes, evaluate
+        rules = self._room_rules(state).within_trip(snapshot.start_date, snapshot.end_date)
+        for record in records:
+            facts = record.model_dump(mode="json")
+            owners = [record.owner] if record.owner else list(snapshot.members)
+            for rule in rules.binding(None, record.category):
+                if rule.owner is not None and rule.owner not in owners:
+                    continue
+                verdict = evaluate(rule, facts)
+                unknown_ok = attributes()["categories"][record.category].get(rule.attribute, {}).get("unknown_ok")
+                if verdict == "VIOLATED" or (verdict == "UNKNOWN" and rule.owner is not None and not unknown_ok):
+                    raise ContractError("INVALID_PROPOSAL")
+
+    # ---------- agreement (the database's twin) ----------
+
+    def respond(self, owner: str, proposal_id: str, response: str = "ACCEPT") -> None:
+        """An owner's answer to a proposal. When everyone affected accepts, it's agreed: a stage
+        decision becomes a commitment and the next stage is planned."""
+        with self._tx() as state:
+            proposal = state["proposals"].get(proposal_id)
+            if not proposal or owner not in proposal["required_members"]:
+                raise ContractError("NOT_AUTHORIZED")
+            if proposal["state"] not in ("AWAITING_REVIEW", "AGREED"):
+                raise ContractError("STALE_SNAPSHOT")
+            proposal.setdefault("responses", {})[owner] = response
+            state["consents"].append({"proposal": proposal_id, "owner": owner, "response": response})
+            agreed = all(proposal["responses"].get(m) == "ACCEPT" for m in proposal["required_members"])
+            if agreed != (proposal["state"] == "AGREED"):
+                proposal["state"] = "AGREED" if agreed else "AWAITING_REVIEW"
+                self._commit(state)
+                if agreed and proposal.get("scope", "COMPLETE_PLAN") != "COMPLETE_PLAN":
+                    self._new_job(state)  # agreeing one stage queues planning of the next
+
+    def _commit(self, state):
+        """The snapshot's commitments and what they cost each person, from the agreed proposals."""
+        from .contracts import Commitment
+        from .rules import committed_costs
+        agreed = [p for p in state["proposals"].values() if p["state"] == "AGREED"]
+        commitments = [Commitment(decision_id=p.get("decision_id", "trip"), scope=p.get("scope", "COMPLETE_PLAN"),
+                                  refs=tuple(c["id"] for c in p["terms"]["selected"])) for p in agreed]
+        facts = {c["id"]: c for p in agreed for c in p["terms"]["selected"]}
+        state["snapshot"]["commitments"] = [primitive(c) for c in commitments]
+        state["snapshot"]["committed_scaled"] = committed_costs(commitments, facts, lambda f: f.get("owner"),
+                                                                tuple(state["snapshot"]["members"]))
+
+    def _reopen_broken(self, state):
+        """An agreed decision a confirmed change now breaks (a pick against someone's rules, or
+        their whole-trip limit with everything agreed) is reopened, never kept silently."""
+        snapshot = Snapshot.model_validate(state["snapshot"])
+        n = len(snapshot.members)
+        caps = {r.owner: r.value for r in self._room_rules(state).binding() if r.aggregate == "my_cost" and r.operator == "lte"}
+        for proposal in sorted((p for p in state["proposals"].values() if p["state"] == "AGREED"),
+                               key=lambda p: p.get("generation", ""), reverse=True):
+            records = [Candidate.model_validate(c) for c in proposal["terms"]["selected"]]
+            try:
+                self._check_rules(state, snapshot, records)
+                broken = any(cost > n * caps[m] for m, cost in snapshot.committed_scaled.items() if m in caps)
+            except ContractError:
+                broken = True
+            if broken:
+                proposal["state"] = "REOPENED"
+                self._commit(state)
+                snapshot = Snapshot.model_validate(state["snapshot"])
 
     def notify_owner(self, claim, owner, text, key):
         with self._tx() as state:
@@ -456,7 +556,9 @@ class LocalBackend:
                 job.update(status="SUPERSEDED", token=None, expiry=0)
                 self._close_threads(state, job["generation"], "SUPERSEDED")
         for proposal in state["proposals"].values():
-            proposal["state"] = "STALE"
+            if proposal["state"] != "AGREED":  # agreed decisions stand; pending ones are out of date
+                proposal["state"] = "STALE"
+        self._reopen_broken(state)
         return self._new_job(state)
 
     def update_preferences(self, owner, preferences):
@@ -570,6 +672,13 @@ class LocalBackend:
             facts = brief["brief"]
             state["snapshot"].update(destination=facts["destination"], destination_airport=facts["destination_airport"],
                                      start_date=facts["start_date"], end_date=facts["end_date"])
+            # As the database's settings: the organizer's order, and arrivals held together only if required.
+            together = facts.get("arrive_together") or state["snapshot"].get("arrive_together", "required")
+            state["snapshot"].update(arrive_together=together, stages=list(facts.get("stages") or state["snapshot"].get("stages") or []),
+                                     activities=facts.get("activities"))
+            if together != "required":
+                from .adapters.spacetime import NO_ARRIVAL_LIMIT
+                state["snapshot"]["arrival_overlap_seconds"] = NO_ARRIVAL_LIMIT
             for owner in state["snapshot"]["members"]:
                 if owner not in board["intakes"]:
                     board["intakes"][owner] = {"state": "ASKING", "coverage": self._coverage(state, owner), "question_count": 0}
@@ -589,11 +698,23 @@ class LocalBackend:
             return self._agent_job(state, "INTERPRET", owner, "MESSAGE")
 
     def _apply(self, state, owner, patch):
+        if "rule" in patch:  # any checkable limit, kept as a rule with their words
+            mine = state.setdefault("rules", {}).setdefault(owner, [])
+            slot = lambda r: (r.get("category"), r.get("attribute"), r.get("aggregate"), r["operator"], r.get("kind", "hard"))  # noqa: E731
+            mine[:] = [r for r in mine if slot(r) != slot(patch["rule"])]  # a later statement replaces it
+            mine.append({**patch["rule"], "source_quote": patch.get("source_quote") or ""})
+            return
         row = {k: patch[k] for k in ("value", "hardness") if k in patch}
+        row["source_quote"] = patch.get("source_quote")
         row["authorized_range"] = patch.get("authorized_range")
         row["private_rationale"] = patch.get("private_rationale")
         self._onboarding(state)["constraints"].setdefault(owner, {})[patch["key"]] = row
         state["briefs"][owner] = primitive(apply_row(Brief.model_validate(state["briefs"][owner]), patch["key"], row))
+
+    @staticmethod
+    def _has_money_rule(state, owner):
+        from .rules import Rule, attribute_type
+        return any(attribute_type(Rule.model_validate(r)) == "money" for r in state.get("rules", {}).get(owner, []))
 
     def confirm_origin(self, owner: str, patch_id: int) -> None:
         with self._tx() as state:
@@ -604,6 +725,17 @@ class LocalBackend:
             patch["state"] = "CONFIRMED"
             self._apply(state, owner, patch["patch"])
             board["intakes"][owner]["coverage"]["origin"] = "ANSWERED"
+            self._supersede(state, "input_revision")
+
+    def confirm_patch(self, owner: str, patch_id: int) -> None:
+        """One change after onboarding ("my budget is now $900"), confirmed by its owner: replan."""
+        with self._tx() as state:
+            board = self._onboarding(state)
+            patch = next((p for p in board["patches"] if p["id"] == patch_id and p["owner"] == owner), None)
+            if not patch or patch["state"] != "PENDING":
+                raise ContractError("INVALID_STATE")
+            patch["state"] = "CONFIRMED"
+            self._apply(state, owner, patch["patch"])
             self._supersede(state, "input_revision")
 
     def confirm_intake(self, owner: str, accepted: list[int], settings: dict | None = None) -> None:
@@ -623,7 +755,7 @@ class LocalBackend:
             if not prefs["confirmed"]:
                 raise ContractError("PREFERENCES_UNCONFIRMED")
             keys = set(board["constraints"].get(owner, {}))
-            if not keys & MONEY_KEYS or "origin_airport" not in keys:
+            if (not keys & MONEY_KEYS and not self._has_money_rule(state, owner)) or "origin_airport" not in keys:
                 raise ContractError("INTAKE_INCOMPLETE")
             intake["state"] = "CONFIRMED"
             state["snapshot"]["onboarded"] = sorted({*state["snapshot"].get("onboarded", []), owner})

@@ -71,21 +71,41 @@ def recount(request: dict) -> dict:
     def aggregate(chosen, name):
         rule = rules[name]
         values = [attrs[chosen[g]][rule["source_attribute"]] for g in rule["selection_group_ids"]]
-        return max(values) - min(values) if rule["operation"] == "spread" else sum(values)
+        operation = rule["operation"]
+        return (max(values) - min(values) if operation == "spread" else len(set(values)) if operation == "count_distinct"
+                else max(values) if operation == "max" else min(values) if operation == "min" else sum(values))
+
+    def actual(chosen, constraint):
+        # A per-group constraint reads that group's pick; otherwise an aggregate.
+        group = constraint.get("selection_group_id")
+        return attrs[chosen[group]].get(constraint["attribute"]) if group else aggregate(chosen, constraint["attribute"])
+
+    def satisfaction(value, c):
+        """The optimizer's partial credit: 1 if met, else the share of the way to the tolerance limit."""
+        target, op = c["value"], c["operator"]
+        if OPS[op](value, target):
+            return 1.0
+        limit = (c.get("tolerance") or {}).get("limit")
+        if limit is None:
+            return 0.0
+        share = (limit - value) / (limit - target) if op in ("lt", "lte") else (value - limit) / (target - limit)
+        return min(1.0, max(0.0, share))
 
     valid = []
     for combo in itertools.product(*(g["candidate_ids"] for g in groups)):
         chosen = dict(zip((g["id"] for g in groups), combo))
         ok = True
         for constraint in hard:
-            if not OPS[constraint["operator"]](aggregate(chosen, constraint["attribute"]), constraint["value"]):
+            if not OPS[constraint["operator"]](actual(chosen, constraint), constraint["value"]):
                 failed[constraint["id"]] += 1
                 ok = False
         if ok:
-            burden = {p["id"]: 0.0 for p in request["participants"]}
+            # Burden: each person's importance-weighted shortfall over their own preferences.
+            weighted = {p["id"]: [0.0, 0] for p in request["participants"]}
             for c in soft:
-                low, high = c["value"], c["tolerance"]["limit"]
-                burden[c["owner_id"]] = min(1.0, max(0.0, (aggregate(chosen, c["attribute"]) - low) / (high - low)))
+                weighted[c["owner_id"]][0] += c["importance"] * (1 - satisfaction(actual(chosen, c), c))
+                weighted[c["owner_id"]][1] += c["importance"]
+            burden = {p: (w / total if total else 0.0) for p, (w, total) in weighted.items()}
             valid.append((combo, sum(attrs[x]["price_cents"] for x in combo), burden))
     best = None
     if valid:

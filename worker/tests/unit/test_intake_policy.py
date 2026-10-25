@@ -2,7 +2,7 @@
 import pytest
 
 from tandem_worker.contracts import IntakeContext, IntakeExtraction, IntakeItem, IntakeMessage, IntakeQuestion, TripBrief, Unclear
-from tandem_worker.intake_policy import amounts, fallback_question, open_topics, question_ok, verify
+from tandem_worker.intake_policy import amounts, describe, fallback_question, open_topics, question_ok, verify
 
 BRIEF = TripBrief(destination="Honolulu", destination_airport="HNL", start_date="2027-02-12", end_date="2027-02-16")
 
@@ -72,11 +72,13 @@ def test_live_run_regressions():
     kept, _, coverage, _ = verify(IntakeExtraction(items=(item("trip_budget_total", 90000, "keep the whole trip around $900",
         hardness="SOFT", authorized_range={"max": 100000}),)), ctx(said))
     assert coverage["money"] == "ANSWERED" and kept[0].authorized_range == {"max": 100000}
-    # Sam: "would be nice, but I'm flexible" is a preference, not an own-room requirement.
+    # Sam: "would be nice, but I'm flexible" is kept as a preference, never as an own-room requirement.
     hedge = "A place with a few separate bedrooms would be nice, but I'm flexible on the layout."
-    assert verify(IntakeExtraction(items=(item("own_bedroom", True, "a few separate bedrooms would be nice"),)), ctx(hedge))[0] == ()
+    [kept] = verify(IntakeExtraction(items=(item("own_bedroom", True, "a few separate bedrooms would be nice"),)), ctx(hedge))[0]
+    assert kept.hardness == "SOFT" and describe(kept) == "If possible: you'd like your own room"
     firm = "My main must-have is having my own bedroom, if that's possible."
-    assert len(verify(IntakeExtraction(items=(item("own_bedroom", True, "having my own bedroom"),)), ctx(firm))[0]) == 1
+    [kept] = verify(IntakeExtraction(items=(item("own_bedroom", True, "having my own bedroom"),)), ctx(firm))[0]
+    assert kept.hardness == "HARD"
     # Sam: "nonstop flights only" is 0 stops, shown as a reading.
     [stops] = verify(IntakeExtraction(items=(item("max_stops", 0, "nonstop flights only"),)), ctx("Must-have: nonstop flights only"))[0]
     assert stops.interpreted is True
@@ -109,3 +111,36 @@ def test_any_checkable_limit_becomes_a_rule_only_from_their_own_words():
     assert patch_json(kept[0]) == {"rule": {**rating, "kind": "hard"}, "source_quote": "rated 4.5 or better"}
     assert describe(kept[0]) == "Stay: rating at least 4.5"
     assert describe(kept[2]) == "Your share of the whole trip at most $900"
+
+
+def test_dates_that_dont_work_are_followed_up_and_own_dates_answer_them():
+    said = "Those dates don't work for me."
+    _, _, coverage, reasons = verify(IntakeExtraction(items=(item("dates_ok", False, "Those dates don't work for me"),)), ctx(said))
+    assert coverage["dates"] == "UNCLEAR" and reasons["dates"].startswith("Which dates can you do")
+    said = "I can't leave before November 21 and I need to be back by November 24."
+    leave = item("rule", None, "I can't leave before November 21",
+                 rule={"category": "FLIGHT", "attribute": "departure_date", "operator": "gte", "value": "2026-11-21"})
+    back = item("rule", None, "I need to be back by November 24",
+                rule={"category": "FLIGHT", "attribute": "return_arrival_date", "operator": "lte", "value": "2026-11-24"})
+    wrong_day = item("rule", None, "I can't leave before November 21",
+                     rule={"category": "FLIGHT", "attribute": "departure_date", "operator": "gte", "value": "2026-11-12"})
+    kept, _, coverage, _ = verify(IntakeExtraction(items=(leave, back, wrong_day)), ctx(said))
+    assert coverage["dates"] == "ANSWERED"
+    assert {i.rule["value"] for i in kept} == {"2026-11-21", "2026-11-24"}, "a day they never said is dropped"
+    assert describe(kept[0]) == "Flight: departure date at least Nov 21"
+
+
+def test_a_number_said_in_words_counts_as_said():
+    said = "I'd prefer no more than one stop, but that's flexible."
+    [kept] = verify(IntakeExtraction(items=(item("max_stops", 1, "I'd prefer no more than one stop", hardness="SOFT"),)), ctx(said))[0]
+    assert (kept.value, kept.hardness) == (1, "SOFT")
+
+
+def test_whose_flight_can_be_named_anywhere_in_that_message():
+    said = "Since Alex and I are both flying from San Francisco, I'd love it if we could take the same flight."
+    wish = item("rule", None, "I'd love it if we could take the same flight", hardness="HARD",
+                rule={"category": "FLIGHT", "attribute": "flight_identity", "operator": "same_as", "value": "Alex"})
+    [kept] = verify(IntakeExtraction(items=(wish,)), ctx(said))[0]
+    assert kept.hardness == "SOFT", "someone else's pick is only ever a wish"
+    other = wish.model_copy(update={"rule": {**wish.rule, "value": "Bella"}})
+    assert verify(IntakeExtraction(items=(other,)), ctx(said))[0] == (), "a name they never said is dropped"

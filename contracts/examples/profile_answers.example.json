@@ -1,0 +1,19 @@
+{
+  "display_name": "Alex",
+  "activity_interests": {"selected": ["hiking", "beaches", "local_culture"]},
+  "priority_ranking": {"ranked": ["affordability", "togetherness", "discovery"], "confirmed": true},
+  "spending_style": {"selected": "low"},
+  "daily_pace": {"selected": "balanced"},
+  "planning_style": {"selected": "loose"},
+  "group_style": {"selected": "key_together"},
+  "persistent_needs": {"selected": ["none"]},
+  "consultation_style": {"selected": "ask_first"},
+  "home_base": {"city": "San Francisco", "region": "California", "country": "USA", "airports": ["SFO", "OAK"]},
+  "transport_preferences": {"selected": ["transit", "walking"], "avoid": ["rental_car"]},
+  "accommodation_types": {"selected": ["hostels", "rentals"]},
+  "sleeping_privacy": {"selected": "own_bed", "strength": "PREFERRED"},
+  "flight_tradeoffs": {"selected": ["lowest_cost"]},
+  "baggage_habit": {"selected": "carry_on"},
+  "convenience_spending": {"selected": "cheaper"},
+  "agent_personality": "SKIPPED"
+}

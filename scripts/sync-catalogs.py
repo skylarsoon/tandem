@@ -6,6 +6,7 @@ data for the worker. Run after editing any of them; tests fail if a copy is stal
 - profile_questions.json: the profile onboarding questions
 - attributes.json, legacy_keys.json: the rule language's vocabulary and the old named limits
 - decisions.json: how each kind of choice is made (who picks, who pays) and group rules
+- priorities.json: how much a preference matters, from the person's own priority ranking (worker only)
 """
 import json
 from pathlib import Path
@@ -27,14 +28,17 @@ def typescript(**constants) -> str:
 
 def main() -> None:
     profile, attributes, legacy = load("profile_questions.json"), load("attributes.json"), load("legacy_keys.json")
-    decisions = load("decisions.json")
+    decisions, priorities = load("decisions.json"), load("priorities.json")
     worker = ROOT / "worker" / "src" / "tandem_worker"
     (ROOT / "spacetimedb" / "src" / "profile_catalog.ts").write_text(typescript(PROFILE_CATALOG=profile))
     (ROOT / "web" / "lib" / "profile_catalog.ts").write_text(typescript(PROFILE_CATALOG=profile))
     (ROOT / "spacetimedb" / "src" / "rule_catalog.ts").write_text(typescript(RULE_ATTRIBUTES=attributes, LEGACY_KEYS=legacy, DECISIONS=decisions))
     for name, value in (("profile_questions.json", profile), ("attributes.json", attributes), ("legacy_keys.json", legacy),
-                        ("decisions.json", decisions)):
+                        ("decisions.json", decisions), ("priorities.json", priorities)):
         (worker / name).write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+    # The profile onboarding JSON Schema is generated from the same catalog.
+    import runpy
+    runpy.run_path(str(ROOT / "scripts" / "profile-schema.py"), run_name="__main__")
     print(f"synced: {len(profile['questions'])} profile questions, "
           f"{sum(len(a) for a in attributes['categories'].values())} attributes, {len(legacy['keys'])} named limits")
 

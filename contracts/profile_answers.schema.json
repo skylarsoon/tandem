@@ -1,0 +1,1780 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tandem/contracts/profile_answers.schema.json",
+  "title": "Tandem profile onboarding answers",
+  "description": "One person's answers to profile onboarding (catalog version 1). Keys are profile keys; a value is the answer or \"SKIPPED\"; a missing key means not shared yet. Only display_name is required. x-exclusive choices (None, No preference, ...) stand alone; 'other' text needs the 'other' choice; the database enforces these.",
+  "type": "object",
+  "required": [
+    "display_name"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "title": "C01 · What should we call you?",
+      "x-question-id": "C01",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "activity_interests": {
+      "title": "C02 · What do you most enjoy doing when you get away?",
+      "x-question-id": "C02",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "food",
+                  "nature",
+                  "hiking",
+                  "beaches",
+                  "art_history",
+                  "local_culture",
+                  "wellness",
+                  "nightlife",
+                  "sports",
+                  "shopping",
+                  "classes",
+                  "family",
+                  "other",
+                  "still_exploring"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "maxItems": 5
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "still_exploring"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "priority_ranking": {
+      "title": "C03 · What should your agent put first when balancing options?",
+      "x-question-id": "C03",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "ranked",
+            "confirmed"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "ranked": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "affordability",
+                  "togetherness",
+                  "time_efficiency",
+                  "comfort",
+                  "experience_quality",
+                  "discovery"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 5,
+              "uniqueItems": true,
+              "description": "Most important first"
+            },
+            "confirmed": {
+              "const": true,
+              "description": "The person confirmed this order"
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "spending_style": {
+      "title": "C04 · How do you usually like to spend on travel and outings?",
+      "x-question-id": "C04",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "low",
+                "balance",
+                "save_and_splurge",
+                "experience_first",
+                "depends"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "daily_pace": {
+      "title": "C05 · What does your ideal day away look like?",
+      "x-question-id": "C05",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "slow",
+                "balanced",
+                "full",
+                "mix",
+                "depends"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "planning_style": {
+      "title": "C06 · How much of a plan helps you enjoy yourself?",
+      "x-question-id": "C06",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "detailed",
+                "essentials",
+                "loose",
+                "as_we_go",
+                "depends"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "group_style": {
+      "title": "C07 · How do you like to spend time with a travel group?",
+      "x-question-id": "C07",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "together",
+                "key_together",
+                "independent",
+                "depends"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "persistent_needs": {
+      "title": "C08 · Are there any needs or boundaries your agent should always consider?",
+      "x-question-id": "C08",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "food_allergies",
+                  "dietary",
+                  "accessibility",
+                  "sensory_rest",
+                  "religious_cultural",
+                  "other",
+                  "none",
+                  "prefer_not"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "none",
+            "prefer_not"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "consultation_style": {
+      "title": "C09 · When options involve a compromise, how would you like your agent to involve you?",
+      "x-question-id": "C09",
+      "x-section": "core",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "ask_first",
+                "suggest_then_review",
+                "ask_per_plan"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "profile_avatar": {
+      "title": "A01 · Want to choose an avatar?",
+      "x-question-id": "A01",
+      "x-section": "identity",
+      "oneOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "avatar": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "avatar"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "initials": {
+                  "const": true
+                }
+              },
+              "required": [
+                "initials"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "agent_name": {
+      "title": "A02 · What would you like to call your agent?",
+      "x-question-id": "A02",
+      "x-section": "identity",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 50
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "agent_avatar": {
+      "title": "A03 · Which avatar should represent your agent?",
+      "x-question-id": "A03",
+      "x-section": "identity",
+      "oneOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "avatar": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "avatar"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "initials": {
+                  "const": true
+                }
+              },
+              "required": [
+                "initials"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "agent_personality": {
+      "title": "A04 · How should your agent approach planning with others?",
+      "x-question-id": "A04",
+      "x-section": "identity",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "diplomatic",
+                "analytical",
+                "adventurous",
+                "assertive",
+                "balanced"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "communication_style": {
+      "title": "A05 · How would you like your agent to talk with you?",
+      "x-question-id": "A05",
+      "x-section": "identity",
+      "oneOf": [
+        {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "detail": {
+              "enum": [
+                "essentials",
+                "short",
+                "walkthrough"
+              ],
+              "description": "Detail"
+            },
+            "tone": {
+              "enum": [
+                "straightforward",
+                "warm",
+                "playful"
+              ],
+              "description": "Tone"
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "home_base": {
+      "title": "A06 · Where do you usually start your trips or outings?",
+      "x-question-id": "A06",
+      "x-section": "identity",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "city",
+            "country"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "city": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "region": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 80
+            },
+            "country": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            },
+            "airports": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "maxItems": 5
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "destination_settings": {
+      "title": "E01 · What kinds of places draw you in?",
+      "x-question-id": "E01",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "big_cities",
+                  "small_towns",
+                  "coast",
+                  "mountains",
+                  "countryside",
+                  "forests",
+                  "lakes",
+                  "desert",
+                  "no_preference",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "maxItems": 4
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "weather_preference": {
+      "title": "E02 · What weather do you usually enjoy traveling in?",
+      "x-question-id": "E02",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "warm",
+                  "mild",
+                  "cool",
+                  "snowy",
+                  "no_preference"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "text": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 300,
+              "description": "Any weather you tend to avoid?"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "novelty_preference": {
+      "title": "E03 · How do you feel about unfamiliar places and experiences?",
+      "x-question-id": "E03",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "familiar",
+                "mostly_familiar",
+                "mix",
+                "seek_new",
+                "depends"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "activity_intensity": {
+      "title": "E04 · What level of physical activity do you usually enjoy?",
+      "x-question-id": "E04",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "low",
+                "gentle",
+                "moderate",
+                "strenuous",
+                "depends"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "daily_rhythm": {
+      "title": "E05 · When do you usually like to be active on a trip?",
+      "x-question-id": "E05",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "enum": [
+                "early",
+                "mid",
+                "late",
+                "flexible"
+              ],
+              "description": "Start"
+            },
+            "evenings": {
+              "enum": [
+                "early",
+                "some_late",
+                "late",
+                "flexible"
+              ],
+              "description": "Evenings"
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "crowd_preference": {
+      "title": "E06 · What atmosphere do you usually enjoy?",
+      "x-question-id": "E06",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "quiet",
+                "some_buzz",
+                "lively",
+                "mix",
+                "no_preference"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "food_experiences": {
+      "title": "E07 · What makes eating out enjoyable for you?",
+      "x-question-id": "E07",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "local",
+                  "street_food",
+                  "casual",
+                  "fine_dining",
+                  "unfamiliar",
+                  "cooking",
+                  "cafes",
+                  "easy",
+                  "no_preference",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "maxItems": 4
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "nightlife_preferences": {
+      "title": "E08 · Which evening activities appeal to you?",
+      "x-question-id": "E08",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "quiet_dinners",
+                  "shows",
+                  "live_music",
+                  "bars",
+                  "clubs",
+                  "alcohol_free",
+                  "relaxing",
+                  "no_preference",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "travel_patterns": {
+      "title": "E09 · What kinds of trips or outings do you usually enjoy?",
+      "x-question-id": "E09",
+      "x-section": "experiences",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "day_outings",
+                  "weekends",
+                  "vacations",
+                  "road_trips",
+                  "city_breaks",
+                  "adventure",
+                  "resorts",
+                  "visiting",
+                  "figuring_out",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "figuring_out"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "transport_preferences": {
+      "title": "T01 · How do you usually like to get around?",
+      "x-question-id": "T01",
+      "x-section": "travel",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "walking",
+                  "transit",
+                  "trains",
+                  "cycling",
+                  "rental_car",
+                  "rideshare",
+                  "transfers",
+                  "no_preference",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            },
+            "avoid": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "walking",
+                  "transit",
+                  "trains",
+                  "cycling",
+                  "rental_car",
+                  "rideshare",
+                  "transfers",
+                  "other"
+                ]
+              },
+              "uniqueItems": true,
+              "description": "Which would you rather avoid? (never also in selected)"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "driving_preference": {
+      "title": "T02 · How do you feel about driving during a trip?",
+      "x-question-id": "T02",
+      "x-section": "travel",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "happy",
+                "if_needed",
+                "passenger",
+                "not_an_option",
+                "depends"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "flight_tradeoffs": {
+      "title": "T03 · What do you usually prioritize when choosing flights?",
+      "x-question-id": "T03",
+      "x-section": "travel",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "lowest_cost",
+                  "nonstop",
+                  "convenient_times",
+                  "shorter",
+                  "preferred_airport",
+                  "comfort",
+                  "flexible",
+                  "no_preference",
+                  "dont_fly"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "maxItems": 3
+            },
+            "text": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 300,
+              "description": "Airports or other details"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference",
+            "dont_fly"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "baggage_habit": {
+      "title": "T04 · What do you usually bring when you fly?",
+      "x-question-id": "T04",
+      "x-section": "travel",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "personal_item",
+                "carry_on",
+                "checked",
+                "specialty",
+                "depends",
+                "dont_fly"
+              ]
+            },
+            "details": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 300,
+              "description": "Specialty baggage details"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "accommodation_types": {
+      "title": "T05 · Where do you usually like to stay?",
+      "x-question-id": "T05",
+      "x-section": "travel",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "hotels",
+                  "rentals",
+                  "resorts",
+                  "hostels",
+                  "guesthouses",
+                  "cabins",
+                  "camping",
+                  "no_preference",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "sleeping_privacy": {
+      "title": "T06 · What sleeping arrangement usually works for you?",
+      "x-question-id": "T06",
+      "x-section": "travel",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "own_room",
+                "own_bed",
+                "bed_sharing_ok",
+                "depends",
+                "no_preference"
+              ]
+            },
+            "strength": {
+              "enum": [
+                "REQUIRED",
+                "PREFERRED"
+              ],
+              "description": "Required with: own_room, own_bed"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "accommodation_priorities": {
+      "title": "T07 · What matters most about where you stay?",
+      "x-question-id": "T07",
+      "x-section": "travel",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "price",
+                  "central",
+                  "quiet",
+                  "bed",
+                  "private_bathroom",
+                  "kitchen",
+                  "climate",
+                  "clean",
+                  "pool",
+                  "transit",
+                  "cancellation",
+                  "no_preference",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "maxItems": 4
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "location_tradeoff": {
+      "title": "T08 · Where would you usually rather stay?",
+      "x-question-id": "T08",
+      "x-section": "travel",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "close",
+                "farther_cheaper",
+                "quieter",
+                "balance",
+                "depends"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "food_allergies": {
+      "title": "N01 · Are there foods or ingredients that must be avoided?",
+      "x-question-id": "N01",
+      "x-section": "needs",
+      "x-private": true,
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "food",
+                  "checks"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "food": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "checks": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "avoid_ingredient",
+                        "cross_contact",
+                        "contact_venue",
+                        "ask_me"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  },
+                  "instructions": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 300
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 20
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "dietary_requirements": {
+      "title": "N02 · What eating preferences or requirements should we plan around?",
+      "x-question-id": "N02",
+      "x-section": "needs",
+      "x-private": true,
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "strength"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "vegetarian",
+                      "vegan",
+                      "pescatarian",
+                      "halal",
+                      "kosher",
+                      "gluten_free",
+                      "dairy_free",
+                      "other"
+                    ]
+                  },
+                  "strength": {
+                    "enum": [
+                      "REQUIRED",
+                      "PREFERRED"
+                    ],
+                    "description": "A must, or a preference"
+                  },
+                  "details": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 300
+                  },
+                  "other": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 100
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 20
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "accessibility_needs": {
+      "title": "N03 · What would make places, activities, and travel work for you?",
+      "x-question-id": "N03",
+      "x-section": "needs",
+      "x-private": true,
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "strength"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "step_free",
+                      "wheelchair_transport",
+                      "accessible_room",
+                      "short_distances",
+                      "breaks",
+                      "avoid_stairs",
+                      "hearing",
+                      "visual",
+                      "service_animal",
+                      "other"
+                    ]
+                  },
+                  "strength": {
+                    "enum": [
+                      "REQUIRED",
+                      "PREFERRED"
+                    ],
+                    "description": "A must, or a preference"
+                  },
+                  "details": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 300
+                  },
+                  "other": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 100
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 20
+            },
+            "ask_privately": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "sensory_rest_needs": {
+      "title": "N04 · Are there sensory or rest needs we should account for?",
+      "x-question-id": "N04",
+      "x-section": "needs",
+      "x-private": true,
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "strength"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "quiet",
+                      "no_flashing",
+                      "no_crowds",
+                      "downtime",
+                      "meal_breaks",
+                      "no_scents",
+                      "other"
+                    ]
+                  },
+                  "strength": {
+                    "enum": [
+                      "REQUIRED",
+                      "PREFERRED"
+                    ],
+                    "description": "A must, or a preference"
+                  },
+                  "details": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 300
+                  },
+                  "other": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 100
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 20
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "other_boundaries": {
+      "title": "N05 · Is there anything else your agent should always respect?",
+      "x-question-id": "N05",
+      "x-section": "needs",
+      "x-private": true,
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "text",
+                  "strength"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "strength": {
+                    "enum": [
+                      "REQUIRED",
+                      "PREFERRED"
+                    ],
+                    "description": "A must, or a preference"
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 20
+            }
+          }
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "convenience_spending": {
+      "title": "G01 · How open are you to paying more to save time or effort?",
+      "x-question-id": "G01",
+      "x-section": "negotiation",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "cheaper",
+                "clear_benefit",
+                "often",
+                "ask"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "personal_group_tradeoff": {
+      "title": "G02 · If your preferred option differs from the group's, what should your agent usually suggest?",
+      "x-question-id": "G02",
+      "x-section": "negotiation",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "advocate",
+                "middle",
+                "lean_group",
+                "separate",
+                "ask"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "comfortable_compromises": {
+      "title": "G03 · Which kinds of compromises are you usually open to considering?",
+      "x-question-id": "G03",
+      "x-section": "negotiation",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "activity",
+                  "restaurant",
+                  "accommodation",
+                  "location",
+                  "timing",
+                  "travel_time",
+                  "split_up",
+                  "pay_more",
+                  "ask_every",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "ask_every"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "extra_consultation_triggers": {
+      "title": "G04 · Besides changes to firm requirements, what should your agent always check with you about?",
+      "x-question-id": "G04",
+      "x-section": "negotiation",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "over_target",
+                  "sleeping",
+                  "early_late",
+                  "demanding",
+                  "splitting",
+                  "transport",
+                  "any_preference",
+                  "other"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "other": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 100,
+              "description": "Only with the 'other' choice"
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "cost_sharing_preference": {
+      "title": "G05 · How do you usually prefer shared costs to be handled?",
+      "x-question-id": "G05",
+      "x-section": "negotiation",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "enum": [
+                "pay_what_you_use",
+                "split_equally",
+                "mix",
+                "discuss"
+              ]
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "group_size_preference": {
+      "title": "G06 · What size group do you usually enjoy?",
+      "x-question-id": "G06",
+      "x-section": "negotiation",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "one",
+                  "small",
+                  "medium",
+                  "large",
+                  "no_preference"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "selected"
+          ],
+          "additionalProperties": false,
+          "x-exclusive": [
+            "no_preference"
+          ]
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "great_experience_example": {
+      "title": "F01 · Think of a trip or outing you loved. What made it work for you?",
+      "x-question-id": "F01",
+      "x-section": "details",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "avoid_experience_example": {
+      "title": "F02 · What tends to make a trip or group outing less enjoyable for you?",
+      "x-question-id": "F02",
+      "x-section": "details",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    },
+    "anything_else": {
+      "title": "F03 · What else would you like your agent to understand about you?",
+      "x-question-id": "F03",
+      "x-section": "details",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000
+        },
+        {
+          "const": "SKIPPED",
+          "description": "Skip for now (known unanswered)"
+        }
+      ]
+    }
+  }
+}

@@ -9,7 +9,7 @@ from datetime import date
 from pydantic import ValidationError
 
 from .contracts import TOPICS, IntakeContext, IntakeExtraction, IntakeItem, IntakeQuestion
-from .rules import Rule, RuleError, attribute_type, attributes, validate
+from .rules import RANKINGS, RELATIONS, Rule, RuleError, attribute_type, attributes, validate
 
 MAX_QUESTIONS = 5
 MONEY_KEYS = {"flight_budget_total", "trip_budget_total", "no_budget_limit"}
@@ -19,14 +19,17 @@ BUDGET_KEYS = {"flight_budget_total", "trip_budget_total"}
 TRIP_SCOPE = ("all in", "all-in", "total", "whole trip", "entire trip", "everything", "overall", "including", "in total")
 FLIGHT_SCOPE = ("flight", "airfare", "fare", "ticket", "plane")
 FIRM = ("max", "under", "no more than", "can't go", "cannot go", "can't do more", "cap", "limit", "at most", "tops",
-        "won't go over", "not over", "hard", "absolutely", "not a cent")
+        "won't go over", "not over", "hard", "absolutely", "not a cent", "exceed")
 FLEX = ("around", "about", "-ish", "ish", "roughly", "flexible", "stretch", "give or take", "approximately", "if needed")
-# A requirement needs a firm word; a hedge ("would be nice", "flexible") is a
-# preference, and recording it as a requirement would be assuming.
+# A requirement needs a firm word; a hedge ("would be nice", "flexible") makes it a
+# preference. Recording it as a requirement would be assuming; dropping it would lose it.
 NEEDS = ("must", "need", "non-negotiable", "have to", "require", "can't do without", "essential", "deal-breaker")
 HEDGES = ("would be nice", "nice to have", "flexible", "if possible", "ideally", "prefer", "don't mind", "not a big deal")
 NONSTOP = ("nonstop", "non-stop", "direct", "no connection", "no layover", "no stops")
 AMOUNT = re.compile(r"\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k\b|K\b)?")
+
+
+NUMBER_WORDS = {"no": 0, "zero": 0, "one": 1, "a single": 1, "two": 2, "three": 3}
 
 
 def amounts(text: str) -> set[float]:
@@ -36,6 +39,12 @@ def amounts(text: str) -> set[float]:
         value = float(number.replace(",", ""))
         found.add(value * 1000 if thousands else value)
     return found
+
+
+def counts(text: str) -> set[float]:
+    """Numbers mentioned in text, small ones in words too ("no more than one stop")."""
+    lowered = f" {text.lower()} "
+    return amounts(text) | {float(v) for w, v in NUMBER_WORDS.items() if f" {w} " in lowered}
 
 
 def mentions(text: str, cues: tuple[str, ...]) -> bool:
@@ -61,9 +70,6 @@ def check_item(item: IntakeItem, said: str) -> str | None:
             if not isinstance(top, int) or not any(abs(f * 100 - top) < 1 for f in amounts(said)):
                 return "NUMBER_NOT_SAID"
         return None
-    if item.key in {"baggage_required", "own_bedroom"} and value is True:
-        firm, hedged = mentions(said, NEEDS), mentions(quote, HEDGES)
-        return None if firm or not hedged else "ONLY_A_PREFERENCE"
     if item.key in {"no_budget_limit", "dates_ok", "baggage_required", "own_bedroom"}:
         return None if isinstance(value, bool) and (value or item.key != "no_budget_limit") else "BAD_VALUE"
     if item.key == "stay_min_rating":
@@ -78,7 +84,7 @@ def check_item(item: IntakeItem, said: str) -> str | None:
         return None if item.interpreted or all(t is None or t in quote for t in times) else "NUMBER_NOT_SAID"
     if item.key == "max_stops":
         ok = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 3
-        stated = str(value) in quote or (value == 0 and mentions(quote, NONSTOP))
+        stated = float(value) in counts(quote) or (value == 0 and mentions(quote, NONSTOP))
         return None if ok and (item.interpreted or stated) else "BAD_VALUE"
     if item.key == "trip_note":
         return None if isinstance(value, str) and 0 < len(value) <= 200 else "BAD_VALUE"
@@ -92,25 +98,42 @@ def _check_rule(item: IntakeItem, said: str) -> str | None:
     number, time or word in its value appears in their words (a reading, e.g.
     "nonstop" as 0 connections, is allowed but shown as a reading)."""
     try:
-        rule = Rule.model_validate({**(item.rule or {}), "kind": "hard"})
+        rule = Rule.model_validate({**(item.rule or {}), "kind": "hard" if item.hardness == "HARD" else "soft"})
         validate(rule)
     except (RuleError, ValidationError):
         return "BAD_VALUE"
     kind, quote = attribute_type(rule), item.source_quote
+    if rule.operator in RANKINGS:
+        return None  # "as short as possible" names no number; the quote is the evidence
+    if rule.operator in RELATIONS:  # whose: their name anywhere in that message ("Alex and I... the same flight")
+        return None if str(rule.value).lower() in said.lower() else "NUMBER_NOT_SAID"
     for v in rule.value if isinstance(rule.value, list) else [rule.value]:
         if kind == "bool":
-            if v and mentions(quote, HEDGES) and not mentions(said, NEEDS):
-                return "ONLY_A_PREFERENCE"
             continue
         if kind == "money":
             stated = any(abs(f * 100 - v) < 1 for f in amounts(quote))
+        elif kind == "date":  # "November 21" or "the 21st" states 2026-11-21's day
+            stated = float(date.fromisoformat(v).day) in amounts(quote)
         elif kind in ("int", "number", "epoch"):
-            stated = any(abs(f - v) < 0.01 for f in amounts(quote))
+            stated = any(abs(f - v) < 0.01 for f in counts(quote))
         else:
             stated = str(v).lower() in quote.lower()
         if not stated and not item.interpreted:
             return "NUMBER_NOT_SAID"
     return None
+
+
+def soften(item: IntakeItem, said: str) -> IntakeItem:
+    """Anything said with a hedge and no firm word ("nonstop would be nice") is kept
+    as a preference, and "as short as possible" always is one. Budgets have their own
+    firmness check (budget_gap)."""
+    if item.key in MONEY_KEYS or item.hardness != "HARD":
+        return item
+    if item.key == "rule" and (item.rule or {}).get("operator") in RANKINGS + RELATIONS:
+        return item.model_copy(update={"hardness": "SOFT"})  # a ranking or someone else's pick: only ever a wish
+    if mentions(item.source_quote, HEDGES) and not mentions(said, NEEDS):
+        return item.model_copy(update={"hardness": "SOFT"})
+    return item
 
 
 def budget_gap(item: IntakeItem, said: str) -> str | None:
@@ -134,6 +157,7 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
     for item in extraction.items:
         if item.source_message_id not in said:
             continue
+        item = soften(item, said[item.source_message_id])
         problem = check_item(item, said[item.source_message_id])
         if problem == "NUMBER_NOT_SAID" and item.key in BUDGET_KEYS and item.authorized_range is not None:
             # Keep the budget they stated; ask about the stretch instead of dropping both.
@@ -153,7 +177,8 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
             item = item.model_copy(update={"interpreted": True})  # "nonstop" read as 0 stops: shown as a reading
         # A later statement replaces an earlier one about the same thing.
         slot = item.key if item.key != "rule" else (
-            f"rule:{item.rule.get('category')}.{item.rule.get('attribute') or item.rule.get('aggregate')}:{item.rule.get('operator')}")
+            f"rule:{item.rule.get('category')}.{item.rule.get('attribute') or item.rule.get('aggregate')}:{item.rule.get('operator')}"
+            f":{item.hardness}")
         items[slot] = item
     settings = extraction.settings
     if settings is not None and (settings.source_message_id not in said or not settings.source_quote
@@ -168,6 +193,8 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
     have = set(items) | set(ctx.confirmed_keys)
     if any(i.key == "rule" and _is_money(i) for i in items.values()):
         have.add("trip_budget_total")  # any money limit covers money
+    if any(i.key == "rule" and _rule_type(i) == "date" for i in items.values()):
+        have.add("dates_ok")  # their own dates answer whether the trip's dates work
     coverage = {
         "origin": "ANSWERED" if "origin_airport" in have else "OPEN",
         "dates": "ANSWERED" if have & {"dates_ok", "arrival_window"} else "OPEN",
@@ -175,6 +202,12 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
         "settings": "ANSWERED" if ctx.preferences_confirmed or (
             settings is not None and settings.speak_up_for_me is not None and settings.ask_me_first is not None) else "OPEN",
     }
+    dates_said = items.get("dates_ok")
+    if dates_said is not None and dates_said.value is False and not any(
+            i.key == "rule" and _rule_type(i) == "date" for i in items.values()):
+        # "The dates don't work" isn't an answer yet: which dates do?
+        coverage["dates"] = "UNCLEAR"
+        reasons.setdefault("dates", "Which dates can you do: what's the earliest you can leave, and when do you need to be back?")
     for topic, reason in reasons.items():
         if coverage.get(topic) != "ANSWERED":
             coverage[topic] = "UNCLEAR"
@@ -245,25 +278,38 @@ def patch_json(item: IntakeItem) -> dict:
 
 
 def _is_money(item: IntakeItem) -> bool:
+    return _rule_type(item) == "money"
+
+
+def _rule_type(item: IntakeItem) -> str | None:
     try:
-        return attribute_type(Rule.model_validate({**(item.rule or {}), "kind": "hard"})) == "money"
+        return attribute_type(Rule.model_validate({**(item.rule or {}), "kind": "hard"}))
     except (RuleError, ValidationError):
-        return False
+        return None
 
 
 WORDS = {"lte": "at most", "lt": "under", "gte": "at least", "gt": "over", "eq": "is", "neq": "isn't",
-         "in": "one of", "not_in": "none of", "between": "between"}
+         "in": "one of", "not_in": "none of", "between": "between", "contains": "include"}
 
 
 def describe_rule(rule: Rule) -> str:
     """A rule in plain words, from the catalog's labels: "Stay: rating at least 4.5"."""
     catalog = attributes()
     spec = catalog["aggregates"][rule.aggregate] if rule.aggregate else catalog["categories"][rule.category][rule.attribute]
-    show = (lambda v: money(v)) if spec["type"] == "money" else str
-    if spec["type"] == "bool":
-        text = ("must have " if rule.value else "must not have ") + spec["label"]
+    show = money if spec["type"] == "money" else day if spec["type"] == "date" else str
+    if rule.operator == "same_as":
+        text = f"{spec.get('same_as', 'the same ' + spec['label'] + ' as')} {rule.value}"
+    elif rule.operator in RANKINGS:
+        timed = spec["type"] in ("epoch", "time", "date")
+        way = ("early" if timed else "low") if rule.operator == "lowest" else ("late" if timed else "high")
+        text = f"{spec['label']} {spec.get(rule.operator, f'as {way} as possible')}"
+    elif spec["type"] == "bool":
+        must = "" if rule.kind == "soft" else "must "
+        text = must + ("have " if rule.value else "not have ") + spec["label"]
     elif rule.operator == "between":
         text = f"{spec['label']} between {show(rule.value[0])} and {show(rule.value[1])}"
+    elif rule.operator in ("lte", "lt") and rule.value == (0 if rule.operator == "lte" else 1) and spec["type"] == "int":
+        text = f"no {spec['label']}"  # "at most 0 connections" is "no connections"
     elif isinstance(rule.value, list):
         text = f"{spec['label']} {WORDS[rule.operator]} {', '.join(show(v) for v in rule.value)}"
     else:
@@ -271,13 +317,28 @@ def describe_rule(rule: Rule) -> str:
     return text[0].upper() + text[1:] if rule.aggregate else f"{rule.category.title()}: {text}"
 
 
+def day(iso: str) -> str:
+    """2026-11-25 as "Nov 25"."""
+    d = date.fromisoformat(iso)
+    return f"{d:%b} {d.day}"
+
+
 def money(cents: int) -> str:
     return f"${cents / 100:,.0f}" if cents % 100 == 0 else f"${cents / 100:,.2f}"
 
 
 def describe(item: IntakeItem) -> str:
+    text = _describe(item)
+    ranking = item.key == "rule" and (item.rule or {}).get("operator") in RANKINGS  # already a wish
+    if item.hardness == "SOFT" and item.key not in BUDGET_KEYS and not ranking:
+        return f"If possible: {text[0].lower()}{text[1:]}"  # a preference, weighed but never a must
+    return text
+
+
+def _describe(item: IntakeItem) -> str:
+    soft = item.hardness == "SOFT"
     if item.key == "rule":
-        return describe_rule(Rule.model_validate({**item.rule, "kind": "hard"}))
+        return describe_rule(Rule.model_validate({**item.rule, "kind": "soft" if soft else "hard"}))
     v = item.value
     if item.key == "origin_airport":
         return f"Flying from {v}"
@@ -290,16 +351,28 @@ def describe(item: IntakeItem) -> str:
     text = {
         "no_budget_limit": "No budget limit",
         "dates_ok": "The dates work for you" if v else "The dates don't work as they are",
-        "baggage_required": "You need a checked bag" if v else "No checked bag needed",
+        "baggage_required": ("A checked bag" if soft else "You need a checked bag") if v else "No checked bag needed",
         "own_bedroom": "You'd like your own room" if v else "Happy to share a room",
         "stay_min_rating": f"Stays rated {v} or higher",
-        "max_stops": "Nonstop only" if v == 0 else f"At most {v} stop{'s' if v != 1 else ''}",
+        "max_stops": ("Nonstop" if soft else "Nonstop only") if v == 0 else f"At most {v} stop{'s' if v != 1 else ''}",
         "trip_note": f"Noted, not used in planning yet: {v}",
     }.get(item.key)
     if item.key == "arrival_window":
         early, late = v.get("earliest"), v.get("latest")
         text = f"Land {'between ' + early + ' and ' + late if early and late else 'after ' + early if early else 'before ' + late}"
     return text or item.key
+
+
+def priorities_text(profile: dict) -> str:
+    """Their own priority ranking (profile question C03), in their words' order."""
+    from .profile_policy import catalog
+    ranked = (profile.get("C03") or {}).get("ranked") or []
+    question = next((q for q in catalog()["questions"] if q["id"] == "C03"), None)
+    labels = {o["id"]: o["label"].lower() for o in (question or {}).get("options", [])}
+    names = [labels[r] for r in ranked if r in labels]
+    if not names:
+        return ""
+    return names[0] + " first" + (", then " + ", ".join(names[1:]) if names[1:] else "")
 
 
 def summary_text(items: tuple[IntakeItem, ...], settings, ctx: IntakeContext, missing_money: bool,
@@ -320,6 +393,9 @@ def summary_text(items: tuple[IntakeItem, ...], settings, ctx: IntakeContext, mi
             + (" (that part from your profile)." if settings_from_profile else "."))
     for suggestion in suggested:
         lines.append(f"• {suggestion.text} (from your profile; for this trip too?)")
+    weighing = priorities_text(ctx.profile)
+    if weighing:
+        lines.append(f"• When options trade off, I'll weigh them your way: {weighing} (from your profile).")
     if missing_money:
         lines.append("• Still needed: a budget, or say there's no limit. I won't plan without it.")
     lines.append("Anything you didn't mention, I'll ask about only if a plan depends on it.")

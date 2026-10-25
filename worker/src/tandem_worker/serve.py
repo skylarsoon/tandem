@@ -25,13 +25,18 @@ from .adapters.trip_actors import ACTORS, ActivitySearch, DinnerSearch, StaySear
 from .budget import ProviderBudget
 from .config import LiveLimits
 from .contracts import ContractError, Record, Snapshot, digest
+from .itinerary import pair_itineraries
 from .live import CheckedResearch, Providers, trip_gateways
 from .optimizer_bridge import make_solver
 from .ports import SystemClock
 
 
 class ServeConfig(Record):
-    limits: LiveLimits = Field(default_factory=LiveLimits)
+    # model_calls and actor_runs are the whole service's ceilings per UTC day.
+    limits: LiveLimits = Field(default_factory=lambda: LiveLimits(model_calls=500, actor_runs=40))
+    # What one job may use (counted per job by the database): a 4-person
+    # negotiation cycle alone is a decide and a voice call per person.
+    job_model_calls: int = Field(default=100, ge=1, le=500)
     # How the group-dinner search is phrased; everything else comes from the room.
     dinner_query: str = "restaurant for large groups"
     # Who chooses the plan: the multi-selection optimizer (default) or TripSolver (minimax_v1).
@@ -60,6 +65,11 @@ def searches_for(request: dict, dinner_query: str) -> tuple[list[MemoSearch], Tr
             departure_date=date.fromisoformat(route["date"]), origin_timezone=_airport(route["origin"])["tz"],
             destination_timezone=_airport(route["destination"])["tz"], initial_filters=MemoFilters(max_stops=stops),
             targeted_filters=targeted))
+        if route.get("return_date"):  # the way home, searched one way and paired after (itinerary.py)
+            flights.append(MemoSearch(owner=route["owner"], origin=route["destination"], destination=route["origin"],
+                departure_date=date.fromisoformat(route["return_date"]), origin_timezone=_airport(route["destination"])["tz"],
+                destination_timezone=_airport(route["origin"])["tz"], initial_filters=MemoFilters(max_stops=stops),
+                targeted_filters=targeted, leg="return"))
     trip, shared = request.get("trip"), {}
     if trip:
         airport = _airport(request["routes"][0]["destination"]) if request.get("routes") else None
@@ -102,7 +112,7 @@ class RoomResearch:
             normalizer_version=NORMALIZER_VERSION, max_concurrent_runs=limits.max_concurrent_runs)
         config = type("Trip", (), {"trip": trip, "limits": limits})
         shared = trip_gateways(config, self.client, self.ledger, snapshot, self.clock, self.budget)
-        return TripResearch(gateway, shared).search(request)
+        return pair_itineraries(TripResearch(gateway, shared).search(request))
 
 
 def make_room_providers(config: ServeConfig, settings, directory, *, clock=None, claude_client=None, apify_client=None):
@@ -111,7 +121,7 @@ def make_room_providers(config: ServeConfig, settings, directory, *, clock=None,
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     budget = ProviderBudget(directory / "providers.sqlite", digest(["serve", settings.claude_model, settings.apify_actor_build]),
-        model_calls=config.limits.model_calls, actor_runs=config.limits.actor_runs)
+        model_calls=config.limits.model_calls, actor_runs=config.limits.actor_runs, daily=True)
     model = ClaudeModel(settings.claude_model, settings.anthropic_api_key.get_secret_value(), client=claude_client,
         budget=budget, max_tokens=config.limits.max_output_tokens, timeout=config.limits.http_timeout)
     client = apify_client or ApifyHTTP(settings.apify_token.get_secret_value(), timeout=config.limits.http_timeout)
@@ -135,7 +145,7 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
                                                  claude_client=claude_client, apify_client=apify_client)
     if not providers.research.verified:
         providers.preflight()
-    limits = Limits(model_calls=config.limits.model_calls)
+    limits = Limits(model_calls=config.job_model_calls)
     backend = backend or SpacetimeBackend(settings.stdb_url, settings.stdb_database,
         settings.stdb_worker_token.get_secret_value(), clock=clock, limits=limits,
         owner_name=lambda member: member["display_name"])

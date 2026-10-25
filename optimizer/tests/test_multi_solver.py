@@ -114,6 +114,29 @@ class MultiSelectionTests(unittest.TestCase):
         optimize_multi(q)
         self.assertEqual(q, before)
 
+    def test_count_distinct_prefers_the_same_flight(self):
+        """Dana would like Alex's flight: a soft count_distinct <= 1 over their two picks,
+        on a string flight id. The shared flight wins though it costs a little more."""
+        q = sample()
+        q['participants'] = [{'id': 'alex'}, {'id': 'dana'}]
+        q['candidates'] = [
+            {'id': 'a_ua', 'attributes': {'price_cents': 10000, 'flight': 'UA1158'}},
+            {'id': 'd_ua', 'attributes': {'price_cents': 10500, 'flight': 'UA1158'}},
+            {'id': 'd_as', 'attributes': {'price_cents': 10000, 'flight': 'AS1093'}},
+        ]
+        q['selection_groups'] = [
+            {'id': 'alex', 'candidate_ids': ['a_ua'], 'required_count': 1},
+            {'id': 'dana', 'candidate_ids': ['d_ua', 'd_as'], 'required_count': 1},
+        ]
+        q['aggregate_rules'] = [{'attribute': 'flights', 'operation': 'count_distinct',
+                                 'source_attribute': 'flight', 'selection_group_ids': ['alex', 'dana']}]
+        q['constraints'] = [{'id': 'together', 'kind': 'soft', 'owner_id': 'dana', 'attribute': 'flights',
+                             'operator': 'lte', 'value': 1, 'importance': 5}]
+        q['compromise_history'] = {}
+        r = optimize_multi(q)
+        self.assertEqual(r['status'], 'FEASIBLE')
+        self.assertEqual(r['proposals'][0]['candidate_ids'], ['a_ua', 'd_ua'])
+
 
 if __name__ == '__main__':
     unittest.main()

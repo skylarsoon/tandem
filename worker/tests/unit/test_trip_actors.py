@@ -170,7 +170,7 @@ def test_activity_is_a_per_person_estimate_on_a_0_to_5_scale():
     candidate = one(booking_attractions, rows("booking_attractions")[0], ACTIVITY)
     assert candidate.category == "ACTIVITY" and candidate.owner is None
     assert candidate.total_cents == 3750 and candidate.cost_basis == "ESTIMATE_PER_PERSON"
-    assert not candidate.complete
+    assert candidate.complete, "approved as a per-person estimate, like the database's price basis for activities"
     assert candidate.rating == 4.7 and candidate.free_cancellation is True
     assert candidate.title == "Oahu's Circle Island Tour Operated By Fil-Am Travel & Tours"
 
@@ -187,6 +187,24 @@ def test_mismatched_or_unpriced_activities_are_quarantined(change):
     change(row)
     with pytest.raises(ValueError):
         booking_attractions.normalize(row, ACTIVITY, RUN, 900)
+
+
+@pytest.mark.parametrize("change", [
+    lambda r: r.update(name="Honolulu Airport Shuttle to Waikiki Hotels"),
+    lambda r: r.update(url="https://www.booking.com/attractions/us/abc-private-airport-transfer.html"),
+    lambda r: r.update(category="Taxi"),
+])
+def test_rides_are_not_activities(change):
+    row = deepcopy(rows("booking_attractions")[0])
+    change(row)
+    with pytest.raises(ValueError, match="NOT_AN_ACTIVITY"):
+        booking_attractions.normalize(row, ACTIVITY, RUN, 900)
+
+
+def test_a_tour_with_hotel_pickup_is_still_an_activity():
+    row = deepcopy(rows("booking_attractions")[0])
+    row["name"] = "Circle Island Tour with hotel pick-up"
+    assert one(booking_attractions, row, ACTIVITY).title == "Circle Island Tour with hotel pick-up"
 
 
 def test_suggestions_are_never_targeted():
