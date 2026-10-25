@@ -9,7 +9,7 @@ from datetime import date
 from pydantic import ValidationError
 
 from .contracts import TOPICS, IntakeContext, IntakeExtraction, IntakeItem, IntakeQuestion
-from .rules import RANKINGS, Rule, RuleError, attribute_type, attributes, validate
+from .rules import RANKINGS, RELATIONS, Rule, RuleError, attribute_type, attributes, validate
 
 MAX_QUESTIONS = 5
 MONEY_KEYS = {"flight_budget_total", "trip_budget_total", "no_budget_limit"}
@@ -105,6 +105,8 @@ def _check_rule(item: IntakeItem, said: str) -> str | None:
     kind, quote = attribute_type(rule), item.source_quote
     if rule.operator in RANKINGS:
         return None  # "as short as possible" names no number; the quote is the evidence
+    if rule.operator in RELATIONS:  # whose: their name anywhere in that message ("Alex and I... the same flight")
+        return None if str(rule.value).lower() in said.lower() else "NUMBER_NOT_SAID"
     for v in rule.value if isinstance(rule.value, list) else [rule.value]:
         if kind == "bool":
             continue
@@ -127,8 +129,8 @@ def soften(item: IntakeItem, said: str) -> IntakeItem:
     firmness check (budget_gap)."""
     if item.key in MONEY_KEYS or item.hardness != "HARD":
         return item
-    if item.key == "rule" and (item.rule or {}).get("operator") in RANKINGS:
-        return item.model_copy(update={"hardness": "SOFT"})
+    if item.key == "rule" and (item.rule or {}).get("operator") in RANKINGS + RELATIONS:
+        return item.model_copy(update={"hardness": "SOFT"})  # a ranking or someone else's pick: only ever a wish
     if mentions(item.source_quote, HEDGES) and not mentions(said, NEEDS):
         return item.model_copy(update={"hardness": "SOFT"})
     return item

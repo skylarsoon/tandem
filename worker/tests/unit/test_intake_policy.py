@@ -134,3 +134,13 @@ def test_a_number_said_in_words_counts_as_said():
     said = "I'd prefer no more than one stop, but that's flexible."
     [kept] = verify(IntakeExtraction(items=(item("max_stops", 1, "I'd prefer no more than one stop", hardness="SOFT"),)), ctx(said))[0]
     assert (kept.value, kept.hardness) == (1, "SOFT")
+
+
+def test_whose_flight_can_be_named_anywhere_in_that_message():
+    said = "Since Alex and I are both flying from San Francisco, I'd love it if we could take the same flight."
+    wish = item("rule", None, "I'd love it if we could take the same flight", hardness="HARD",
+                rule={"category": "FLIGHT", "attribute": "flight_identity", "operator": "same_as", "value": "Alex"})
+    [kept] = verify(IntakeExtraction(items=(wish,)), ctx(said))[0]
+    assert kept.hardness == "SOFT", "someone else's pick is only ever a wish"
+    other = wish.model_copy(update={"rule": {**wish.rule, "value": "Bella"}})
+    assert verify(IntakeExtraction(items=(other,)), ctx(said))[0] == (), "a name they never said is dropped"
