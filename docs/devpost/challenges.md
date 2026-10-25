@@ -179,6 +179,8 @@ Now only firm statements become limits. A hedged one is kept as a preference: it
 
 **A bug that wasn't.** We'd suspected the scraper of reporting a San Francisco to Honolulu nonstop as one stop. Reading the raw rows of a live search settled it: those fares really connect through Los Angeles, and every stated stop count matched the flight legs listed. We count stops from the legs anyway, so the two can never disagree.
 
+**The rules no one could ever say.** Every offline test passed, yet the first live run showed Chris being asked "Which dates can you do?" three times while he kept answering. Reading Claude's actual replies from the database's operation log: every rule it extracted was an empty object, `"rule": {}`. Claude's answers are schema-constrained, and the SDK's strict mode closes every object to the fields it names; our rule field was an untyped dict, so empty was the only valid answer. Personal dates, "same flight as", "as short as possible", landing windows and stretch budgets had all been impossible to capture live since the day rules were added. Each of those fields now has an explicit shape, and a test fails if any model output ever has an object it can only leave empty.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

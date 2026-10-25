@@ -4,9 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 
 
 def digest(value: object) -> str:
@@ -554,16 +554,42 @@ class BriefDraft(Record):
     unclear: tuple[str, ...] = ()
 
 
+# The model's output is schema-constrained, and a structured-output schema closes every
+# object to the fields it names: an untyped dict could only ever come back empty. So the
+# dicts a traveller's words become are given their shapes here (and stay dicts in code).
+_NULLABLE = lambda schema: {"anyOf": [schema, {"type": "null"}]}  # noqa: E731
+_TEXT = _NULLABLE({"type": "string"})
+RULE_SCHEMA = _NULLABLE({"type": "object", "additionalProperties": False,
+    "required": ["category", "attribute", "aggregate", "operator", "value"],
+    "properties": {"category": _TEXT, "attribute": _TEXT, "aggregate": _TEXT,
+                   "operator": {"type": "string", "enum": ["eq", "neq", "lt", "lte", "gt", "gte", "in", "not_in", "between",
+                                                           "lowest", "highest", "same_as", "contains"]},
+                   "value": {"anyOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "null"},
+                                       {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "number"}]}}]}}})
+VALUE_SCHEMA = {"anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "number"}, {"type": "boolean"}, {"type": "null"},
+                          {"type": "object", "additionalProperties": False, "required": ["earliest", "latest"],
+                           "properties": {"earliest": _TEXT, "latest": _TEXT}}]}
+RANGE_SCHEMA = _NULLABLE({"type": "object", "additionalProperties": False, "required": ["max"],
+                          "properties": {"max": {"type": "integer"}}})
+
+
 class IntakeItem(Record):
     """One thing the traveller said, with their exact words. `interpreted` marks a
     reading the summary must spell out (e.g. "no red-eyes" → land 06:00-23:00)."""
     key: IntakeKey
-    value: str | int | float | bool | dict[str, str] | None = None
+    value: Annotated[str | int | float | bool | dict[str, str | None] | None, WithJsonSchema(VALUE_SCHEMA)] = None
     # key "rule": anything checkable, in the generic language
     # ({category, attribute | aggregate, operator, value}; see contracts/attributes.json).
-    rule: dict | None = None
+    rule: Annotated[dict | None, WithJsonSchema(RULE_SCHEMA)] = None
     hardness: Literal["HARD", "SOFT"] = "HARD"
-    authorized_range: dict[str, int] | None = None
+    authorized_range: Annotated[dict[str, int] | None, WithJsonSchema(RANGE_SCHEMA)] = None
+
+    @model_validator(mode="after")
+    def drop_empty_rule_fields(self):
+        # The schema makes every rule field present; a rule names only what it uses.
+        if self.rule:
+            object.__setattr__(self, "rule", {k: v for k, v in self.rule.items() if v is not None})
+        return self
     unit: str = ""
     private_rationale: str = Field(default="", max_length=300)
     source_message_id: int
