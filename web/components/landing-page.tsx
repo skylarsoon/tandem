@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { PipCompanion } from './pip-companion';
 import styles from './landing-page.module.css';
 const crew = [
-  { color: 'lavender' as const, name: 'Your Pip', note: 'A little more adventure.', className: 'one' },
-  { color: 'peach' as const, name: 'Maya’s Pip', note: 'A little room in the budget.', className: 'two' },
-  { color: 'mint' as const, name: 'Leo’s Pip', note: 'A little less rushing.', className: 'three' },
-  { color: 'yellow' as const, name: 'Sam’s Pip', note: 'A little time together.', className: 'four' },
+  { color: 'lavender' as const, name: 'Skylar’s Pip', note: 'A little more adventure.', className: 'one' },
+  { color: 'peach' as const, name: 'Ronit’s Pip', note: 'A little room in the budget.', className: 'two' },
+  { color: 'mint' as const, name: 'Anna’s Pip', note: 'A little less rushing.', className: 'three' },
+  { color: 'yellow' as const, name: 'Elena’s Pip', note: 'A little time together.', className: 'four' },
 ];
 const Arrow = () => <span aria-hidden="true">↗</span>;
 export function LandingPage() {
@@ -18,9 +18,9 @@ export function LandingPage() {
   const [discussion, setDiscussion] = useState(0);
   const [approvals, setApprovals] = useState(0);
   const turns = [
-    { name: 'Maya’s Pip', line: 'Can we keep a little more room in the budget?', reply: 'Leo’s Pip: I can be flexible on departure time.', color: 'peach' as const },
-    { name: 'Leo’s Pip', line: 'An earlier flight could work. Let’s check with everyone.', reply: 'Your Pip: I’ll ask privately before agreeing.', color: 'mint' as const },
-    { name: 'Your Pip', line: 'That compromise works. Ready for everyone to review?', reply: 'Sam’s Pip: One shared plan. Four final decisions.', color: 'lavender' as const },
+    { name: 'Ronit’s Pip', line: 'Can we keep a little more room in the budget?', reply: 'Anna’s Pip: I can be flexible on departure time.', color: 'peach' as const },
+    { name: 'Anna’s Pip', line: 'An earlier flight could work. Let’s check with everyone.', reply: 'Skylar’s Pip: I’ll ask privately before agreeing.', color: 'mint' as const },
+    { name: 'Skylar’s Pip', line: 'That compromise works. Ready for everyone to review?', reply: 'Elena’s Pip: One shared plan. Four final decisions.', color: 'lavender' as const },
   ];
   useEffect(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)');
