@@ -283,6 +283,13 @@ class LocalBackend:
             self._checked(state, claim)
             return self._has_grant(state, owner, kind, action_ref)
 
+    def declined_concession_owners(self, claim, draft_ref):
+        with self._tx() as state:
+            self._checked(state, claim)
+            revisions = [state["snapshot"]["input_revision"], state["snapshot"]["membership_revision"]]
+            return tuple(owner for owner in state["snapshot"]["members"]
+                if state.get("refusals", {}).get(f"{owner}:{draft_ref}") == revisions)
+
     def answer_question(self, owner, question_id, version, answer, request_key):
         if not isinstance(answer, bool):
             raise ContractError("INVALID_ANSWER")
@@ -304,6 +311,9 @@ class LocalBackend:
                 # A just-in-time answer is the owner's confirmed constraint; the waiting
                 # job resumes and re-plans with it (no restart, so others' questions stand).
                 self._apply(state, owner, question["nudge"]["yes" if answer else "no"])
+            if not answer and question["kind"] == "CONSULTATION":
+                state.setdefault("refusals", {})[f"{owner}:{question['action_ref']}"] = [
+                    state["snapshot"]["input_revision"], state["snapshot"]["membership_revision"]]
             # Disclosure/consultation answers are action grants. They invalidate
             # old execution authority, never create final proposal consent.
             if answer and question["kind"] in {"DISCLOSURE", "CONSULTATION", "EXPLORE", "PARTICIPATION"}:
@@ -394,6 +404,13 @@ class LocalBackend:
                 # The agent's side of the owner's private conversation.
                 self._message(state, owner, "AGENT", text)
             state["notes"][owner][note_key] = text
+
+    def set_agent_activity(self, claim, owner, activity):
+        with self._tx() as state:
+            self._checked(state, claim)
+            if owner != "mediator" and owner not in state["snapshot"]["members"]:
+                raise ContractError("NOT_AUTHORIZED")
+            state.setdefault("activities", {})[owner] = activity
 
     def room_event(self, claim, kind, payload, key):
         with self._tx() as state:

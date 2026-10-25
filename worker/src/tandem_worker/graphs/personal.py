@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from ..contracts import Act, ContractError, Decision, Impact, Message, Payload, Question, ValidationMetadata, VoiceDraft, digest
 from ..explain import consultation_prompt
+from ..progress import activity
 from ..solver import RELAXABLE
 from ..policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
 
@@ -91,6 +92,8 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
     def decide(state):
         task = state["task"]
         backend.check(claim)
+        activity(backend, claim, task["owner"], "THINKING")
+        # Requirements the owner set aside are their own recorded answers, already in the brief.
         original = brief = backend.read_brief(claim, task["owner"])
         context = {"owner": brief.owner, "hard_cap_cents": brief.hard_cap_cents,
             "private_reason": brief.private_reason, "preferences": brief.preferences.model_dump(mode="json"),
@@ -152,12 +155,15 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         if decision.evaluation == "NEEDS_OWNER_INPUT":
             q = question_for(claim, brief.owner, "MISSING_FACT", task["draft_ref"], decision.owner_question.strip())
             questions.append(backend.ask_owner(claim, q))
+        if questions:
+            activity(backend, claim, task["owner"], "IDLE")
         return {"decision": decision.model_dump(mode="json"), "questions": questions}
 
     def voice_and_send(state):
         if state["questions"]:
             return {}
         task = state["task"]
+        activity(backend, claim, task["owner"], "WRITING")
         decision = Decision.model_validate(state["decision"])
         payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
             candidate_refs=(task["candidate"]["id"], *(c["id"] for c in task.get("shared", []))), research=decision.research,
@@ -186,6 +192,7 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             reply_to=task["inbound_ref"] if same_thread else None,
             operation_ref=task["operation_ref"])
         backend.record_message_processed(claim, task["inbound_ref"], task["owner"], (ref,))
+        activity(backend, claim, task["owner"], "IDLE")
         return {"message_ref": ref, "outgoing_payload": payload.model_dump(mode="json"), "outgoing_thread_id": thread_id}
 
     builder = StateGraph(PersonalState)

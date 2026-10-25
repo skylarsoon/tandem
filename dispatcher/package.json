@@ -6,11 +6,13 @@
   "description": "Wakes the Python worker when SpacetimeDB has eligible jobs. Never claims or writes.",
   "scripts": {
     "start": "tsx src/index.ts",
+    "start:local": "node --env-file=../.env.local --import tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path ../spacetimedb -y"
   },
   "dependencies": {
-    "spacetimedb": "2.13.*"
+    "spacetimedb": "2.13.*",
+    "undici": "^6.29.1"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

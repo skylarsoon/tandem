@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tandem-optimizer"
+version = "0.1.0"
+description = "Domain-agnostic, fairness-aware selection optimizer (Tandem)"
+requires-python = ">=3.11"
+# OR-Tools is optional (backend="cp_sat"); the worker already depends on it.
+dependencies = []
+
+# The package is this directory itself, imported as `optimizer`.
+[tool.setuptools]
+package-dir = { "optimizer" = "." }
+packages = ["optimizer"]

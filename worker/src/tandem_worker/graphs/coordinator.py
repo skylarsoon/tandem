@@ -9,6 +9,7 @@ from langgraph.types import interrupt
 
 from ..contracts import Act, Candidate, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
+from ..progress import activity, report as progress
 from ..shortlist import dedupe, shortlist_flights
 from ..solver import POLICY, RELAXABLE, TripSolver, relax_nudge
 from .personal import build_personal, nudges, question_for, send_message
@@ -155,48 +156,65 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             # Searched early; nothing is proposed until everyone has confirmed their onboarding.
             return {"outcome": "WAITING_FOR_INTAKE", "solver_status": "", "selected": []}
         excluded, now = set(state.get("excluded", ())), clock.now()
-        candidates = [Candidate.model_validate(c) for c in state["candidates"] if c["valid_until"] > now and c["id"] not in excluded]
         briefs = briefs_for(snapshot)
         by_owner = {b.owner: b for b in briefs}
         relaxations = digest([b.model_dump(mode="json") for b in briefs])[:12]
-        base = f"solve:{state['round']}:{len(excluded)}:{relaxations}"
-        # Onboarded rooms choose flights (and the stay) first; the transfer is then searched
-        # for the group's actual latest landing and the plan solved again with it.
-        plan_for = snapshot
-        if snapshot.onboarding and "TRANSFER" in snapshot.components and not any(c.category == "TRANSFER" for c in candidates):
-            plan_for = snapshot.model_copy(update={"components": tuple(c for c in snapshot.components if c != "TRANSFER")})
-            base += ":before-transfer"
-        # The solver sees a shortlist: a few distinct flights per traveller, from
-        # everything found so far (reused and new). If none of its combinations
-        # works while untried flights remain, shortlist differently before
-        # concluding anything; only then search again.
         locked = sorted({ref for c in snapshot.commitments if c.decision_id != DECISION for ref in c.refs})
-        tried: set[str] = set()
-        for attempt in range(limits.shortlist_passes):
-            pick = shortlist_flights(candidates, plan_for, briefs, limit=limits.shortlist_size, now=now,
-                                     locked=locked, tried=tried)
-            if pick.lock_conflicts:
+
+        def shortlisted(excluded):
+            """One solve, over a shortlist: a few distinct flights per traveller from
+            everything found so far (reused and new). If none of its combinations
+            works while untried flights remain, shortlist differently before
+            concluding anything; only then search again. None: a locked flight is gone."""
+            candidates = [Candidate.model_validate(c) for c in state["candidates"] if c["valid_until"] > now and c["id"] not in excluded]
+            base = f"solve:{state['round']}:{len(excluded)}:{relaxations}"
+            # Onboarded rooms choose flights (and the stay) first; the transfer is then searched
+            # for the group's actual latest landing and the plan solved again with it.
+            plan_for = snapshot
+            if snapshot.onboarding and "TRANSFER" in snapshot.components and not any(c.category == "TRANSFER" for c in candidates):
+                plan_for = snapshot.model_copy(update={"components": tuple(c for c in snapshot.components if c != "TRANSFER")})
+                base += ":before-transfer"
+            tried: set[str] = set()
+            for attempt in range(limits.shortlist_passes):
+                pick = shortlist_flights(candidates, plan_for, briefs, limit=limits.shortlist_size, now=now,
+                                         locked=locked, tried=tried)
+                if pick.lock_conflicts:
+                    return None
+                key = f"{base}:p{attempt}"
+                request = {"snapshot": claim.snapshot_ref, "candidates": digest(candidates_data(pick.candidates)), "briefs": relaxations}
+
+                def run(pick=pick):
+                    if pick.empty_groups:
+                        # Someone has no usable flight at all: say why, never solve as if they did.
+                        return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
+                            TripSolver.owner_conflict(o, by_owner[o], candidates) for o in pick.empty_groups))
+                    return solver.solve(plan_for, briefs, list(pick.candidates))
+                result = SolverResult.model_validate(backend.operation(claim, key, request, "local", run))
+                if result.status != "INFEASIBLE" or pick.empty_groups or not any(g.untried_valid for g in pick.groups):
+                    break
+                tried |= {ref for g in pick.groups for ref in g.kept}
+            counts = {"flights_checked": len(tried | {ref for g in pick.groups for ref in g.kept}),
+                      "flights_found": sum(g.valid for g in pick.groups)}
+            return candidates, plan_for, key, request, result, counts
+
+        # A different owner's grant can restart the graph. Reapply recorded
+        # refusals to that same draft instead of asking the first person again.
+        while True:
+            solved = shortlisted(excluded)
+            if solved is None:
                 # An agreed flight can't be kept (gone, expired or now breaking a limit): never drop it silently.
                 return {"outcome": "LOCKED_CANDIDATE_UNAVAILABLE", "solver_status": "", "selected": []}
-            key = f"{base}:p{attempt}"
-            request = {"snapshot": claim.snapshot_ref, "candidates": digest(candidates_data(pick.candidates)), "briefs": relaxations}
-
-            def run(pick=pick):
-                if pick.empty_groups:
-                    # Someone has no usable flight at all: say why, never solve as if they did.
-                    return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
-                        TripSolver.owner_conflict(o, by_owner[o], candidates) for o in pick.empty_groups))
-                return solver.solve(plan_for, briefs, list(pick.candidates))
-            result = SolverResult.model_validate(backend.operation(claim, key, request, "local", run))
-            if result.status != "INFEASIBLE" or pick.empty_groups or not any(g.untried_valid for g in pick.groups):
+            candidates, plan_for, key, request, result, counts = solved
+            draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
+            declined = set(backend.declined_concession_owners(claim, draft)) if result.selected else set()
+            refused = {c.id for c in candidates if c.id in result.selected and c.owner in declined}
+            if not refused:
                 break
-            tried |= {ref for g in pick.groups for ref in g.kept}
-        draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
+            excluded.update(refused)
         outcome = "" if result.status in {"OPTIMAL", "FEASIBLE", "INFEASIBLE"} else result.status
         update = {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome,
                   "solve_key": key, "solve_request": request, "resolve": False, "group_window": [],
-                  "flights_checked": len(tried | {ref for g in pick.groups for ref in g.kept}),
-                  "flights_found": sum(g.valid for g in pick.groups)}
+                  "excluded": sorted(excluded), **counts}
         if result.group:
             zone = next(c.arrival_timezone for c in candidates if c.id == result.selected[0])
             update["group_window"] = [result.group.earliest_arrival, result.group.latest_arrival, zone]
@@ -291,6 +309,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
     def await_owner(state):
         # No side effects before interrupt. Resume data is only a wake-up signal;
         # all decisions are loaded from authoritative question records below.
+        progress(backend, claim, "AGENTS", "PAUSED", round=state.get("round", 0), cycle=state.get("cycle", 0))
+        activity(backend, claim, "mediator", "WAITING_FOR_OWNER")
         interrupt({"question_refs": state["questions"]})
         current()
         questions = [backend.get_question(claim, q) for q in state["questions"]]
@@ -324,6 +344,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             return {"outcome": "EXPLORATORY_ONLY" if evidence_only else "VALIDATION_FAILED", "validation_checks": list(report.checks)}
         result = solution(state)
         zone = state["group_window"][2] if state.get("group_window") else None
+        progress(backend, claim, "VALIDATE", "COMPLETED", round=state["round"], cycle=state["cycle"])
+        progress(backend, claim, "PUBLISH", "STARTED", round=state["round"], cycle=state["cycle"])
+        activity(backend, claim, "mediator", "WRITING")
         ref = backend.publish_proposal(claim, tuple(state["selected"]), candidates, report, "publish",
             explanation(result.group, result.impacts, zone, candidates) if result.group else None)
         return {"proposal_ref": ref, "outcome": "AWAITING_REVIEW"}
@@ -361,11 +384,29 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             return "next_round" if state["round"] + 1 < limits.rounds else "exhausted"
         return "validate_publish"
 
+    def observed(name, fn):
+        stages = {"load_snapshot": ("LOAD", "CHECKING"), "discover": ("RESEARCH", "SEARCHING"),
+                  "solve": ("SOLVE", "CHECKING"), "dialogue": ("AGENTS", "THINKING"),
+                  "validate_publish": ("VALIDATE", "CHECKING")}
+        if name not in stages:
+            return fn
+        stage, value = stages[name]
+        def call(state):
+            stamp = dict(round=state.get("round", 0), cycle=state.get("cycle", 0), draft_ref=state.get("draft_ref", ""),
+                         step_ref=digest([name, state.get("round", 0), state.get("cycle", 0), state.get("selected", []), state.get("excluded", [])])[:20])
+            activity(backend, claim, "mediator", value)
+            progress(backend, claim, stage, "STARTED", **stamp)
+            result = fn(state)
+            if name != "validate_publish":
+                progress(backend, claim, stage, "COMPLETED", **{**stamp, "draft_ref": result.get("draft_ref", stamp["draft_ref"])})
+            return result
+        return call
+
     builder = StateGraph(CoordinatorState)
     for name, fn in [("load_snapshot", load), ("discover", discover), ("solve", solve), ("dialogue", dialogue),
                      ("await_owner", await_owner), ("next_round", next_round), ("validate_publish", validate_publish),
                      ("exhausted", exhausted)]:
-        builder.add_node(name, fn)
+        builder.add_node(name, observed(name, fn))
     builder.add_edge(START, "load_snapshot")
     builder.add_conditional_edges("load_snapshot", lambda s: "await_owner" if s["questions"] else "discover")
     builder.add_edge("discover", "solve")

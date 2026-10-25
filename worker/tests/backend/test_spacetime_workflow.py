@@ -245,3 +245,14 @@ def test_optimizer_burdens_reach_the_ledger_only_after_everyone_agrees(stdb_room
     [entry] = room.view("p2", "my_compromises")
     assert (entry["decision_id"], entry["burden_micros"], entry["state"]) == ("trip", 400_000, "ACTIVE")
     assert room.view("p1", "my_compromises") == []
+
+
+def test_progress_is_room_safe_and_activity_resets_after_pause(stdb_room, tmp_path):
+    room = stdb_room("clarification-restart")
+    worker, _ = make_worker(room, tmp_path, "clarification-restart")
+    assert worker.run_one(room.plan_job())["outcome"] == "WAITING_FOR_INPUT"
+    progress = [json.loads(e["safe_payload_json"]) for e in shared_view(room, "room_events") if e["type"] == "WORKFLOW_PROGRESS"]
+    assert {e["stage"] for e in progress} >= {"LOAD", "RESEARCH", "SOLVE", "AGENTS"}
+    assert any(e["phase"] == "PAUSED" for e in progress)
+    assert "PRIVATE_CANARY" not in json.dumps(progress) and "owner" not in json.dumps(progress)
+    assert all(a["activity"] == "IDLE" for a in shared_view(room, "room_agent_activity"))

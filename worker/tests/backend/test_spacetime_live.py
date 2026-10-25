@@ -80,3 +80,27 @@ def test_airline_booking_prices_reach_human_approval(live):
                 if p["room_id"] == seeded["room_id"]]
     assert approved[0]["state"] == "AGREED"
     assert "12940" in approved[0]["terms_json"], "the airline's complete price is what people approved"
+
+
+@pytest.mark.parametrize("mismatch,expected", [
+    ("duplicate", "ROOM_DISPLAY_NAMES_NOT_UNIQUE"),
+    ("member", "ROOM_CONFIG_MEMBER_MISMATCH"),
+    ("components", "ROOM_CONFIG_COMPONENT_MISMATCH"),
+])
+def test_app_room_mismatch_stops_before_provider_preflight(live, mismatch, expected):
+    from tandem_worker.adapters.spacetime import StdbHttp
+
+    seeded = seed_live_room(live.config, live.settings, live.directory)
+    state = json.loads((live.directory / "spacetime-room.json").read_text())
+    http = StdbHttp(URL, DB)
+    if mismatch == "components":
+        http.call(state["owner_tokens"]["p1"], "set_room_settings", room_id=seeded["room_id"],
+                  settings_json=json.dumps({"components": ["FLIGHT", "STAY"]}))
+    else:
+        participant = http.mint_identity()
+        http.call(participant["token"], "join_room", invite_code=seeded["invite_code"],
+                  display_name="p1" if mismatch == "duplicate" else "another-person")
+    result = run_live(live.config, live.settings, live.directory, **kwargs(live))
+    assert result["result"]["outcome"] == expected
+    assert not live.apify.preflights and not live.apify.starts
+    assert not live.claude.metadata_requests and not live.claude.requests

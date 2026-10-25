@@ -1,9 +1,11 @@
 """Serving real rooms: onboarding conversations, and planning searched from
 what people confirmed (their airports, the trip brief) instead of a config file.
 
-`serve` polls SpacetimeDB for pending jobs in every room (or the given ones):
+`serve` processes pending jobs in every room (or the given ones):
 INTAKE/INTERPRET jobs go to the onboarding engine, PLAN jobs to the
-coordinator with live research built per request."""
+coordinator with live research built per request. It runs inside the worker
+service shell (service.py): one instance per state directory, woken by the
+dispatcher when WORKER_WAKE_TOKEN is set, polling otherwise."""
 from __future__ import annotations
 
 import time
@@ -77,6 +79,10 @@ class RoomResearch:
         self.config, self.settings, self.client, self.ledger, self.budget, self.clock = config, settings, client, ledger, budget, clock
 
     def search(self, request):
+        if "FLIGHT" in request.get("categories", ()) and not request.get("routes"):
+            # Only onboarded rooms say where people fly from; a form-flow room needs
+            # the operator's search config (`serve --config live.json --room N`).
+            raise ContractError("ROOM_NOT_ONBOARDED")
         flights, trip = searches_for(request, self.config.dinner_query)
         limits = self.config.limits
         snapshot = Snapshot(room_id=request["room_id"], members=tuple(request["members"]),
@@ -110,12 +116,13 @@ def make_room_providers(config: ServeConfig, settings, directory, *, clock=None,
 
 
 def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, once=False, poll_seconds=3.0, max_jobs=None,
-          parallel=6,
+          parallel=6, settle_seconds=2.0, host="127.0.0.1", port=8080,
           clock=None, claude_client=None, apify_client=None, backend=None, providers=None, worker_id=None):
     """Process pending jobs until stopped (or one sweep with once=True)."""
     from .adapters.spacetime import SpacetimeBackend
     from .contracts import Limits
     from .runner import Worker
+    from .service import WorkerService, run_service
     settings.require_backend()
     clock = clock or SystemClock()
     directory = Path(directory)
@@ -139,7 +146,8 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
                 raise
             return None
 
-    while True:
+    def sweep():
+        nonlocal handled
         jobs = [j for j in backend.pending_jobs()
                 if (rooms is None or j["room_id"] in rooms) and (kinds is None or j["kind"] in kinds)]
         if max_jobs is not None:
@@ -147,12 +155,27 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
         # Each person's onboarding job is independent (its own lease), so conversations run
         # side by side; planning jobs run one at a time.
         chats = [j for j in jobs if j["kind"] != "PLAN"]
+        done = []
         with ThreadPoolExecutor(max_workers=max(1, min(parallel, len(chats) or 1))) as pool:
-            results += [r for r in pool.map(run, chats) if r]
-        results += [r for r in map(run, [j for j in jobs if j["kind"] == "PLAN"]) if r]
+            done += [r for r in pool.map(run, chats) if r]
+        done += [r for r in map(run, [j for j in jobs if j["kind"] == "PLAN"]) if r]
         handled += len(jobs)
-        if max_jobs is not None and handled >= max_jobs:
-            return results
-        if once:
-            return results
-        time.sleep(poll_seconds)
+        results.extend(done)
+        return done
+
+    if once or max_jobs is not None:
+        while True:
+            sweep()
+            if once or handled >= max_jobs:
+                return results
+            time.sleep(poll_seconds)
+
+    def scan(*_args, **_kwargs):
+        done = sweep()
+        return {"result": {"outcome": ",".join(sorted({r.get("outcome", "?") for r in done})) or "NO_ELIGIBLE_WORK"}}
+    service = WorkerService(None, settings, directory, None, backend=backend, run=scan, rooms=rooms,
+                            kinds=set(kinds) if kinds else {"PLAN", "INTAKE", "INTERPRET"},
+                            poll_interval=poll_seconds, settle_seconds=settle_seconds)
+    token = settings.worker_wake_token.get_secret_value() if settings.worker_wake_token else None
+    run_service(service, token, host=host, port=port, label={"mode": "ROOMS", "rooms": sorted(rooms) if rooms else "ALL"})
+    return results

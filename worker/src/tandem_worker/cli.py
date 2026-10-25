@@ -101,13 +101,19 @@ def _main():
             command_parser.add_argument("question_ref")
             command_parser.add_argument("--version", type=int, default=1)
             command_parser.add_argument("--response", choices=["yes", "no"], required=True)
-    serve_parser = sub.add_parser("serve", help="Process real rooms on SpacetimeDB: onboarding and planning")
+    serve_parser = sub.add_parser("serve", help="Persistent worker for real rooms: onboarding and planning, "
+                                  "woken by the dispatcher (WORKER_WAKE_TOKEN) with polling as the fallback")
     serve_parser.add_argument("--env-file", type=Path, default=Path(".env"))
     serve_parser.add_argument("--state-dir", type=Path, required=True)
-    serve_parser.add_argument("--config", type=Path, help="JSON {limits, dinner_query}; defaults otherwise")
+    serve_parser.add_argument("--config", type=Path, help="Rooms engine: JSON {limits, dinner_query}. An operator live "
+                              "config (with searches) instead plans that one form-flow room from its searches.")
     serve_parser.add_argument("--room", type=int, action="append", help="Only these rooms (repeatable)")
     serve_parser.add_argument("--once", action="store_true", help="One sweep, then exit")
     serve_parser.add_argument("--kinds", help="Only these job kinds, comma-separated (e.g. INTAKE,INTERPRET)")
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8080)
+    serve_parser.add_argument("--poll-interval", type=float, default=3)
+    serve_parser.add_argument("--settle-seconds", type=float, default=2)
     intake = sub.add_parser("intake", help="Onboarding simulations")
     intake_actions = intake.add_subparsers(dest="intake_action", required=True)
     simulate_parser = intake_actions.add_parser("simulate", help="Claude plays each persona against the live worker")
@@ -117,6 +123,15 @@ def _main():
     simulate_parser.add_argument("--config", type=Path)
     simulate_parser.add_argument("--plan", action="store_true", help="Also plan the trip with live searches (costs Apify runs)")
     args = parser.parse_args()
+    if args.command == "serve" and args.config and "searches" in json.loads(args.config.read_text()):
+        # An operator-configured form-flow room: searches come from the live config.
+        from .config import load_config, load_settings
+        from .service import serve_live
+        if not args.room or len(args.room) != 1:
+            parser.error("an operator live config plans exactly one --room")
+        serve_live(load_config(args.config), load_settings(args.env_file), args.state_dir, args.room[0],
+                   host=args.host, port=args.port, poll_interval=args.poll_interval, settle_seconds=args.settle_seconds)
+        return
     if args.command in {"serve", "intake"}:
         from .config import load_settings
         from .serve import ServeConfig, serve
@@ -124,7 +139,8 @@ def _main():
         config = ServeConfig.model_validate_json(args.config.read_text()) if args.config else ServeConfig()
         if args.command == "serve":
             result = serve(config, settings, args.state_dir, rooms=set(args.room) if args.room else None, once=args.once,
-                           kinds=set(args.kinds.split(",")) if args.kinds else None)
+                           kinds=set(args.kinds.split(",")) if args.kinds else None, poll_seconds=args.poll_interval,
+                           settle_seconds=args.settle_seconds, host=args.host, port=args.port)
         else:
             from .simulate import simulate
             result = simulate(settings, args.state_dir, [n.strip() for n in args.personas.split(",")], plan=args.plan,

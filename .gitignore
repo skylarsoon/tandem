@@ -35,5 +35,3 @@ spacetime.local.json
 .idea/
 .vscode/
 
-# Test caches
-.pytest_cache/
