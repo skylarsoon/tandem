@@ -10,6 +10,7 @@ from ..explain import consultation_prompt
 from ..intake_policy import describe_rule
 from ..persona import persona
 from ..progress import activity
+from ..recovery import remember
 from ..solver import RELAXABLE
 from ..policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
 
@@ -173,6 +174,8 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
                 continue
             q = question_for(claim, brief.owner, kind, task["draft_ref"],
                 owner_prompt(kind, payload, decision.act, impact, task.get("window_seconds", 0), also))
+            if kind == "CONSULTATION":  # a no is remembered against this option and decision
+                q = q.model_copy(update={"option": remember(rules, brief.owner, task.get("decision_id", "trip"), candidate)})
             questions.append(backend.ask_owner(claim, q))
         if decision.evaluation == "NEEDS_OWNER_INPUT":
             q = question_for(claim, brief.owner, "MISSING_FACT", task["draft_ref"], decision.owner_question.strip())

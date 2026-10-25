@@ -36,7 +36,8 @@ class MemoSearch(ApprovedFlightSearch):
     origin_timezone: str
     destination_timezone: str
     initial_filters: MemoFilters = Field(default_factory=MemoFilters)
-    targeted_filters: dict[Literal["HARD_LIMIT", "BAGGAGE_UNKNOWN", "MISSING_FACT", "NO_MATCHING_CANDIDATE", "ARRIVAL_OVERLAP"], MemoFilters] = Field(default_factory=dict)
+    targeted_filters: dict[Literal["HARD_LIMIT", "BAGGAGE_UNKNOWN", "MISSING_FACT", "NO_MATCHING_CANDIDATE", "ARRIVAL_OVERLAP",
+                                   "DECLINED"], MemoFilters] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_zones_and_route(self):

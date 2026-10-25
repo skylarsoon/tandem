@@ -30,7 +30,10 @@ export const QUESTION_KINDS = [
   'OBJECTION_DISCLOSURE',
   'CONCESSION_CONSULTATION',
   'BROADER_EXPLORATION',
+  'PLAN_RECOVERY',
 ] as const;
+// After someone said no to every option for a decision: the ways forward their agent offers.
+export const RECOVERY_CHOICES = ['change', 'accept', 'search', 'pause'] as const;
 export const GRANT_KINDS = ['OBJECTION_DISCLOSURE', 'CONCESSION_CONSULTATION', 'BROADER_EXPLORATION'];
 export const MESSAGE_TYPES = [
   'PROPOSE',

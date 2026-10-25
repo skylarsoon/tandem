@@ -215,6 +215,29 @@ function buildContext(ctx: Ctx, j: JobRow) {
     thread_id: q.threadId !== undefined ? num(q.threadId) : null,
   }));
 
+  // Across replans (worker-only, read per person): the options people said no to, with
+  // what each was about (the worker put it in the question) and their own why if they
+  // gave one; and the ways forward they picked after saying no to everything.
+  const answered = byId([...ctx.db.question.byRoom.filter(r.id)]).filter(q => q.answerJson !== undefined);
+  const declines = answered
+    .filter(q => q.kind === 'CONCESSION_CONSULTATION')
+    .map(q => ({ q, action: parsed(q.actionJson) as Record<string, unknown>, answer: parsed(q.answerJson) as Record<string, unknown> }))
+    .filter(({ action, answer }) => answer?.granted === false && action?.option)
+    .map(({ q, action, answer }) => ({
+      question_id: num(q.id),
+      member_id: memberIdOf.get(q.owner.toHexString()) ?? null,
+      option: action.option,
+      reason: typeof answer.reason === 'string' ? answer.reason : null,
+    }));
+  const recoveries = answered
+    .filter(q => q.kind === 'PLAN_RECOVERY')
+    .map(q => ({
+      question_id: num(q.id),
+      member_id: memberIdOf.get(q.owner.toHexString()) ?? null,
+      action: parsed(q.actionJson),
+      choice: (parsed(q.answerJson) as Record<string, unknown>)?.choice ?? null,
+    }));
+
   // Grants stay valid until inputs or membership change.
   const grants = [...ctx.db.actionGrant.byRoom.filter(r.id)]
     .filter(g => g.inputRevision === r.inputRevision && g.membershipRevision === r.membershipRevision)
@@ -334,6 +357,15 @@ function buildContext(ctx: Ctx, j: JobRow) {
       intake: intakeRow
         ? { state: intakeRow.state, coverage: parsed(intakeRow.coverageJson), question_count: intakeRow.questionCount }
         : null,
+      // The question their agent is waiting on after they said no to every option, if any:
+      // a reply that changes nothing is pointed back to its choices.
+      open_recovery: (() => {
+        const open = byId([...ctx.db.question.byOwner.filter(m.member)]).filter(
+          q => q.roomId === r.id && q.kind === 'PLAN_RECOVERY' && q.state === 'OPEN'
+        );
+        const last = open[open.length - 1];
+        return last ? { prompt: last.prompt, choices: (parsed(last.actionJson) as { choices?: unknown })?.choices ?? [] } : null;
+      })(),
       // Their persistent profile answers: defaults to suggest for this room, never to assume.
       profile: Object.fromEntries(
         [...ctx.db.profileAnswer.byOwner.filter(m.member)]
@@ -383,6 +415,8 @@ function buildContext(ctx: Ctx, j: JobRow) {
     constraints,
     questions,
     grants,
+    declines,
+    recoveries,
     threads,
     messages,
     candidates,

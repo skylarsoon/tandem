@@ -15,8 +15,8 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Callable
 
-from ..contracts import (Brief, Candidate, Claim, Commitment, ContractError, IntakeContext, IntakeMessage, Limits, Message, Preferences,
-                         Question, Snapshot, TripBrief, ValidationReport, digest)
+from ..contracts import (Brief, Candidate, Claim, Commitment, ContractError, Declined, IntakeContext, IntakeMessage, Limits, Message,
+                         Preferences, Question, RecoveryAnswer, Snapshot, TripBrief, ValidationReport, digest)
 from ..ports import Clock, SystemClock
 from ..briefs import brief_from_constraints
 from ..solver import POLICY
@@ -28,6 +28,7 @@ KINDS = {
     "CONSULTATION": "CONCESSION_CONSULTATION",
     "EXPLORE": "BROADER_EXPLORATION",
     "MISSING_FACT": "MISSING_FACT",
+    "RECOVERY": "PLAN_RECOVERY",
 }
 WORKER_KINDS = {v: k for k, v in KINDS.items()}
 AUDIENCES = {"PUBLIC_SUMMARY": "ROOM", "OWNER_PRIVATE": "OWNER_PRIVATE", "INTERNAL": "INTERNAL"}
@@ -38,6 +39,7 @@ PROMPTS = {
     "CONSULTATION": "Your agent would like to agree to a concession on your behalf. Is that OK?",
     "EXPLORE": "May your agent search beyond the range you allowed?",
     "MISSING_FACT": "Your agent needs one more detail before continuing.",
+    "RECOVERY": "You said no to every option so far. Which way would you like to go?",
 }
 JOB_CLAIM_ERRORS = {"INVALID_STATE": "JOB_NOT_ELIGIBLE", "NOT_FOUND": "JOB_NOT_ELIGIBLE"}
 
@@ -291,7 +293,7 @@ class SpacetimeBackend:
         ctx = self._context(claim)
         owners = {m["member_id"]: name for name, m in self._members(ctx).items()}
         rules = tuple(Rule.model_validate({**r["rule"], "owner": owners[r["member_id"]], "state": r["state"],
-                                           "source_quote": r["source_quote"]})
+                                           "source_quote": r["source_quote"], "legacy_key": r.get("legacy_key")})
                       for r in ctx.get("rules", []) if r["member_id"] in owners)
         needs = tuple(Need(owner=owners[n["member_id"]], category=n["category"], attribute=n["attribute"], needs=n["needs"])
                       for n in ctx.get("needs", []) if n["member_id"] in owners)
@@ -366,9 +368,17 @@ class SpacetimeBackend:
         member = self._members(ctx).get(question.owner)
         if member is None or question.snapshot_ref != claim.snapshot_ref:
             raise ContractError("NOT_AUTHORIZED")
+        action = {"action_ref": question.action_ref, "nudge": question.nudge}
+        if question.option is not None:  # what a no would be remembered against
+            action["option"] = question.option
+        schema = {"type": "boolean"}
+        if question.kind == "RECOVERY":  # the ways forward offered; the answer is one of them
+            action.update(choices=list(question.choices), decision_id=question.decision_id, rules_ref=question.rules_ref)
+            schema = {"type": "object", "properties": {"choice": {"enum": [c["id"] for c in question.choices]}},
+                      "required": ["choice"]}
         self.http.call(self.token, "ask_owner", request_key=question.id, member_id=member["member_id"],
-            kind=KINDS[question.kind], action_json=json.dumps({"action_ref": question.action_ref, "nudge": question.nudge}),
-            prompt=question.prompt or PROMPTS[question.kind], answer_schema_json=json.dumps({"type": "boolean"}), thread_id=None,
+            kind=KINDS[question.kind], action_json=json.dumps(action),
+            prompt=question.prompt or PROMPTS[question.kind], answer_schema_json=json.dumps(schema), thread_id=None,
             **self._attempt(claim))
         return question.id
 
@@ -378,6 +388,8 @@ class SpacetimeBackend:
             return None
         if kind in {"DISCLOSURE", "CONSULTATION", "EXPLORE"}:
             return answer.get("granted")
+        if kind == "RECOVERY":
+            return answer.get("choice")
         if kind == "PARTICIPATION":
             return answer.get("confirmed", True)
         return answer.get("answer", True)
@@ -391,9 +403,11 @@ class SpacetimeBackend:
             raise ContractError("QUESTION_SUPERSEDED")
         owner = next(name for name, m in self._members(ctx).items() if m["member_id"] == row["member_id"])
         kind = WORKER_KINDS[row["kind"]]
+        action = row["action"] or {}
         return Question(id=question_id, owner=owner, version=row["version"], kind=kind,
-            action_ref=(row["action"] or {}).get("action_ref", ""), snapshot_ref=claim.snapshot_ref,
-            nudge=(row["action"] or {}).get("nudge"),
+            action_ref=action.get("action_ref", ""), snapshot_ref=claim.snapshot_ref,
+            nudge=action.get("nudge"), option=action.get("option"), choices=tuple(action.get("choices") or ()),
+            decision_id=action.get("decision_id", ""), rules_ref=action.get("rules_ref", ""),
             answer=self._answer(kind, row["answer"]))
 
     def has_permission(self, claim, owner, kind, action_ref):
@@ -403,6 +417,24 @@ class SpacetimeBackend:
             g["member_id"] == member["member_id"] and g["kind"] == KINDS[kind] and g["action_ref"] == action_ref and g["granted"]
             for g in ctx["grants"])
 
+    def declines(self, claim):
+        """Options people said no to, across replans (what each was about is in the question)."""
+        ctx = self._context(claim)
+        owners = {m["member_id"]: name for name, m in self._members(ctx).items()}
+        return [Declined(owner=owners[d["member_id"]], **d["option"], reason=d.get("reason") or "", seq=d["question_id"])
+                for d in ctx.get("declines", []) if d["member_id"] in owners]
+
+    def recovery_answers(self, claim):
+        ctx = self._context(claim)
+        owners = {m["member_id"]: name for name, m in self._members(ctx).items()}
+        found = []
+        for a in ctx.get("recoveries", []):
+            picked = next((c for c in a["action"].get("choices") or () if c.get("id") == a["choice"]), None)
+            if a["member_id"] in owners and picked is not None:
+                found.append(RecoveryAnswer(owner=owners[a["member_id"]], decision_id=a["action"].get("decision_id", ""),
+                                            rules_ref=a["action"].get("rules_ref", ""), choice=picked, seq=a["question_id"]))
+        return found
+
     def declined_concession_owners(self, claim, draft_ref):
         ctx = self._context(claim)
         owners = {m["member_id"]: name for name, m in self._members(ctx).items()}
@@ -411,19 +443,21 @@ class SpacetimeBackend:
             if g["member_id"] in owners and g["kind"] == KINDS["CONSULTATION"]
             and g["action_ref"] == draft_ref and g["granted"] is False}))
 
-    def answer_question(self, owner, question_id, version, answer, request_key):
+    def answer_question(self, owner, question_id, version, answer, request_key, reason=None):
         """Answers as the owner (fixtures/demos). Requires their token."""
-        if not isinstance(answer, bool):
-            raise ContractError("INVALID_ANSWER")
         token = self.owner_tokens.get(owner)
         row = next((q for q in self.http.view(token, "my_questions") if q["request_key"] == question_id), None) if token else None
         if row is None:
             raise ContractError("NOT_AUTHORIZED")
         kind = WORKER_KINDS[row["kind"]]
+        if not isinstance(answer, str if kind == "RECOVERY" else bool):
+            raise ContractError("INVALID_ANSWER")
         if row["state"] == "ANSWERED" and self._answer(kind, json.loads(row["answer_json"])) == answer:
             return question_id
-        if kind in {"DISCLOSURE", "CONSULTATION", "EXPLORE"}:
-            payload = {"granted": answer}
+        if kind == "RECOVERY":
+            payload = {"choice": answer}
+        elif kind in {"DISCLOSURE", "CONSULTATION", "EXPLORE"}:
+            payload = {"granted": answer, **({"reason": reason} if reason else {})}
         elif kind == "PARTICIPATION" and answer:
             prefs = self.http.view(token, "my_participation_preferences")[0]
             payload = {k: prefs[k] for k in ("speak_up_for_me", "ask_me_first", "give_me_time", "reminders_opted_in")}
@@ -582,7 +616,7 @@ class SpacetimeBackend:
             intake_state=intake.get("state"), coverage=intake.get("coverage") or {},
             question_count=intake.get("question_count", 0),
             preferences_confirmed=me["participation_preferences"]["confirmed"],
-            profile=subject.get("profile") or {})
+            profile=subject.get("profile") or {}, open_recovery=subject.get("open_recovery"))
 
     def _member_id(self, claim, owner):
         member = self._members(self._context(claim)).get(owner)

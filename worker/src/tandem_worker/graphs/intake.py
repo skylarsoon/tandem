@@ -57,6 +57,14 @@ def _change(backend, claim, model, ctx) -> str:
     items, _, _, _ = verify(_extract(backend, claim, model, ctx), ctx)
     changes = [i for i in items if i.source_message_id in new]
     step = f"intake:{claim.job_id}:change"
+    if not changes and ctx.open_recovery:
+        # They're replying to the question their agent asked after they said no to everything:
+        # one pointer back to the choices (the agent never picks for them).
+        lines = ["I couldn't tell which way you'd like to go. The choices:"]
+        lines += [f"• {c['label']}" for c in ctx.open_recovery["choices"]]
+        lines.append("Pick one, or tell me exactly what you'd change (like a fare you'd pay).")
+        backend.notify_owner(claim, ctx.owner, "\n".join(lines), f"{step}:recovery")
+        return "NO_CHANGE"
     if not changes:
         backend.notify_owner(claim, ctx.owner, "Noted. I didn't catch a change to your dates, budget or limits there; "
                              "if something changed, tell me what it is now.", f"{step}:none")

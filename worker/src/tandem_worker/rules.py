@@ -53,6 +53,9 @@ class Rule(Record):
     source_message_id: int | None = None
     source_profile: str | None = None
     rationale_private: str = ""
+    # The old named limit this rule mirrors (contracts/legacy_keys.json), if any: changing
+    # it means changing that limit, so both stay the same.
+    legacy_key: str | None = None
 
 
 class Need(Record):
@@ -394,7 +397,7 @@ def from_legacy(owner: str, key: str, row: dict) -> list[Record]:
     if value is None or ("only_when" in spec and value != spec["only_when"]):
         return []  # set aside (cleared), or a "no" that asks for nothing
     common = {"owner": owner, "source_quote": row.get("source_quote", "") or "",
-              "rationale_private": row.get("private_rationale") or ""}
+              "rationale_private": row.get("private_rationale") or "", "legacy_key": key}
     if spec["as"] == "search_fact":
         return [SearchFact(owner=owner, fact=spec["fact"], value=value)]
     if spec["as"] == "need":

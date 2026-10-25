@@ -137,16 +137,35 @@ def score(run: Path) -> dict:
     verdicts["QA-03"] = {"pass": any(r.get("value") == "2026-11-25" for r in chris_rules) and not live_b and bool(no_plan)
                          and not any("Chris" in (t or "") for t in checks["room_text"]), "checks": checks}
 
-    # QA-04: Bella's nonstop is weighed, not required, and she's asked first (room C).
+    # QA-04: Bella's nonstop is weighed, not required, and she's asked first (room C). If she says no
+    # to everything, her agent asks how to go on, and it ends in a new valid plan or a plain "nothing
+    # acceptable" (paused): never stuck, never a loop.
     c = rooms["C"]
-    flight_c = [p for p in proposals(after, c, "flight")]
-    bella_qs = [x for x in results["log"] if x.get("who") == "Bella" and x.get("kind") and x.get("room") == "C"]
+    bella_log = [x for x in results["log"] if x.get("who") == "Bella" and x.get("kind") and x.get("room") == "C"]
+    bella_qs = [x for x in bella_log if x["kind"] != "PLAN_RECOVERY"]
+    recoveries = [x for x in bella_log if x["kind"] == "PLAN_RECOVERY"]
     route = next((r for q in results["research"] if str(q.get("room_id")) == str(c) for r in q.get("routes") or ()
                   if r["owner"] == "Bella"), {})
-    checks = {"bella_search_filter": route.get("max_stops"), "bella_pick": picks(after, c, flight_c[-1]).get("Bella") if flight_c else None,
-              "bella_questions": bella_qs}
-    verdicts["QA-04"] = {"pass": route.get("max_stops") is None and any(q["kind"] == "CONCESSION_CONSULTATION" for q in bella_qs),
-                         "checks": checks}
+    live_c = [p for p in proposals(after, c, "flight") if p["state"] == "AWAITING_REVIEW"]
+    pick = picks(after, c, live_c[-1]).get("Bella") if live_c else None
+    on_hold = [json.loads(e["safe_payload_json"]).get("text") for e in results["events"]["C"] if e["type"] == "STAGE_ON_HOLD"]
+    # An option she said no to, put to her again with nothing changed in between, is a loop.
+    declined, repeated = set(), []
+    for x in bella_log:
+        if x["kind"] == "PLAN_RECOVERY":
+            if x["picked"].startswith(("change", "accept")):
+                declined = set()
+        elif x.get("option"):
+            if x["option"] in declined:
+                repeated.append(x["option"])
+            if x.get("yes") is False:
+                declined.add(x["option"])
+    valid_plan = pick is not None and (pick.get("total_cents") or 10**9) <= BUDGETS["Bella"]
+    checks = {"bella_search_filter": route.get("max_stops"), "bella_pick": pick, "bella_questions": bella_qs,
+              "recovery": recoveries, "on_hold": on_hold, "repeated_declined_options": repeated,
+              "ended": "new valid plan" if valid_plan else "paused, said plainly" if on_hold else "neither"}
+    verdicts["QA-04"] = {"pass": route.get("max_stops") is None and any(q["kind"] == "CONCESSION_CONSULTATION" for q in bella_qs)
+                         and (valid_plan or bool(on_hold)) and not repeated and len(recoveries) <= 4, "checks": checks}
 
     # QA-05: what's saved matches what's true now (room A).
     by_decision = {}

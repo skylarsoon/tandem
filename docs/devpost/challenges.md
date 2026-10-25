@@ -72,6 +72,15 @@ The fix came from reading the fine print. Google states its fares already includ
 
 **"No" had to be information, not a dead end.** When an agent needed someone to pay more to land with the group, their *Ask me first* setting meant asking them. But a "no" just ended the run. Now a declined concession removes that fare and re-solves, so the trade-off can move to the others: in our test, three friends each take a later flight for $150 more instead of one person paying $125. If nothing works without that fare, the system says how far apart the closest arrivals are.
 
+**Saying no to everything stalled the trip.** In a live run, Bella (comfort first, "ask me before compromising") said no to all four flights her agent asked about: two pricey nonstops, two connections. The system answered honestly ("you said no to each of the 4 options… tell me what you'd accept") and then stopped. It also forgot her no's: anyone else's change replanned the room and could ask her about the same flights again. Now each no is remembered with what it was about and her reason. A declined option comes back only if something changed in its favour. Once she's said no to everything, her agent asks her one question with concrete ways forward, built from what she declined:
+- go up to $1,350 for the nonstop;
+- take one stop;
+- leave a day later;
+- search wider;
+- pause.
+
+Her pick goes through the same confirm-and-replan path as any change. In the test, she raised her flight budget, got the nonstop, and wasn't asked about it again.
+
 **Explaining "no plan" without outing anyone.** "No plan fits" helps nobody, but "Alice can't afford it" is worse. Every failure now produces a private note for each blocked person, with their own numbers ("the cheapest fare found for you is $290, above your $250 limit"), and a neutral room event that counts causes without names or amounts ("1 traveller: every fare found is above a private limit").
 
 **Whose requirement is it?** With shared stays, one person's request (their own bedroom, a minimum rating) can push someone else over budget. The solver now checks whether dropping one requirement would bring every over-limit trip back within limits. If so, only the people who set that requirement are asked privately whether to set it aside for this trip, and the person over budget is told the requirement is being discussed. In the test, two own-room requests made the only 3-bedroom stay put a friend $80 over their limit. Both agreed to share, and the plan fit everyone.

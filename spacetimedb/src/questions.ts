@@ -3,6 +3,7 @@ import spacetimedb from './schema';
 import {
   GRANT_KINDS,
   QUESTION_KINDS,
+  RECOVERY_CHOICES,
   canonical,
   digest,
   fail,
@@ -16,7 +17,33 @@ import {
   requireRoom,
   withReceipt,
 } from './guards';
-import { applyParticipationPreferences, constraintFromPatch, resumeJobIfReady, upsertConstraint } from './effects';
+import {
+  applyParticipationPreferences,
+  applyPatch,
+  constraintFromPatch,
+  resumeJobIfReady,
+  upsertConstraint,
+} from './effects';
+
+type Choice = { id?: unknown; label?: unknown; kind?: unknown; patches?: unknown };
+
+// The ways forward a PLAN_RECOVERY question offers: each a distinct id, its words, a known
+// kind, and for a change the patches it confirms (checked like any patch when picked).
+function recoveryChoices(action: Record<string, unknown>): Choice[] {
+  const choices = action.choices;
+  if (!Array.isArray(choices) || choices.length === 0) fail('INVALID_ARGUMENT', 'a recovery question needs choices');
+  const ids = new Set<string>();
+  for (const c of choices as Choice[]) {
+    if (!c || typeof c.id !== 'string' || !c.id || ids.has(c.id)) fail('INVALID_ARGUMENT', 'each choice needs its own id');
+    if (typeof c.label !== 'string' || !c.label.trim()) fail('INVALID_ARGUMENT', `choice ${c.id} needs words`);
+    oneOf(c.kind as string, RECOVERY_CHOICES, 'choice kind');
+    if (c.kind === 'change' && (!Array.isArray(c.patches) || c.patches.length === 0)) {
+      fail('INVALID_ARGUMENT', `choice ${c.id} changes nothing`);
+    }
+    ids.add(c.id);
+  }
+  return choices as Choice[];
+}
 
 // Worker asks one owner a private, versioned question about an exact proposed
 // action. The worker never answers it; only the owner can.
@@ -38,7 +65,8 @@ export const askOwner = spacetimedb.reducer(
       const r = requireRoom(ctx, j.roomId);
       const m = requireMembershipById(ctx, r.id, args.memberId);
       oneOf(args.kind, QUESTION_KINDS, 'kind');
-      parseJson(args.actionJson, 'actionJson');
+      const action = parseJson(args.actionJson, 'actionJson') as Record<string, unknown> | null;
+      if (args.kind === 'PLAN_RECOVERY') recoveryChoices(action ?? {});
       parseJson(args.answerSchemaJson, 'answerSchemaJson');
       nonEmpty(args.prompt, 'prompt');
       if (args.threadId !== undefined) {
@@ -82,7 +110,11 @@ export const askOwner = spacetimedb.reducer(
 //   (the draft it concerns). A granted permission changes what the agent may do,
 //   so it bumps the permission revision and starts a new generation; the grant
 //   stays usable while inputs and membership are unchanged. A refusal is stored
-//   and resumes the waiting job. Neither is ever consent to a proposal.
+//   (with their own "reason", if they gave one) and resumes the waiting job.
+//   Neither is ever consent to a proposal.
+// - PLAN_RECOVERY with {"choice": id} → one of the offered ways forward. A change is
+//   confirmed like any other (kept as a confirmed patch) and the room replans;
+//   anything else resumes the waiting job.
 export const answerQuestion = spacetimedb.reducer(
   { questionId: t.u64(), version: t.u32(), answerJson: t.string() },
   (ctx, { questionId, version, answerJson }) => {
@@ -131,8 +163,37 @@ export const answerQuestion = spacetimedb.reducer(
       return;
     }
 
+    if (q.kind === 'PLAN_RECOVERY') {
+      const picked = recoveryChoices(JSON.parse(q.actionJson)).find(c => c.id === answer.choice);
+      if (typeof answer.choice !== 'string' || !picked) fail('INVALID_ARGUMENT', 'answer must be one of the offered choices');
+      if (picked.kind === 'change') {
+        // What they picked is their confirmed change: kept with the others, then one replan.
+        for (const patch of picked.patches as unknown[]) {
+          const patchJson = JSON.stringify(patch);
+          ctx.db.constraintPatch.insert({
+            id: 0n,
+            roomId: q.roomId,
+            owner: q.owner,
+            jobId: q.jobId,
+            patchJson,
+            sourceMessageId: undefined,
+            state: 'CONFIRMED',
+            createdAt: ctx.timestamp,
+          });
+          applyPatch(ctx, q.roomId, patchJson, false);
+        }
+        invalidateRoom(ctx, q.roomId, { input: true }, 'owner picked a way forward');
+        return;
+      }
+      resumeJobIfReady(ctx, q.jobId);
+      return;
+    }
+
     if (GRANT_KINDS.includes(q.kind)) {
       if (typeof answer.granted !== 'boolean') fail('INVALID_ARGUMENT', 'answer needs boolean granted');
+      if (answer.reason !== undefined && (typeof answer.reason !== 'string' || answer.reason.length > 500)) {
+        fail('INVALID_ARGUMENT', 'reason must be text of at most 500 characters');
+      }
       const r = requireRoom(ctx, q.roomId);
       const action = JSON.parse(q.actionJson) as Record<string, unknown>;
       ctx.db.actionGrant.insert({

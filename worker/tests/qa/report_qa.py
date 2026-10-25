@@ -119,13 +119,23 @@ def build(run: Path) -> str:
 
     c4 = q4["checks"]
     pick = c4.get("bella_pick")
-    questions = "".join(f"<li>{E(q['kind'].replace('_', ' ').lower())}: <q>{E(q['asked'])}</q> {'— yes' if q['yes'] else '— no'}</li>"
+    questions = "".join(f"<li>{E(q['kind'].replace('_', ' ').lower())}: <q>{E(q['asked'])}</q> "
+                        f"{'— yes' if q['yes'] else '— no' + (f' (“{E(q["why"])}”)' if q.get('why') else '')}</li>"
                         for q in c4["bella_questions"])
+    recovered = "".join(f"<li><q>{E(r['asked'])}</q><ul>" + "".join(
+        f"<li>{'<b>' if o == r['label'] else ''}{E(o)}{'</b> ← her pick' if o == r['label'] else ''}</li>" for o in r["offered"])
+        + "</ul></li>" for r in c4.get("recovery") or ())
+    ended = {"new valid plan": "a new valid plan", "paused, said plainly": "paused, and the room told it's on hold",
+             "neither": "<em>neither: stuck</em>"}[c4.get("ended", "neither")]
     sections.append(("QA-04", "Soft preference compromise", q4["pass"], f"""
-<p>Room C uses the pricey-nonstop variant: Bella's nonstops cost $1,350 and $1,480, her connections $430 and $350. She ranked comfort first and asked to be checked with before any compromise.</p>
+<p>Room C uses the pricey-nonstop variant: Bella's nonstops cost $1,350 and $1,480, her connections $430 and $350. She ranked comfort first and asked to be checked with before any compromise. If she says no to everything, her agent asks her once how to go on, with ways forward built from what she declined.</p>
 {table(["Check", "Result"], [["her search filtered stops", "no (a wish, not a filter)" if c4["bella_search_filter"] is None else E(str(c4["bella_search_filter"]))],
-    ["her flight in the plan", E(f"{pick['flight_identity'][:-10]}, {money(pick['total_cents'])}, {pick['stops']} stops") if pick else "<em>no plan: she declined each option</em>"]])}
-<h3>What Bella was asked (Claude answered as Bella)</h3><ul class="asks">{questions or "<li>nothing</li>"}</ul>"""))
+    ["how it ended", ended],
+    ["her flight in the plan", E(f"{pick['flight_identity'][:-10]}, {money(pick['total_cents'])}, {pick['stops']} stops") if pick else "<em>none</em>"],
+    ["a declined option asked about again with nothing changed", str(len(c4.get("repeated_declined_options") or ())) ]])}
+<h3>What Bella was asked (Claude answered as Bella)</h3><ul class="asks">{questions or "<li>nothing</li>"}</ul>
+<h3>After she said no to everything</h3><ul class="asks">{recovered or "<li>not needed</li>"}</ul>
+{"<blockquote>" + E(c4["on_hold"][-1]) + "</blockquote>" if c4.get("on_hold") else ""}"""))
 
     c5 = q5["checks"]
     sections.append(("QA-05", "Persisted state correctness", q5["pass"], f"""
