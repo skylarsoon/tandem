@@ -295,6 +295,8 @@ def describe_rule(rule: Rule) -> str:
         text = must + ("have " if rule.value else "not have ") + spec["label"]
     elif rule.operator == "between":
         text = f"{spec['label']} between {show(rule.value[0])} and {show(rule.value[1])}"
+    elif rule.operator in ("lte", "lt") and rule.value == (0 if rule.operator == "lte" else 1) and spec["type"] == "int":
+        text = f"no {spec['label']}"  # "at most 0 connections" is "no connections"
     elif isinstance(rule.value, list):
         text = f"{spec['label']} {WORDS[rule.operator]} {', '.join(show(v) for v in rule.value)}"
     else:

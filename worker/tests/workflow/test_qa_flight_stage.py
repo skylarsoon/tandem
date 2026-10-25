@@ -370,3 +370,20 @@ def test_each_agent_decides_as_its_own_person_and_nobody_else_sees_it(tmp_path):
     assert others and not any("Comfort comes first" in json.dumps(c) for c in others), "no agent sees another's profile"
     room = json.dumps(backend.shared_report())
     assert "Comfort comes first" not in room and "vegetarian meals are a must" not in room
+
+
+def test_qa_04_when_her_nonstop_cant_be_had_bella_is_asked_with_her_own_words(tmp_path):
+    backend, worker, _ = make_room(tmp_path, variant="bella_no_nonstop")
+    onboard(backend, worker)
+    asked = []
+
+    def answer(name, question):
+        asked.append((name, question.kind, question.prompt))
+        return no_bag(name, question)
+    report = plan(backend, worker, answer=answer)
+    [(_, flights)] = live(report, "flight")
+    assert picks(flights)["Bella"]["stops"] >= 1
+    [prompt] = [p for name, kind, p in asked if name == "Bella" and kind == "CONSULTATION"]
+    assert "Nonstop (my reading of" not in prompt and "I strongly prefer nonstop flights" in prompt, prompt
+    assert prompt.endswith("May your agent accept this on your behalf?")
+

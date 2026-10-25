@@ -69,10 +69,10 @@ def nudges(snapshot, brief, candidate, shared):
     return found
 
 
-def owner_prompt(kind, payload, act, impact, window_seconds):
+def owner_prompt(kind, payload, act, impact, window_seconds, also=""):
     """Owner-only wording of exactly what the agent wants to do."""
     if kind == "CONSULTATION" and impact is not None:
-        return consultation_prompt(impact, window_seconds)
+        return consultation_prompt(impact, window_seconds, also)
     if kind == "DISCLOSURE":
         said = permitted_facts(act, payload)[f"act:{act.value}"]
         return f'May your agent tell the group: "{said}"? It will not share your limit or your reasons.'
@@ -155,10 +155,15 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         # concession, whatever the model called it; Ask me first then consults them.
         impact = Impact.model_validate(context["impact"]) if context["impact"] else None
         consulted = backend.has_permission(claim, brief.owner, "CONSULTATION", task["draft_ref"])
-        if impact and impact.extra_cents > 0 and (decision.evaluation == "ELIGIBLE" or (
-                # Asking "is the extra cost OK?" is exactly the consultation Ask me first
-                # requires: route it there so the answer becomes a scoped, enforced grant.
+        # A compromise is paying more than their cheapest option or giving up one of their
+        # preferences. With "ask me first", it's put to them with the specifics (and anything
+        # their agent itself wanted to ask), and their answer becomes a scoped, enforced grant.
+        compromise = impact is not None and (impact.extra_cents > 0 or bool(impact.unmet))
+        also = ""
+        if compromise and (decision.evaluation == "ELIGIBLE" or (
                 decision.evaluation == "NEEDS_OWNER_INPUT" and brief.preferences.ask_me_first and not consulted)):
+            if decision.evaluation == "NEEDS_OWNER_INPUT" and decision.owner_question:
+                also = decision.owner_question.strip()
             decision = Decision(act=Act.EVALUATE, evaluation="ELIGIBLE", recipient="mediator", concession=True)
         payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
             candidate_refs=(candidate["id"], *(c["id"] for c in task.get("shared", []))))
@@ -167,7 +172,7 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             if kind != "PARTICIPATION" and backend.has_permission(claim, brief.owner, kind, task["draft_ref"]):
                 continue
             q = question_for(claim, brief.owner, kind, task["draft_ref"],
-                owner_prompt(kind, payload, decision.act, impact, task.get("window_seconds", 0)))
+                owner_prompt(kind, payload, decision.act, impact, task.get("window_seconds", 0), also))
             questions.append(backend.ask_owner(claim, q))
         if decision.evaluation == "NEEDS_OWNER_INPUT":
             q = question_for(claim, brief.owner, "MISSING_FACT", task["draft_ref"], decision.owner_question.strip())

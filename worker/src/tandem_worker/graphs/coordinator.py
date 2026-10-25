@@ -276,6 +276,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             draft = "draft-" + digest([list(result.selected), snapshot.input_revision, snapshot.membership_revision])[:20]
             declined = set(backend.declined_concession_owners(claim, draft)) if result.selected else set()
             refused = {c.id for c in candidates if c.id in result.selected and c.owner in declined}
+            if declined and not refused:  # a stage of shared picks: the shared pick they said no to
+                refused = {c.id for c in candidates if c.id in result.selected and c.owner is None}
             if not refused:
                 break
             excluded.update(refused)
@@ -397,6 +399,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             # they declined and re-solve, so the trade-off can shift to others.
             owners = {c["id"]: c["owner"] for c in state["candidates"]}
             refused = [ref for ref in state["selected"] if owners[ref] in {q.owner for q in declined}]
+            if not refused:  # a stage of shared picks: the shared pick they said no to
+                refused = [ref for ref in state["selected"] if owners[ref] is None]
             return {**update, "excluded": [*state.get("excluded", []), *refused], "resolve": True}
         return {**update, "outcome": "OWNER_DECLINED" if declined else ""}
 

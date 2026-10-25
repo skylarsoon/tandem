@@ -25,6 +25,15 @@ from .solver import TripSolver
 POLICY = "cumulative_fairness_v1"
 
 
+def wish(preference) -> str:
+    """One preference in plain words, with their own quote."""
+    from .intake_policy import describe_rule
+    if preference.rule is not None:
+        text = describe_rule(preference.rule)
+        return f"{text} (you said \u201c{preference.rule.source_quote}\u201d)" if preference.rule.source_quote else text
+    return f"{preference.need.category.title()}: enough {preference.need.attribute} for your own"
+
+
 def room_rules_from(briefs) -> RoomRules:
     items = [x for b in briefs for x in rules_from_brief(b)]
     return RoomRules(rules=tuple(x for x in items if isinstance(x, Rule)), needs=tuple(x for x in items if isinstance(x, Need)),
@@ -72,8 +81,13 @@ class TandemOptimizerBridge(TripSolver):
         flight_of = {g.owner: by_id[picked[g.id]] for g in compiled.groups if g.owner is not None}
         shared_of = {g.category: by_id[picked[g.id]] for g in compiled.groups if g.owner is None}
         plan = self.finish(options, "OPTIMAL", flight_of, shared_of)  # exhaustive over every combination
-        burdens = {p["participant_id"]: round(p["new_compromise_burden"], 6) for p in response["proposals"][0]["per_person"]}
-        return plan.model_copy(update={"burdens": burdens})
+        best = response["proposals"][0]
+        burdens = {p["participant_id"]: round(p["new_compromise_burden"], 6) for p in best["per_person"]}
+        # What each person gives up: their preferences the chosen plan doesn't fully meet.
+        missed = set(best.get("violated_soft_preferences") or ())
+        impacts = tuple(i.model_copy(update={"unmet": tuple(dict.fromkeys(
+            wish(p) for p in compiled.preferences if p.owner == i.owner and p.id in missed))}) for i in plan.impacts)
+        return plan.model_copy(update={"burdens": burdens, "impacts": impacts})
 
 
 def make_solver(policy: str, time_limit: float = 5):

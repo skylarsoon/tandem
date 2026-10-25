@@ -254,6 +254,35 @@
           }
         ]
       }
+    },
+    "bella_no_nonstop": {
+      "about": "QA-04, the other side: no nonstop from LAX at all, so Bella's wish can't be met and she's asked first.",
+      "replace": {
+        "LAX": [
+          {
+            "code": "UA2034",
+            "depart": "2026-11-20T06:00",
+            "arrive": "2026-11-20T13:10",
+            "stops": 1,
+            "return_depart": "2026-11-24T12:45",
+            "return_arrive": "2026-11-24T23:10",
+            "return_stops": 1,
+            "fare_cents": 43000,
+            "bag": false
+          },
+          {
+            "code": "WN3302",
+            "depart": "2026-11-20T05:00",
+            "arrive": "2026-11-20T16:30",
+            "stops": 2,
+            "return_depart": "2026-11-24T10:40",
+            "return_arrive": "2026-11-24T22:50",
+            "return_stops": 2,
+            "fare_cents": 35000,
+            "bag": true
+          }
+        ]
+      }
     }
   },
   "stays": [

@@ -45,6 +45,13 @@ def group_text(group: GroupSummary, zone: str | None, titles: dict[str, str] | N
 
 
 def impact_text(impact: Impact, window_seconds: int) -> str:
+    text = _cost_text(impact, window_seconds)
+    if impact.unmet:  # what this plan gives up of theirs, in their words
+        text += " It doesn't fully give you: " + "; ".join(impact.unmet) + "."
+    return text
+
+
+def _cost_text(impact: Impact, window_seconds: int) -> str:
     why = {"ARRIVAL_WINDOW": f"so everyone lands within {duration(window_seconds)} of each other",
            "SHARED_CHOICE": "because of the stay and transfer the group's limits allow"}.get(
                impact.reason, "to keep the group's trade-offs balanced")
@@ -68,8 +75,13 @@ def impact_text(impact: Impact, window_seconds: int) -> str:
             f"({money(impact.cheapest_alone_cents)}), {why}.")
 
 
-def consultation_prompt(impact: Impact, window_seconds: int) -> str:
-    return impact_text(impact, window_seconds) + " May your agent accept this on your behalf?"
+def consultation_prompt(impact: Impact, window_seconds: int, also: str = "") -> str:
+    """What this plan asks of them, specifically: the cost, what of theirs it doesn't meet
+    (in their words), and anything their agent wanted to ask; then the one decision."""
+    text = impact_text(impact, window_seconds)
+    if also:
+        text += f" {also}"
+    return text + " May your agent accept this on your behalf?"
 
 
 def suggestions(candidates: list[Candidate], per_category: int = 3) -> tuple[Suggestion, ...]:

@@ -329,6 +329,8 @@ class Impact(Record):
     reason: Literal["NONE", "ARRIVAL_WINDOW", "SHARED_CHOICE"] = "NONE"
     flight_cents: int | None = None
     share_cents: int = 0  # their share of the shared picks (split, or per head)
+    # Their preferences this plan doesn't fully meet, in plain words with their quote.
+    unmet: tuple[str, ...] = ()
 
 
 class GroupSummary(Record):
