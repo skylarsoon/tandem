@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from ..contracts import BriefDraft, ContractError, IntakeContext, IntakeExtraction, digest
 from ..intake_policy import MAX_QUESTIONS, fallback_question, open_topics, opening_question, patch_json, summary_text, verify
 from ..profile_suggest import asks_first, suggestions
+from ..rules import attributes
 
 
 def _model(backend, claim, kind, context, call, schema):
@@ -27,6 +28,13 @@ def _model(backend, claim, kind, context, call, schema):
         except (ValidationError, ValueError):
             continue
     return None
+
+
+def checkable() -> dict:
+    """What onboarding can turn into rules: each category's attributes with their types."""
+    catalog = attributes()
+    return {"categories": {c: {a: s["type"] for a, s in attrs.items()} for c, attrs in catalog["categories"].items()},
+            "aggregates": {a: s["type"] for a, s in catalog["aggregates"].items()}}
 
 
 def run_intake(backend, claim, model) -> str:
@@ -54,7 +62,7 @@ def run_intake(backend, claim, model) -> str:
     transcript = [m.model_dump() for m in ctx.messages]
     extraction = _model(backend, claim, "extract", {
         "owner": ctx.owner, "brief": ctx.brief.model_dump(), "messages": transcript,
-        "already_confirmed": list(ctx.confirmed_keys)}, model.extract, IntakeExtraction) or IntakeExtraction()
+        "already_confirmed": list(ctx.confirmed_keys), "checkable": checkable()}, model.extract, IntakeExtraction) or IntakeExtraction()
     items, settings, coverage, reasons = verify(extraction, ctx)
     # The usual airport offered from their profile covers "where from" until they say otherwise.
     if coverage["origin"] != "ANSWERED" and any(p.get("key") == "origin_airport" and p.get("source_profile") for p in ctx.pending):

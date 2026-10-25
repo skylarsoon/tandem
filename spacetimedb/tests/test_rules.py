@@ -70,3 +70,42 @@ def test_shared_picks_hold_what_everyone_needs(ready_room, client, worker):
     # Dave's own room + the other three sharing two to a room = 1 + 2 = 3 bedrooms.
     expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, [record_shared(room, worker, job_id, "STAY", 90000, bedrooms=2)], **shared)
     assert publish_selected(room, worker, job_id, [record_shared(room, worker, job_id, "STAY", 90000, bedrooms=3)], **shared)["version"] == 1
+
+
+def test_onboarding_can_capture_any_checkable_limit_as_a_rule(room, client, worker):
+    from test_intake import described_room, intake_job, propose, say, summarize
+    described_room(room, worker)
+    job_id = intake_job(room, worker, "dave")
+    said = say(room, "dave", "I fly from JFK. Whole trip under $900 please, and somewhere rated 4.5 or better.")
+    propose(room, worker, job_id, "dave", {"key": "origin_airport", "value": "JFK", "unit": "", "hardness": "HARD",
+                                           "source_quote": "JFK"}, said)
+    rating = propose(room, worker, job_id, "dave", {"rule": RATING, "source_quote": "rated 4.5 or better"}, said)
+    budget = propose(room, worker, job_id, "dave", {"rule": {"aggregate": "my_cost", "operator": "lte", "value": 90000},
+                                                    "source_quote": "under $900"}, said)
+    expect_error("INVALID_RULE", propose, room, worker, job_id, "dave",
+                 {"rule": {"category": "STAY", "attribute": "pool", "operator": "eq", "value": True}, "source_quote": "JFK"}, said)
+    summarize(room, worker, job_id, "dave")
+    patches = [p["id"] for p in client.view(room.people["dave"], "my_constraint_patches") if p["state"] == "PENDING"]
+    client.call(room.people["dave"], "confirm_intake", room_id=room.room_id, accepted_patch_ids=patches,
+                speak_up_for_me=some(False), ask_me_first=some(True), give_me_time=some(True), reminders_opted_in=None)
+    mine = {r["source_quote"]: json.loads(r["rule_json"]) for r in my_rules(room, "dave") if r["legacy_key"] is None}
+    assert mine["rated 4.5 or better"] == {**RATING, "kind": "hard"}
+    assert mine["under $900"]["aggregate"] == "my_cost", "a money rule covers money: no named budget needed"
+    assert {rating, budget} <= set(patches)
+
+
+def test_a_rule_set_aside_stops_binding(ready_room, client, worker):
+    room, _ = ready_room
+    add_rule(room, "bob", RATING)
+    [rule] = [r for r in my_rules(room, "bob") if r["legacy_key"] is None]
+    job_id = stay_job(room, client, worker)
+    shared = dict(scope="SINGLE_SHARED_BOOKING", decision_id="stay", stage="STAY_EXPERIENCES")
+    low = record_shared(room, worker, job_id, "STAY", 90000, rating=4.0)
+    expect_error("INVALID_PROPOSAL", publish_selected, room, worker, job_id, [low], **shared)
+    client.call(room.people["bob"], "set_rule_state", rule_id=rule["id"], state="set_aside")
+    job_id = room.plan_job(worker)
+    room.claim(worker, job_id)
+    assert publish_selected(room, worker, job_id, [record_shared(room, worker, job_id, "STAY", 90000, rating=4.0)], **shared)
+    [cap] = [r for r in my_rules(room, "bob") if r["legacy_key"] == "flight_budget_total"]
+    expect_error("INVALID_STATE", client.call, room.people["bob"], "set_rule_state", rule_id=cap["id"], state="set_aside")
+    expect_error("INVALID_ARGUMENT", client.call, room.people["bob"], "set_rule_state", rule_id=rule["id"], state="forgotten")

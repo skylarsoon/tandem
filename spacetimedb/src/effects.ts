@@ -1,6 +1,6 @@
 import { ScheduleAt } from 'spacetimedb';
 import type { Identity } from 'spacetimedb';
-import { mirrorLegacy } from './room_rules';
+import { addOwnedRule, mirrorLegacy } from './room_rules';
 import {
   type Ctx,
   HARDNESS,
@@ -75,6 +75,18 @@ export function constraintFromPatch(patchJson: string): ConstraintInput {
     privateRationale: typeof patch.private_rationale === 'string' ? patch.private_rationale : undefined,
     sourceQuote: typeof patch.source_quote === 'string' ? patch.source_quote : undefined,
   };
+}
+
+// A confirmed patch: a generic rule ({"rule": {...}}) or an old named limit.
+export function applyPatch(ctx: Ctx, roomId: bigint, patchJson: string, replan = true): void {
+  const patch = parseJson(patchJson, 'patchJson') as { rule?: unknown; source_quote?: unknown } | null;
+  if (patch && typeof patch === 'object' && patch.rule !== undefined) {
+    addOwnedRule(ctx, roomId, patch.rule, typeof patch.source_quote === 'string' ? patch.source_quote : '');
+    if (replan) invalidateRoom(ctx, roomId, { input: true }, 'rule confirmed');
+    emitEvent(ctx, roomId, 'REQUIREMENTS_UPDATED', { message: 'A participant updated their requirements' });
+    return;
+  }
+  upsertConstraint(ctx, roomId, constraintFromPatch(patchJson), replan);
 }
 
 // The caller is the owner. A confirmed constraint change bumps the input

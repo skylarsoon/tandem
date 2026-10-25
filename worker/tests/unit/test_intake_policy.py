@@ -90,3 +90,22 @@ def test_notes_about_the_traveller_are_never_sent_to_them():
     assert reasons == {} and coverage["dates"] == "OPEN" and coverage["money"] == "OPEN"
     real = Unclear(topic="money", reason="Is that $900 for the flight only, or everything?")
     assert verify(IntakeExtraction(unclear=(real,)), c)[3] == {"money": real.reason}
+
+
+def test_any_checkable_limit_becomes_a_rule_only_from_their_own_words():
+    from tandem_worker.intake_policy import describe, patch_json
+    c = ctx("Somewhere rated 4.5 or better, and land by 6pm please. Whole trip under $900.")
+    rating = {"category": "STAY", "attribute": "rating", "operator": "gte", "value": 4.5}
+    kept, _, coverage, _ = verify(IntakeExtraction(items=(
+        item("rule", None, "rated 4.5 or better", rule=rating),
+        item("rule", None, "rated 4.5 or better", rule={**rating, "value": 4.8}),                    # number they didn't say
+        item("rule", None, "land by 6pm", rule={"category": "FLIGHT", "attribute": "arrival_local",
+                                                "operator": "lte", "value": "18:00"}, interpreted=True),  # 6pm read as 18:00, shown as a reading
+        item("rule", None, "rated 4.5", rule={"category": "STAY", "attribute": "pool", "operator": "eq", "value": True}),  # not checkable
+        item("rule", None, "under $900", rule={"aggregate": "my_cost", "operator": "lte", "value": 90000}),
+    )), c)
+    assert [i.rule["attribute"] if "attribute" in i.rule else i.rule["aggregate"] for i in kept] == ["rating", "arrival_local", "my_cost"]
+    assert coverage["money"] == "ANSWERED", "a money rule covers money"
+    assert patch_json(kept[0]) == {"rule": {**rating, "kind": "hard"}, "source_quote": "rated 4.5 or better"}
+    assert describe(kept[0]) == "Stay: rating at least 4.5"
+    assert describe(kept[2]) == "Your share of the whole trip at most $900"

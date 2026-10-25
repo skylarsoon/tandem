@@ -1,7 +1,7 @@
 import type { Identity } from 'spacetimedb';
 import { type Ctx, fail } from './guards';
 import { LEGACY_KEYS, RULE_ATTRIBUTES } from './rule_catalog';
-import { type Catalog, type LegacyTable, type Rule, RuleError, evaluateRule, fromLegacy } from './rules';
+import { type Catalog, type LegacyTable, type Rule, RuleError, attributeType, evaluateRule, fromLegacy, validateRule } from './rules';
 
 // A room's rules, needs and search facts: how they're stored, and how a picked
 // candidate is checked against them. Nothing here knows any particular limit;
@@ -68,6 +68,56 @@ export function mirrorLegacy(
   for (const fact of converted.facts) {
     ctx.db.searchFact.insert({ id: 0n, roomId, owner, fact: fact.fact, valueJson: JSON.stringify(fact.value), legacyKey: key, updatedAt: ctx.timestamp });
   }
+}
+
+// A proposed patch can be checked before anyone confirms it: a generic rule must
+// fit the catalog; an old named limit must parse.
+export function checkRule(raw: unknown): void {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('INVALID_RULE', 'a rule is an object');
+  try {
+    validateRule(raw as Rule, CATALOG);
+  } catch (error) {
+    if (error instanceof RuleError) fail('INVALID_RULE', error.message);
+    throw error;
+  }
+}
+
+// An owner's rule in the generic language (entered directly, or a confirmed agent
+// suggestion), checked against the attribute catalog. Returns the stored row id.
+export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: string): bigint {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('INVALID_RULE', 'a rule is an object');
+  const rule = raw as Rule;
+  try {
+    validateRule(rule, CATALOG);
+  } catch (error) {
+    if (error instanceof RuleError) fail('INVALID_RULE', error.message);
+    throw error;
+  }
+  const kind = rule.kind ?? 'hard';
+  return ctx.db.participantRule.insert({
+    id: 0n,
+    roomId,
+    owner: ctx.sender,
+    ruleJson: JSON.stringify({ category: rule.category, attribute: rule.attribute, aggregate: rule.aggregate,
+      operator: rule.operator, value: rule.value, kind }),
+    kind,
+    state: 'active',
+    sourceQuote: quote,
+    legacyKey: undefined,
+    updatedAt: ctx.timestamp,
+  }).id;
+}
+
+// Does this person have a money limit (any rule on a money attribute or total)?
+export function hasMoneyRule(ctx: Ctx, roomId: bigint, owner: Identity): boolean {
+  return [...ctx.db.participantRule.byRoom.filter(roomId)].some(r => {
+    if (!r.owner.isEqual(owner) || r.state !== 'active') return false;
+    try {
+      return attributeType(JSON.parse(r.ruleJson) as Rule, CATALOG) === 'money';
+    } catch {
+      return false;
+    }
+  });
 }
 
 // The rules that bind right now: hard, and not set aside.

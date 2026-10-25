@@ -21,7 +21,8 @@ import {
   validateRoomSettings,
   withReceipt,
 } from './guards';
-import { applyParticipationPreferences, constraintFromPatch, upsertConstraint } from './effects';
+import { applyParticipationPreferences, applyPatch, constraintFromPatch, upsertConstraint } from './effects';
+import { hasMoneyRule } from './room_rules';
 import { MONEY_KEYS, findIntake, ownerConstraintKeys, queueAgent, startIntake } from './onboarding';
 
 // Conversational onboarding. The organizer describes the trip in their own
@@ -139,7 +140,7 @@ export const confirmIntake = spacetimedb.reducer(
     for (const patch of [...ctx.db.constraintPatch.byOwner.filter(ctx.sender)]) {
       if (patch.roomId !== args.roomId || patch.state !== 'PENDING') continue;
       if (accepted.has(patch.id.toString())) {
-        upsertConstraint(ctx, args.roomId, constraintFromPatch(patch.patchJson), false);
+        applyPatch(ctx, args.roomId, patch.patchJson, false);
         ctx.db.constraintPatch.id.update({ ...patch, state: 'CONFIRMED' });
         seen.add(patch.id.toString());
       } else {
@@ -157,7 +158,9 @@ export const confirmIntake = spacetimedb.reducer(
       fail('PREFERENCES_UNCONFIRMED', 'confirm how your agent should act for you');
     }
     const keys = ownerConstraintKeys(ctx, args.roomId, ctx.sender);
-    if (!MONEY_KEYS.some(k => keys.has(k))) fail('INTAKE_INCOMPLETE', 'a budget or an explicit "no limit" is needed');
+    if (!MONEY_KEYS.some(k => keys.has(k)) && !hasMoneyRule(ctx, args.roomId, ctx.sender)) {
+      fail('INTAKE_INCOMPLETE', 'a budget or an explicit "no limit" is needed');
+    }
     if (!keys.has('origin_airport')) fail('INTAKE_INCOMPLETE', 'confirm where you fly from');
 
     ctx.db.intake.id.update({ ...intake, state: 'CONFIRMED', updatedAt: ctx.timestamp });

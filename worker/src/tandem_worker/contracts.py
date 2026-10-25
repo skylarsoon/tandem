@@ -461,7 +461,7 @@ Topic = Literal["origin", "dates", "money", "settings"]
 CoverageState = Literal["OPEN", "ANSWERED", "UNCLEAR", "SKIPPED"]
 TOPICS: tuple[str, ...] = ("origin", "dates", "money", "settings")
 IntakeKey = Literal["origin_airport", "dates_ok", "flight_budget_total", "trip_budget_total", "no_budget_limit",
-                    "baggage_required", "own_bedroom", "stay_min_rating", "arrival_window", "max_stops", "trip_note"]
+                    "baggage_required", "own_bedroom", "stay_min_rating", "arrival_window", "max_stops", "trip_note", "rule"]
 
 
 class TripBrief(Record):
@@ -486,7 +486,10 @@ class IntakeItem(Record):
     """One thing the traveller said, with their exact words. `interpreted` marks a
     reading the summary must spell out (e.g. "no red-eyes" → land 06:00-23:00)."""
     key: IntakeKey
-    value: str | int | float | bool | dict[str, str]
+    value: str | int | float | bool | dict[str, str] | None = None
+    # key "rule": anything checkable, in the generic language
+    # ({category, attribute | aggregate, operator, value}; see contracts/attributes.json).
+    rule: dict | None = None
     hardness: Literal["HARD", "SOFT"] = "HARD"
     authorized_range: dict[str, int] | None = None
     unit: str = ""

@@ -1,5 +1,6 @@
 import type { Identity } from 'spacetimedb';
 import { type Ctx, type MembershipRow, type RoomRow, createJob, emitEvent } from './guards';
+import { hasMoneyRule } from './room_rules';
 
 // Onboarding state transitions shared by reducers. Not exported from the module
 // entry, so nothing here is callable by clients directly.
@@ -19,7 +20,7 @@ function initialCoverage(ctx: Ctx, roomId: bigint, owner: Identity): Record<stri
   return {
     origin: keys.has('origin_airport') ? 'ANSWERED' : 'OPEN',
     dates: 'OPEN',
-    money: MONEY_KEYS.some(k => keys.has(k)) ? 'ANSWERED' : 'OPEN',
+    money: MONEY_KEYS.some(k => keys.has(k)) || hasMoneyRule(ctx, roomId, owner) ? 'ANSWERED' : 'OPEN',
     settings: prefs?.confirmed ? 'ANSWERED' : 'OPEN',
   };
 }

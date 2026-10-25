@@ -30,6 +30,7 @@ import {
   withReceipt,
 } from './guards';
 import { constraintFromPatch } from './effects';
+import { checkRule } from './room_rules';
 
 const ThreadOpen = t.object('ThreadOpen', {
   topicRef: t.string(),
@@ -441,7 +442,9 @@ export const proposeConstraintPatch = spacetimedb.reducer(
     withReceipt(ctx, 'propose_constraint_patch', args.requestKey, args, () => {
       const j = requireLease(ctx, args.jobId, args.attempt);
       const m = requireMembershipById(ctx, j.roomId, args.memberId);
-      constraintFromPatch(args.patchJson);
+      const proposed = JSON.parse(args.patchJson) as { rule?: unknown };
+      if (proposed && typeof proposed === 'object' && proposed.rule !== undefined) checkRule(proposed.rule);
+      else constraintFromPatch(args.patchJson);
       // A patch that quotes the owner must quote them exactly, from their own message.
       const quote = (JSON.parse(args.patchJson) as { source_quote?: unknown }).source_quote;
       if (quote !== undefined) {

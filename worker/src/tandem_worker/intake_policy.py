@@ -6,7 +6,10 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from pydantic import ValidationError
+
 from .contracts import TOPICS, IntakeContext, IntakeExtraction, IntakeItem, IntakeQuestion
+from .rules import Rule, RuleError, attribute_type, attributes, validate
 
 MAX_QUESTIONS = 5
 MONEY_KEYS = {"flight_budget_total", "trip_budget_total", "no_budget_limit"}
@@ -79,7 +82,35 @@ def check_item(item: IntakeItem, said: str) -> str | None:
         return None if ok and (item.interpreted or stated) else "BAD_VALUE"
     if item.key == "trip_note":
         return None if isinstance(value, str) and 0 < len(value) <= 200 else "BAD_VALUE"
+    if item.key == "rule":
+        return _check_rule(item, said)
     return "UNKNOWN_KEY"
+
+
+def _check_rule(item: IntakeItem, said: str) -> str | None:
+    """A rule must be checkable (catalog attribute, fitting value) and said: every
+    number, time or word in its value appears in their words (a reading, e.g.
+    "nonstop" as 0 connections, is allowed but shown as a reading)."""
+    try:
+        rule = Rule.model_validate({**(item.rule or {}), "kind": "hard"})
+        validate(rule)
+    except (RuleError, ValidationError):
+        return "BAD_VALUE"
+    kind, quote = attribute_type(rule), item.source_quote
+    for v in rule.value if isinstance(rule.value, list) else [rule.value]:
+        if kind == "bool":
+            if v and mentions(quote, HEDGES) and not mentions(said, NEEDS):
+                return "ONLY_A_PREFERENCE"
+            continue
+        if kind == "money":
+            stated = any(abs(f * 100 - v) < 1 for f in amounts(quote))
+        elif kind in ("int", "number", "epoch"):
+            stated = any(abs(f - v) < 0.01 for f in amounts(quote))
+        else:
+            stated = str(v).lower() in quote.lower()
+        if not stated and not item.interpreted:
+            return "NUMBER_NOT_SAID"
+    return None
 
 
 def budget_gap(item: IntakeItem, said: str) -> str | None:
@@ -120,7 +151,10 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
             continue
         if item.key == "max_stops" and str(item.value) not in item.source_quote:
             item = item.model_copy(update={"interpreted": True})  # "nonstop" read as 0 stops: shown as a reading
-        items[item.key] = item  # a later statement replaces an earlier one
+        # A later statement replaces an earlier one about the same thing.
+        slot = item.key if item.key != "rule" else (
+            f"rule:{item.rule.get('category')}.{item.rule.get('attribute') or item.rule.get('aggregate')}:{item.rule.get('operator')}")
+        items[slot] = item
     settings = extraction.settings
     if settings is not None and (settings.source_message_id not in said or not settings.source_quote
                                  or settings.source_quote not in said.get(settings.source_message_id, "")):
@@ -132,6 +166,8 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
             reasons.setdefault(unclear.topic, unclear.reason)
 
     have = set(items) | set(ctx.confirmed_keys)
+    if any(i.key == "rule" and _is_money(i) for i in items.values()):
+        have.add("trip_budget_total")  # any money limit covers money
     coverage = {
         "origin": "ANSWERED" if "origin_airport" in have else "OPEN",
         "dates": "ANSWERED" if have & {"dates_ok", "arrival_window"} else "OPEN",
@@ -197,6 +233,8 @@ def question_ok(question: IntakeQuestion, ctx: IntakeContext) -> bool:
 
 
 def patch_json(item: IntakeItem) -> dict:
+    if item.key == "rule":
+        return {"rule": {**item.rule, "kind": "hard" if item.hardness == "HARD" else "soft"}, "source_quote": item.source_quote}
     patch = {"key": item.key, "value": item.value, "hardness": item.hardness, "unit": "USD_cents" if item.key in BUDGET_KEYS else "",
              "source_quote": item.source_quote}
     if item.authorized_range is not None:
@@ -206,11 +244,40 @@ def patch_json(item: IntakeItem) -> dict:
     return patch
 
 
+def _is_money(item: IntakeItem) -> bool:
+    try:
+        return attribute_type(Rule.model_validate({**(item.rule or {}), "kind": "hard"})) == "money"
+    except (RuleError, ValidationError):
+        return False
+
+
+WORDS = {"lte": "at most", "lt": "under", "gte": "at least", "gt": "over", "eq": "is", "neq": "isn't",
+         "in": "one of", "not_in": "none of", "between": "between"}
+
+
+def describe_rule(rule: Rule) -> str:
+    """A rule in plain words, from the catalog's labels: "Stay: rating at least 4.5"."""
+    catalog = attributes()
+    spec = catalog["aggregates"][rule.aggregate] if rule.aggregate else catalog["categories"][rule.category][rule.attribute]
+    show = (lambda v: money(v)) if spec["type"] == "money" else str
+    if spec["type"] == "bool":
+        text = ("must have " if rule.value else "must not have ") + spec["label"]
+    elif rule.operator == "between":
+        text = f"{spec['label']} between {show(rule.value[0])} and {show(rule.value[1])}"
+    elif isinstance(rule.value, list):
+        text = f"{spec['label']} {WORDS[rule.operator]} {', '.join(show(v) for v in rule.value)}"
+    else:
+        text = f"{spec['label']} {WORDS[rule.operator]} {show(rule.value)}"
+    return text[0].upper() + text[1:] if rule.aggregate else f"{rule.category.title()}: {text}"
+
+
 def money(cents: int) -> str:
     return f"${cents / 100:,.0f}" if cents % 100 == 0 else f"${cents / 100:,.2f}"
 
 
 def describe(item: IntakeItem) -> str:
+    if item.key == "rule":
+        return describe_rule(Rule.model_validate({**item.rule, "kind": "hard"}))
     v = item.value
     if item.key == "origin_airport":
         return f"Flying from {v}"

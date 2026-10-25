@@ -71,6 +71,7 @@ import SetAgentActivityReducer from "./set_agent_activity_reducer";
 import SetConstraintReducer from "./set_constraint_reducer";
 import SetReminderDelayReducer from "./set_reminder_delay_reducer";
 import SetRoomSettingsReducer from "./set_room_settings_reducer";
+import SetRuleStateReducer from "./set_rule_state_reducer";
 import SetTripDescriptionReducer from "./set_trip_description_reducer";
 import SkipProfileQuestionReducer from "./skip_profile_question_reducer";
 import SubmitAgentMessageReducer from "./submit_agent_message_reducer";
@@ -367,6 +368,7 @@ const reducersSchema = __reducers(
   __reducerSchema("set_constraint", SetConstraintReducer),
   __reducerSchema("set_reminder_delay", SetReminderDelayReducer),
   __reducerSchema("set_room_settings", SetRoomSettingsReducer),
+  __reducerSchema("set_rule_state", SetRuleStateReducer),
   __reducerSchema("set_trip_description", SetTripDescriptionReducer),
   __reducerSchema("skip_profile_question", SkipProfileQuestionReducer),
   __reducerSchema("submit_agent_message", SubmitAgentMessageReducer),
