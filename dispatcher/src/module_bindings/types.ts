@@ -42,6 +42,12 @@ export const Agent = __t.object("Agent", {
 });
 export type Agent = __Infer<typeof Agent>;
 
+export const AgentAppearance = __t.object("AgentAppearance", {
+  owner: __t.identity(),
+  variant: __t.string(),
+});
+export type AgentAppearance = __Infer<typeof AgentAppearance>;
+
 export const AgentMessage = __t.object("AgentMessage", {
   id: __t.u64(),
   messageKey: __t.string(),
@@ -345,6 +351,7 @@ export const MemberRow = __t.object("MemberRow", {
   active: __t.bool(),
   isMe: __t.bool(),
   agentId: __t.option(__t.u64()),
+  agentVariant: __t.string(),
 });
 export type MemberRow = __Infer<typeof MemberRow>;
 
@@ -368,6 +375,9 @@ export const Milestone = __t.object("Milestone", {
   updatedAt: __t.timestamp(),
 });
 export type Milestone = __Infer<typeof Milestone>;
+
+export const MyAgentAppearance = __t.object("MyAgentAppearance", {});
+export type MyAgentAppearance = __Infer<typeof MyAgentAppearance>;
 
 export const MyAgentMessages = __t.object("MyAgentMessages", {});
 export type MyAgentMessages = __Infer<typeof MyAgentMessages>;

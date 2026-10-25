@@ -31,6 +31,9 @@ export const roomTables = [
   "my_consents",
 ];
 export const personalTables = ["my_participation_preferences"];
+// Cosmetic subscriptions must never prevent access to trips on an older server.
+export const appearanceTables = ["my_agent_appearance", "room_agent_appearances"];
+const allTables = [...baseTables, ...roomTables, ...personalTables, ...appearanceTables];
 export function queries(room?: string) {
   if (!room) return [];
   if (!/^\d+$/.test(room)) throw new Error("Invalid room ID");
@@ -111,8 +114,9 @@ export type ClientSnapshot = {
   status: string;
   error: string;
   tables: Record<string, Row[]>;
+  appearanceStatus?: "loading" | "ready" | "unavailable";
 };
-/** One connection owns two subscriptions. Room epochs discard late callbacks after navigation. */
+/** Core and cosmetic subscriptions are independent. Epochs discard late callbacks. */
 export class RoomSession {
   snapshot: ClientSnapshot = { status: "connecting", error: "", tables: {} };
   private listeners = new Set<() => void>();
@@ -120,6 +124,7 @@ export class RoomSession {
   private epoch = 0;
   private baseReady = false;
   private roomReady = false;
+  private appearanceReady = false;
   private handles: { unsubscribe: () => void }[] = [];
   private detach: (() => void)[] = [];
   private scheduled = false;
@@ -145,9 +150,10 @@ export class RoomSession {
     this.cleanup();
     this.baseReady = false;
     this.roomReady = false;
-    this.emit({ status: "synchronizing", error: "", tables: {} });
+    this.appearanceReady = false;
+    this.emit({ status: "synchronizing", error: "", tables: {}, appearanceStatus: "loading" });
     const epoch = this.epoch;
-    for (const name of [...baseTables, ...roomTables, ...personalTables]) {
+    for (const name of allTables) {
       const table = this.connection.db[accessor(name)];
       const update = () => {
         if (!this.scheduled) {
@@ -176,17 +182,37 @@ export class RoomSession {
             this.refresh();
           }
         })
-        .onError(() => {
-          if (epoch === this.epoch) this.error("Room list subscription failed");
+        .onError((ctx: { event?: unknown }) => {
+          if (epoch === this.epoch) {
+            console.error("Room list subscription failed", ctx.event);
+            this.error("Could not load your trips. Reconnect to try again.");
+          }
         })
         .subscribe(baseTables.map((t) => `SELECT * FROM ${t}`)),
     );
     this.subscribeRoom();
+    const appearanceQueries = ["SELECT * FROM my_agent_appearance"];
+    if (this.room) appearanceQueries.push(`SELECT * FROM room_agent_appearances WHERE room_id = ${this.room}`);
+    this.handles.push(this.connection.subscriptionBuilder()
+      .onApplied(() => {
+        if (epoch !== this.epoch) return;
+        this.appearanceReady = true;
+        this.emit({ appearanceStatus: "ready" });
+        this.refresh();
+      })
+      .onError(() => {
+        if (epoch !== this.epoch) return;
+        this.appearanceReady = false;
+        this.emit({ appearanceStatus: "unavailable" });
+        this.refresh();
+      })
+      .subscribe(appearanceQueries));
   }
   disconnected() {
     this.baseReady = false;
     this.roomReady = false;
-    this.emit({ status: "disconnected", tables: {} });
+    this.appearanceReady = false;
+    this.emit({ status: "disconnected", tables: {}, appearanceStatus: "loading" });
   }
   select(room?: string) {
     this.room = room;
@@ -224,11 +250,11 @@ export class RoomSession {
     )
       return;
     const tables: Record<string, Row[]> = {};
-    for (const name of [...baseTables, ...roomTables, ...personalTables]) {
-      tables[name] = Array.from(
+    for (const name of allTables) {
+      tables[name] = appearanceTables.includes(name) && !this.appearanceReady ? [] : Array.from(
         this.connection.db[accessor(name)].iter(),
       ) as Row[];
-      if (roomTables.includes(name))
+      if (roomTables.includes(name) || name === "room_agent_appearances")
         tables[name] = tables[name].filter(
           (r) => String(r.roomId) === this.room,
         );

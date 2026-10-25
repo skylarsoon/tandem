@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PlanningConversation, TripOverview, type Reducers } from "../components/planning-room";
-import { constraintValue, describeFact, established, factStrength, outgoingMessage, planningStatus, revisionEvents, scoped, timeline, type Tables } from "../lib/planning";
+import { constraintValue, describeFact, established, factStrength, outgoingMessage, planningStatus, preferenceDefaults, revisionEvents, scoped, timeline, type Tables } from "../lib/planning";
 import { queries, questionAction } from "../lib/state";
 
 const room = { id: 1n, goal: "Camping weekend", inputRevision: 3n, membershipRevision: 1n, permissionRevision: 1n, settingsJson: '{}' };
@@ -48,6 +48,23 @@ describe("conversation-driven planning", () => {
     expect(outgoingMessage(room, { room_members: members, room_trip_brief: [pendingBrief] }, "Change the dates").kind).toBe("private");
     expect(outgoingMessage(room, {}, "I need a quiet place").kind).toBe("private");
     expect(() => outgoingMessage(room, {}, " ")).toThrow();
+  });
+  it("routes an explicit chat confirmation to the selected intake details", () => {
+    const tables = {
+      my_intake: [{ state: "SUMMARY", coverageJson: '{"origin":"ANSWERED","money":"ANSWERED"}' }],
+      my_constraint_patches: [{ id: 1n, state: "PENDING" }, { id: 2n, state: "PENDING" }, { id: 3n, state: "REJECTED" }],
+    };
+    const confirmation = { prefs: preferenceDefaults, excluded: ["2"] };
+    expect(outgoingMessage(room, tables, " Confirm! ", confirmation)).toEqual({
+      kind: "confirmation", args: { roomId: 1n, acceptedPatchIds: [1n], ...preferenceDefaults },
+    });
+    for (const body of ["don't confirm", "confirm but change the budget", "1000 budget", "yes"])
+      expect(outgoingMessage(room, tables, body, confirmation).kind).toBe("private");
+    expect(outgoingMessage(room, { ...tables, my_intake: [{ state: "SUMMARY", coverageJson: '{"money":"OPEN"}' }] }, "confirm", confirmation).kind).toBe("private");
+    expect(outgoingMessage(room, { ...tables, my_intake: [{ state: "CONFIRMED" }] }, "confirm", confirmation).kind).toBe("private");
+    expect(outgoingMessage(room, { ...tables,
+      my_private_messages: [{ sender: "HUMAN", body: "Change my budget", createdAt: { microsSinceUnixEpoch: 2n } }],
+    }, "confirm", confirmation).kind).toBe("private");
   });
 });
 

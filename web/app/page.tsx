@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { connect } from "../lib/client";
 import { PlanningConversation, TripOverview } from "../components/planning-room";
 import { DestinationSlideshow } from "../components/destination-slideshow";
+import { AgentWelcome } from "../components/agent-companions";
 import { scoped } from "../lib/planning";
 import type { Row } from "../lib/state";
 
@@ -58,7 +59,7 @@ function Dashboard({ client }: { client: Client }) {
   return <div className="planning-shell">
     <aside className="overview-panel" aria-label="Trip details">
       <div className="trip-navigation"><label htmlFor="trip-select">YOUR TRIPS</label><select id="trip-select" value={roomId || ""} disabled={disabled} onChange={e => select(e.target.value)}>
-        <option value="" disabled>Select a trip</option>{rooms.map(r => <option value={String(r.id)} key={String(r.id)}>{r.goal}</option>)}
+        <option value="">Home · your companion</option>{rooms.map(r => <option value={String(r.id)} key={String(r.id)}>{r.goal}</option>)}
       </select></div>
       <details className="manage-trips"><summary>Create or join a trip</summary>
         <label>Your display name<input value={name} onChange={e => setName(e.target.value)} disabled={disabled} maxLength={50} /></label>
@@ -75,6 +76,6 @@ function Dashboard({ client }: { client: Client }) {
       {room ? <TripOverview room={room} tables={tables} connected={ready} /> : <div className="trip-placeholder"><p className="eyebrow">ROOM TO EXPLORE</p><h1>A plan starts with a conversation.</h1><p>Select a trip, or create one and tell your agent what you have in mind.</p></div>}
       <p className="connection"><span className={`dot ${ready ? "online" : ""}`} />{ready ? "Connected" : "Synchronizing your trip…"}</p>
     </aside>
-    {room ? <PlanningConversation key={String(room.id)} room={room} tables={tables} reducers={client.connection.reducers} connected={ready} /> : <DestinationSlideshow />}
+    {room ? <PlanningConversation key={String(room.id)} room={room} tables={tables} reducers={client.connection.reducers} connected={ready} /> : <DestinationSlideshow welcome={<AgentWelcome tables={state.tables} connected={ready} appearanceReady={state.appearanceStatus === "ready"} save={variant => client.connection.reducers.setAgentAppearance({ variant })} />} />}
   </div>;
 }

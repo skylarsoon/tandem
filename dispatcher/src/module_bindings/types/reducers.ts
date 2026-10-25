@@ -40,6 +40,7 @@ import RequestProfileSummaryReducer from "../request_profile_summary_reducer";
 import RespondToProposalReducer from "../respond_to_proposal_reducer";
 import SaveProfileAnswerReducer from "../save_profile_answer_reducer";
 import SetAgentActivityReducer from "../set_agent_activity_reducer";
+import SetAgentAppearanceReducer from "../set_agent_appearance_reducer";
 import SetConstraintReducer from "../set_constraint_reducer";
 import SetReminderDelayReducer from "../set_reminder_delay_reducer";
 import SetRoomSettingsReducer from "../set_room_settings_reducer";
@@ -87,6 +88,7 @@ export type RequestProfileSummaryParams = __Infer<typeof RequestProfileSummaryRe
 export type RespondToProposalParams = __Infer<typeof RespondToProposalReducer>;
 export type SaveProfileAnswerParams = __Infer<typeof SaveProfileAnswerReducer>;
 export type SetAgentActivityParams = __Infer<typeof SetAgentActivityReducer>;
+export type SetAgentAppearanceParams = __Infer<typeof SetAgentAppearanceReducer>;
 export type SetConstraintParams = __Infer<typeof SetConstraintReducer>;
 export type SetReminderDelayParams = __Infer<typeof SetReminderDelayReducer>;
 export type SetRoomSettingsParams = __Infer<typeof SetRoomSettingsReducer>;

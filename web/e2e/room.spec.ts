@@ -87,3 +87,25 @@ test("declining a concession re-solves and asks the other owner", async ({ brows
   await expect(pb.getByRole("button", { name: "Accept exact terms" })).toBeVisible();
   await a.close(); await b.close();
 });
+
+test("companion changes sync to another person and persist after reload", async ({ browser }) => {
+  const goal = `browser trip companions ${Date.now()}`;
+  const { a, b, pa, pb } = await pair(browser, goal);
+  try {
+    await pa.getByLabel("YOUR TRIPS", { exact: true }).selectOption("");
+    await expect(pa.getByRole("heading", { name: "Hey p1, where are we going?" })).toBeVisible();
+    await pa.getByText("Make this agent yours", { exact: true }).click();
+    await pa.getByRole("button", { name: "Choose Butter" }).click();
+    await expect(pa.getByRole("button", { name: "Choose Butter" })).toHaveAttribute("aria-pressed", "true");
+    const peer = pb.locator(".room-companions-list > li").filter({ hasText: "p1’s agent" });
+    await expect(peer.locator("img")).toHaveAttribute("src", "/agents/yellow.webp");
+    await pa.reload();
+    await expect(pa.locator(".connection")).toContainText("Connected");
+    await expect(pa.locator(".agent-avatar--hero img")).toHaveAttribute("src", "/agents/yellow.webp");
+    await pa.getByLabel("YOUR TRIPS", { exact: true }).selectOption({ label: goal });
+    await expect(pa.locator(".is-your-agent img")).toHaveAttribute("src", "/agents/yellow.webp");
+    await a.close();
+    await expect(peer).toContainText("p1 · away");
+    await expect(peer.locator("img")).toHaveAttribute("src", "/agents/yellow.webp");
+  } finally { await a.close(); await b.close(); }
+});

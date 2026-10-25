@@ -142,6 +142,8 @@ def budget_gap(item: IntakeItem, said: str) -> str | None:
     quote = said
     scope_ok = mentions(quote, TRIP_SCOPE) if item.key == "trip_budget_total" else mentions(quote, FLIGHT_SCOPE)
     firm_ok = mentions(quote, FLEX) if item.hardness == "SOFT" else mentions(quote, FIRM)
+    if item.hardness == "HARD" and re.search(r"\bfirm\b", quote, re.I):
+        firm_ok = True
     if not scope_ok:
         return "Is that for the flight only, or the whole trip including your share of the stay?"
     if not firm_ok:
@@ -170,7 +172,22 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
                     reasons["money"] = (f"Just to be sure I have your budget right: is it ${figures[0]:,.0f} for "
                                         "the whole trip or the flight only, and is that firm or flexible?")
             continue
-        if item.key in BUDGET_KEYS and (gap := budget_gap(item, said[item.source_message_id])):
+        # A budget's amount can be followed by an answer about scope/firmness.
+        # Use only subsequent answers, stopping at a new amount, and never use
+        # the agent's questions as evidence of what the traveller agreed to.
+        budget_said = said[item.source_message_id]
+        if item.key in BUDGET_KEYS:
+            after_source = False
+            for message in ctx.messages:
+                if message.id == item.source_message_id:
+                    after_source = True
+                    continue
+                if not after_source or message.sender != "HUMAN":
+                    continue
+                if amounts(message.body):
+                    break
+                budget_said += " " + message.body
+        if item.key in BUDGET_KEYS and (gap := budget_gap(item, budget_said)):
             reasons["money"] = gap
             continue
         if item.key == "max_stops" and str(item.value) not in item.source_quote:
@@ -189,6 +206,18 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
         # a note about them ("Maya didn't say…") is never sent.
         if speakable(unclear.reason, ctx):
             reasons.setdefault(unclear.topic, unclear.reason)
+
+    # The extractor correctly omits an ambiguous money item. Still acknowledge
+    # an explicit budget amount even if it omitted the clarification as well.
+    if not any(i.key in MONEY_KEYS or (i.key == "rule" and _is_money(i)) for i in items.values()):
+        for message in reversed(ctx.messages):
+            if message.sender != "HUMAN" or not re.search(r"\bbudget\b", message.body, re.I):
+                continue
+            figures = amounts(message.body)
+            if len(figures) == 1:
+                amount = money(round(next(iter(figures)) * 100))
+                reasons.setdefault("money", f"Is {amount} for the flight only or the whole trip, and is it a firm limit or flexible?")
+            break
 
     have = set(items) | set(ctx.confirmed_keys)
     if any(i.key == "rule" and _is_money(i) for i in items.values()):

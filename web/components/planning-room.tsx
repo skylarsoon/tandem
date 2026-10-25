@@ -6,6 +6,9 @@ import { json, money, proposalAction, questionAction, type Row } from "../lib/st
 import { constraintValue, describeFact, established, factStrength, label, outgoingMessage, planningStatus, preferenceDefaults,
   readable, revisionEvents, revisionText, scoped, timeline, type Preferences, type Tables, type TimelineItem } from "../lib/planning";
 import { stages, workflow } from "../lib/workflow";
+import { AgentAvatar } from "./agent-avatar";
+import { RoomAgents } from "./agent-companions";
+import { myCharacter, messageCharacter } from "../lib/agents";
 
 export type Reducers = ReturnType<typeof connect>["connection"]["reducers"];
 type Action = (key: string, operation: () => Promise<unknown>) => Promise<boolean>;
@@ -216,17 +219,21 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
   };
   const send = async () => {
     const body = message.trim(); if (!body) return;
-    const outgoing = outgoingMessage(room, tables, editing ? `Regarding ${editing.title}: ${body}` : body);
-    const ok = await act("composer", () => outgoing.kind === "description" ? reducers.setTripDescription(outgoing.args) : reducers.submitPrivateMessage(outgoing.args));
+    const outgoing = outgoingMessage(room, tables, editing ? `Regarding ${editing.title}: ${body}` : body,
+      pendingCorrection ? undefined : { prefs, excluded });
+    const ok = await act("composer", () => outgoing.kind === "description" ? reducers.setTripDescription(outgoing.args)
+      : outgoing.kind === "confirmation" ? reducers.confirmIntake(outgoing.args) : reducers.submitPrivateMessage(outgoing.args));
     if (ok) {
       if (editing) setCorrections(keys => [...keys, editing.key]);
-      setEditing(undefined); setMessage(""); setReceipt("Message sent · awaiting your agent’s response");
+      setEditing(undefined); setMessage(""); setReceipt(outgoing.kind === "confirmation"
+        ? "Your details are confirmed" : "Message sent · awaiting your agent’s response");
       atBottom.current = true;
     }
   };
   return <section className="conversation-panel" aria-label="Trip conversation">
-    <div className="conversation-heading"><div><p className="eyebrow">LET’S MAKE A PLAN</p><h2>Your trip, in conversation</h2></div><span className="chat-mark" aria-hidden="true">✳</span></div>
+    <div className="conversation-heading"><div><p className="eyebrow">LET’S MAKE A PLAN</p><h2>Your trip, in conversation</h2></div><AgentAvatar variant={myCharacter(tables)} size="message" animated={false} /></div>
     <p className="conversation-intro">Talk with your agent. Private replies and shared trip updates are labeled below.</p>
+    <RoomAgents tables={tables} connected={connected} />
     <div className="conversation-feed" role="log" aria-label="Trip messages" aria-live="polite" aria-relevant="additions" ref={scroll} onScroll={() => {
       if (scroll.current) atBottom.current = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100;
     }}>
@@ -236,9 +243,10 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
         const blocked = corrections.includes(item.key) || editing?.key === item.key;
         const agent = tables.room_agents?.find(a => a.id === item.row.senderAgentId);
         const member = tables.room_members?.find(m => m.agentId === item.row.senderAgentId);
+        const appearance = messageCharacter(tables, item.row.senderAgentId);
         const speaker = human ? "You" : item.row.senderAgentId ? agent?.kind === "MEDIATOR" ? "Mediator" : `${member?.displayName || "Personal"}’s agent` : item.speaker;
         return <article key={item.key} className={`chat-item ${human ? "from-you" : "from-agent"} ${item.kind === "event" ? "chat-event" : ""} ${item.audience === "shared" ? "shared-item" : "private-item"}`}>
-          <div className="message-meta"><strong>{speaker}</strong><span>{item.audience === "private" ? "Only you" : "Shared with trip"}</span></div>
+          <div className="message-meta">{!human && item.kind !== "event" && (item.audience === "private" || item.row.senderAgentId != null) && <AgentAvatar variant={appearance.variant} mediator={appearance.mediator} size="message" animated={false} />}<strong>{speaker}</strong><span>{item.audience === "private" ? "Only you" : "Shared with trip"}</span></div>
           <MessageCard item={item} tables={tables} room={room} disabled={!connected || pending.length > 0 || blocked || pendingCorrection} act={act} reducers={reducers} prefs={prefs} setPrefs={setPrefs} excluded={excluded} setExcluded={setExcluded} edit={() => startEdit(item)} />
           {blocked && <small className="correction-status">{corrections.includes(item.key) ? "Correction sent · awaiting an updated response" : "Write your correction below, or cancel to keep this suggestion."}</small>}
         </article>;

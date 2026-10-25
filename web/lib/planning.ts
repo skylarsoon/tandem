@@ -150,11 +150,25 @@ export function planningStatus(room: Row, tables: Tables, connected: boolean): s
   return "Waiting for the next planning update";
 }
 
-export function outgoingMessage(room: Row, tables: Tables, body: string) {
+export function outgoingMessage(room: Row, tables: Tables, body: string, confirmation?: { prefs: Preferences; excluded: string[] }) {
   const trimmed = body.trim();
   if (!trimmed) throw new Error("Write a message first");
   const organizer = tables.room_members?.some(m => m.isMe && m.role === "ORGANIZER");
   if (organizer && !tables.room_trip_brief?.length)
     return { kind: "description" as const, args: { roomId: room.id, description: trimmed } };
+  const intake = tables.my_intake?.[0];
+  const coverage = json<Row>(intake?.coverageJson, {});
+  // An explicit confirmation uses the same owner action and selected details
+  // as the review button. Incomplete answers still go to the agent to clarify.
+  if (confirmation && /^confirm[.!]?$/i.test(trimmed) && intake?.state === "SUMMARY"
+      && coverage.origin === "ANSWERED" && coverage.money === "ANSWERED"
+      && !(tables.my_private_messages || []).some(m => m.sender === "HUMAN"
+        && timestamp(m.createdAt) > timestamp(intake.updatedAt))) {
+    return { kind: "confirmation" as const, args: { roomId: room.id,
+      acceptedPatchIds: (tables.my_constraint_patches || [])
+        .filter(p => p.state === "PENDING" && !confirmation.excluded.includes(String(p.id))).map(p => p.id),
+      ...confirmation.prefs,
+    } };
+  }
   return { kind: "private" as const, args: { roomId: room.id, body: trimmed } };
 }

@@ -81,6 +81,12 @@ const agent = table(
   }
 );
 
+// Cosmetic identity is independent of private profile answers and planning revisions.
+const agentAppearance = table(
+  { name: 'agent_appearance' },
+  { owner: t.identity().primaryKey(), variant: t.string() }
+);
+
 const profile = table(
   { name: 'profile' },
   {
@@ -761,6 +767,7 @@ const spacetimedb = schema({
   room,
   membership,
   agent,
+  agentAppearance,
   profile,
   profileAnswer,
   profileCalibration,
@@ -801,6 +808,7 @@ const spacetimedb = schema({
 export default spacetimedb;
 
 export {
+  agentAppearance,
   profileCalibration,
   room,
   membership,

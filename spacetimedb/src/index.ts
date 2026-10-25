@@ -11,3 +11,4 @@ export * from './proposals';
 export * from './live';
 export * from './views';
 export * from './profile';
+export { setAgentAppearance, myAgentAppearance } from './appearance';

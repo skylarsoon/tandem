@@ -153,6 +153,7 @@ Job statuses: `PENDING` → `CLAIMED` → `WAITING_FOR_INPUT` / `SUCCEEDED` / `F
 | `join_room` | `inviteCode`, `displayName` | Bumps the membership revision. |
 | `set_room_settings` | `roomId`, `settingsJson` | Organizer only. Shared rules: `arrival_overlap_seconds`, `arrive_together` (`required` (default) holds arrivals within the overlap; `preferred` and `off` don't), `components` (`["FLIGHT"]` by default; `["FLIGHT","STAY","TRANSFER"]` plans the whole trip), `stages` (the organizer's order: catalog categories, each decided on its own, e.g. `["FLIGHT","STAY","ACTIVITY"]`), `activities` (how many to plan), `people_per_bedroom` (1–8, default 2), `start_date ≤ end_date`. A confirmed trip brief sets them from the organizer's words. New generation. |
 | `upsert_profile` | `displayName`, `avatarRef`, `selfDescription`, `priorityRanking[]` | |
+| `set_agent_appearance` | `variant` | Human caller only; `lavender`, `peach`, `mint`, or `yellow`. Cosmetic only: does not change profile or planning revisions. |
 | `confirm_participation_preferences` | `speakUpForMe`, `askMeFirst`, `giveMeTime`, `remindersOptedIn` | Defaults before confirmation: off / on / on / off, **unconfirmed**. Confirming or editing bumps the permission revision in all your rooms (new generation). |
 | `set_constraint` | `roomId`, `key`, `valueJson`, `unit`, `hardness` (`HARD`/`SOFT`), `authorizedRangeJson?`, `privateRationale?` | Form entry = confirmed. New generation. The room sees only "A participant updated their requirements". Keys the worker understands: `flight_budget_total` (USD cents; SOFT budgets use `authorized_range.max` as the cap), `trip_budget_total` (USD cents, HARD: own flight + equal share of stay and transfer), `baggage_required` (`true`), `own_bedroom` (`true`) and `stay_min_rating` (0–5). |
 | `confirm_constraint_patch` / `reject_constraint_patch` | `patchId` | Confirming applies it like `set_constraint`. |
@@ -337,6 +338,7 @@ All 26 views are per-caller and update live.
 | `my_compromises` | Your approved compromises: `decision_id`, `proposal_id`, `proposal_version`, `stage`, `burden_micros`, `state` (`ACTIVE` / `SUPERSEDED` / `REVOKED`) |
 | `room_consent_counts` | `required` / `accepted` / `declined` / `pending` per proposal. **Counts only, never who.** |
 | `room_presence` | `membership_id`, `online`, `last_seen` |
+| `my_agent_appearance` | Your persistent companion `variant` and your own `owner`. Returns a stable default even before onboarding. Other members see only `agent_variant` on their scoped `room_members` rows, never another owner's identity or private profile. |
 | `room_agent_activity` | `agent_id`, `activity`, `thread_id` |
 | `worker_pending_jobs` | `PENDING` jobs; empty unless the caller is an allowlisted worker |
 | `room_trip_brief` | The organizer's description, the proposed/confirmed brief (`brief_json`: destination, airport, dates, components, vibe), `unclear_json`, state, revision |

@@ -675,6 +675,84 @@ label.check input {
 .trip-placeholder h1 { font-size: 28px; line-height: 1.25; }
 .trip-placeholder p:not(.eyebrow) { font-size: 12px; color: #74806b; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+/* Sprout companions share one silhouette and a persistent per-person color. */
+.agent-avatar { position: relative; display: inline-block; flex: 0 0 auto; width: 86px; height: 86px; vertical-align: middle; isolation: isolate; }
+.agent-avatar--hero { width: clamp(130px, 16vw, 220px); height: clamp(130px, 16vw, 220px); }
+.agent-avatar--message { width: 36px; height: 36px; }
+.agent-avatar--picker { width: 58px; height: 58px; }
+.agent-avatar-image { display: block; position: relative; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 88%; }
+.agent-avatar-shadow { position: absolute; bottom: 4%; left: 24%; width: 52%; height: 7%; background: #53493620; border-radius: 50%; filter: blur(3px); }
+.agent-avatar-fallback { display: grid; place-items: center; height: 100%; color: #8e7ab4; font-size: 35px; }
+.agent-avatar--peach .agent-avatar-fallback { color: #cf886f; }
+.agent-avatar--mint .agent-avatar-fallback { color: #7fa986; }
+.agent-avatar--yellow .agent-avatar-fallback { color: #c0a347; }
+.agent-avatar--mediator::before { content: ''; position: absolute; inset: 16% 8% 4%; border: 1px dashed #8a9c79; border-radius: 50%; }
+.agent-mediator-emblem, .agent-activity-cue { position: absolute; right: 0; top: 32%; min-width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; background: #fffdf4; color: #596544; font: 12px var(--font-detail); border: 1px solid #dfe3ce; }
+.agent-mediator-emblem { right: auto; left: 0; top: 55%; background: #e7eddd; }
+.agent-avatar[data-motion='true'] .agent-avatar-image { animation: companion-idle 4s ease-in-out infinite; }
+.agent-avatar[data-motion='true'][data-activity='THINKING'] .agent-avatar-image { animation: companion-think 2.8s ease-in-out infinite; }
+.agent-avatar[data-motion='true'][data-activity='SEARCHING'] .agent-avatar-image { animation: companion-search 3s ease-in-out infinite; }
+.agent-avatar[data-motion='true'][data-activity='CHECKING'] .agent-avatar-image { animation: companion-nod 2.2s ease-in-out infinite; }
+.agent-avatar[data-motion='true'][data-activity='WRITING'] .agent-avatar-image { animation: companion-write 1.8s ease-in-out infinite; }
+.agent-avatar[data-motion='true'][data-activity='WAITING_FOR_OWNER'] .agent-avatar-image { animation: companion-think 5s ease-in-out infinite; }
+.agent-avatar[data-motion='true'][data-greeting='true'] .agent-avatar-image { animation: companion-hello 1.3s ease-in-out 1, companion-idle 4s 1.3s ease-in-out infinite; }
+.agent-avatar[data-motion='false'] .agent-avatar-image { animation-play-state: paused; }
+.agent-welcome { display: flex; align-items: center; gap: clamp(14px, 2vw, 30px); }
+.agent-hello-button { background: transparent; border: 0; padding: 0; flex: 0 0 auto; border-radius: 50%; }
+.agent-hello-button:hover { background: #ece9df80; }
+.agent-welcome-copy { flex: 1; min-width: 0; }
+.agent-welcome-copy .eyebrow { font-size: 9px; letter-spacing: 1.5px; margin-bottom: 10px; }
+.agent-welcome-copy h2 { font-size: clamp(25px, 2.8vw, 38px); line-height: 1.15; letter-spacing: -1.1px; margin: 0 0 12px; overflow-wrap: anywhere; }
+.agent-welcome-copy > p:not(.eyebrow) { color: #6f7967; font-size: 12px; line-height: 1.7; max-width: 380px; margin: 0; }
+.character-customize { margin-top: 15px; }
+.character-customize > summary { font-size: 11px; color: #49623e; }
+.character-picker-label { font-size: 11px; margin-bottom: 10px; }
+.character-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; max-width: 340px; }
+.character-options button { display: flex; flex-direction: column; align-items: center; padding: 5px 2px 9px; background: #fffdf7; border: 1px solid #e1e3d7; border-radius: 12px; min-width: 0; }
+.character-options button[aria-pressed='true'] { background: #eef2e4; border-color: #74865e; box-shadow: inset 0 0 0 1px #74865e; }
+.character-options button > span:last-child { font-size: 10px; }
+.character-options button:hover { background: #f0f1e6; }
+.character-save-status { font-size: 10px; color: #596d4a; margin: 8px 0 0; }
+.character-save-status:empty { display: none; }
+.character-profile > summary { font-weight: 600; }
+.character-profile > p { font-size: 12px; max-width: 520px; }
+.room-companions { flex: 0 0 auto; border-bottom: 1px solid #e8ebdf; background: linear-gradient(180deg, #f8f7ef, #f4f4eb); padding: 12px 28px 10px; }
+.room-companions-heading { display: flex; justify-content: space-between; gap: 10px; color: #748064; font: 8px var(--font-detail); letter-spacing: 1px; }
+.room-companions-heading small { font: 9px var(--font-main); letter-spacing: 0; }
+.room-companions-list { list-style: none; display: flex; gap: 10px; overflow-x: auto; padding: 2px 0 3px; margin: 0; scrollbar-width: thin; }
+.room-companions-list > li { display: flex; flex: 0 0 120px; flex-direction: column; align-items: center; text-align: center; padding: 0 5px 6px; min-width: 0; border-radius: 12px; }
+.room-companions-list > .is-your-agent { background: #e9ebdf80; }
+.room-companions-list strong { font-size: 10px; max-width: 120px; overflow-wrap: anywhere; font-weight: 600; }
+.room-companions-list .agent-status { font-size: 9px; color: #61754f; margin-top: 4px; }
+.room-companions-list small { font-size: 8px; color: #7d8375; margin-top: 6px; max-width: 120px; overflow-wrap: anywhere; }
+.agent-owner-presence .dot { width: 5px; height: 5px; margin-right: 3px; }
+.room-companions-list > .mediator-companion { margin-left: auto; }
+.room-companions-empty { font-size: 11px; color: #748064; }
+.message-meta .agent-avatar { padding: 0; background: transparent; border-radius: 0; }
+.message-meta .agent-avatar-shadow { padding: 0; background: #53493620; border-radius: 50%; }
+.message-meta .agent-mediator-emblem { font-size: 9px; padding: 0; min-width: 12px; height: 12px; border-radius: 50%; background: #e7eddd; }
+@keyframes companion-idle { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-3px) rotate(1deg); } }
+@keyframes companion-hello { 0%, 100% { transform: translateY(0) rotate(0); } 25% { transform: translateY(-12px) rotate(-9deg); } 50% { transform: translateY(-4px) rotate(8deg); } 75% { transform: translateY(-8px) rotate(-4deg); } }
+@keyframes companion-think { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-6deg) translateY(-2px); } }
+@keyframes companion-search { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-7deg) translateX(-3px); } 70% { transform: rotate(7deg) translateX(3px); } }
+@keyframes companion-nod { 0%, 70%, 100% { transform: scaleY(1); } 40% { transform: scaleY(.94) translateY(2px); } }
+@keyframes companion-write { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(3deg) translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .agent-avatar .agent-avatar-image { animation: none !important; }
+}
+@media (max-width: 1050px) {
+  .agent-welcome { gap: 10px; }
+  .agent-avatar--hero { width: 140px; height: 140px; }
+}
+@media (max-width: 760px) {
+  .agent-welcome { flex-direction: column; text-align: center; }
+  .agent-welcome-copy > p:not(.eyebrow) { margin-inline: auto; }
+  .character-options { margin-inline: auto; }
+  .room-companions { padding: 10px 16px; }
+  .room-companions-heading small { display: none; }
+  .room-companions-list > li { flex-basis: 108px; }
+  .agent-avatar--room { width: 66px; height: 66px; }
+}
 button:focus-visible, a:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid #718d52; outline-offset: 3px; }
 @media (max-width: 760px) {
   .planning-app { padding: 14px 10px; }

@@ -1,5 +1,6 @@
 import { t, type InferSchema, type ViewCtx } from 'spacetimedb/server';
 import type { Identity, Timestamp } from 'spacetimedb';
+import { defaultAgentVariant } from './appearance';
 import spacetimedb, {
   agent,
   candidate,
@@ -151,6 +152,20 @@ export const roomMembers = spacetimedb.view({ name: 'room_members', public: true
 
 export const roomAgents = spacetimedb.view({ name: 'room_agents', public: true }, t.array(agent.rowType), ctx =>
   myRoomIds(ctx.db, ctx.sender).flatMap(roomId => [...ctx.db.agent.byRoom.filter(roomId)])
+);
+
+// Additive cosmetics view: keep the existing room_members wire schema stable.
+const AgentAppearanceRow = t.row('AgentAppearanceRow', {
+  membershipId: t.u64().primaryKey(), roomId: t.u64(), variant: t.string(),
+});
+export const roomAgentAppearances = spacetimedb.view(
+  { name: 'room_agent_appearances', public: true }, t.array(AgentAppearanceRow), ctx =>
+    myRoomIds(ctx.db, ctx.sender).flatMap(roomId =>
+      [...ctx.db.membership.byRoomMember.filter(roomId)].filter(m => m.active).map(m => ({
+        membershipId: m.id, roomId,
+        variant: ctx.db.agentAppearance.owner.find(m.member)?.variant ?? defaultAgentVariant(m.member),
+      }))
+    )
 );
 
 export const myProfile = spacetimedb.view({ name: 'my_profile', public: true }, t.option(profile.rowType), ctx =>

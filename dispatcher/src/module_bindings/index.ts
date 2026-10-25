@@ -68,6 +68,7 @@ import RequestProfileSummaryReducer from "./request_profile_summary_reducer";
 import RespondToProposalReducer from "./respond_to_proposal_reducer";
 import SaveProfileAnswerReducer from "./save_profile_answer_reducer";
 import SetAgentActivityReducer from "./set_agent_activity_reducer";
+import SetAgentAppearanceReducer from "./set_agent_appearance_reducer";
 import SetConstraintReducer from "./set_constraint_reducer";
 import SetReminderDelayReducer from "./set_reminder_delay_reducer";
 import SetRoomSettingsReducer from "./set_room_settings_reducer";
@@ -90,6 +91,7 @@ import * as LoadProfileContextProcedure from "./load_profile_context_procedure";
 import * as PublishProposalProcedure from "./publish_proposal_procedure";
 
 // Import all table schema definitions
+import MyAgentAppearanceRow from "./my_agent_appearance_table";
 import MyAgentMessagesRow from "./my_agent_messages_table";
 import MyCompromisesRow from "./my_compromises_table";
 import MyConsentsRow from "./my_consents_table";
@@ -124,6 +126,13 @@ import WorkerPendingJobsRow from "./worker_pending_jobs_table";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  myAgentAppearance: __table({
+    name: 'my_agent_appearance',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyAgentAppearanceRow),
   myAgentMessages: __table({
     name: 'my_agent_messages',
     indexes: [
@@ -365,6 +374,7 @@ const reducersSchema = __reducers(
   __reducerSchema("respond_to_proposal", RespondToProposalReducer),
   __reducerSchema("save_profile_answer", SaveProfileAnswerReducer),
   __reducerSchema("set_agent_activity", SetAgentActivityReducer),
+  __reducerSchema("set_agent_appearance", SetAgentAppearanceReducer),
   __reducerSchema("set_constraint", SetConstraintReducer),
   __reducerSchema("set_reminder_delay", SetReminderDelayReducer),
   __reducerSchema("set_room_settings", SetRoomSettingsReducer),

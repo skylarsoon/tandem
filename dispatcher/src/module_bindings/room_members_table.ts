@@ -18,4 +18,5 @@ export default __t.row({
   active: __t.bool(),
   isMe: __t.bool().name("is_me"),
   agentId: __t.option(__t.u64()).name("agent_id"),
+  agentVariant: __t.string().name("agent_variant"),
 });

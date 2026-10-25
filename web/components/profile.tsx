@@ -2,6 +2,8 @@
 import { useState, useSyncExternalStore } from "react";
 import type { connect } from "../lib/client";
 import { RankedPriorities } from "./ranked-priorities";
+import { CharacterPicker } from "./agent-companions";
+import { myCharacter } from "../lib/agents";
 import {
   AVATARS,
   answersFrom,
@@ -57,6 +59,10 @@ export function ProfileOnboarding({ client }: { client: Client }) {
   if (!ready_) return <p>Connecting…</p>;
   return (
     <div className="profile">
+      <details className="card character-profile"><summary>Your agent’s look</summary>
+        <p>The same companion greets you at home and represents you in every trip. People in your trips can see this character.</p>
+        {state.appearanceStatus === "ready" ? <CharacterPicker value={myCharacter(state.tables)} connected={ready_} save={variant => reducers.setAgentAppearance({ variant })} /> : <p>Character customization is temporarily unavailable.</p>}
+      </details>
       {error && <p role="alert" className="notice">{error}</p>}
       {current === "core" && (
         <section className="card">

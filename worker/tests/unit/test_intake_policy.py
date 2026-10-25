@@ -43,6 +43,36 @@ def test_a_budget_without_scope_or_firmness_becomes_a_question(said, key, hardne
     assert kept == () and coverage["money"] == "UNCLEAR" and reason in reasons["money"]
 
 
+def test_budget_amount_is_acknowledged_even_if_extractor_omits_money():
+    kept, _, coverage, reasons = verify(IntakeExtraction(), ctx("1000 budget"))
+    assert kept == () and coverage["money"] == "UNCLEAR"
+    assert "$1,000" in reasons["money"] and "firm limit or flexible" in reasons["money"]
+
+
+def test_budget_scope_and_firmness_can_be_clarified_in_a_later_reply():
+    extraction = IntakeExtraction(items=(item("trip_budget_total", 100000, "1000 budget"),))
+    kept, _, coverage, _ = verify(extraction, ctx("1000 budget", "Whole trip, firm limit"))
+    assert kept[0].value == 100000 and coverage["money"] == "ANSWERED"
+
+
+def test_budget_does_not_use_agent_questions_or_clarifications_for_a_new_amount():
+    extraction = IntakeExtraction(items=(item("trip_budget_total", 100000, "1000 budget"),))
+    c = ctx("1000 budget").model_copy(update={"messages": (
+        IntakeMessage(id=1, sender="HUMAN", body="1000 budget"),
+        IntakeMessage(id=2, sender="AGENT", body="Is that for the whole trip, firm?"),
+        IntakeMessage(id=3, sender="HUMAN", body="confirm"),
+    )})
+    assert verify(extraction, c)[0] == ()
+    assert verify(extraction, ctx("1000 budget", "2000 budget", "Whole trip, firm limit"))[0] == ()
+
+
+def test_confirm_is_not_evidence_of_budget_firmness():
+    extraction = IntakeExtraction(items=(item("trip_budget_total", 100000, "1000 for the whole trip"),))
+    kept, _, coverage, reasons = verify(extraction, ctx("1000 for the whole trip", "confirm"))
+    assert kept == () and coverage["money"] == "UNCLEAR"
+    assert "firm limit" in reasons["money"]
+
+
 def test_readings_must_be_marked_as_readings():
     said = "please no red-eye"
     window = {"earliest": "07:00", "latest": "22:00"}

@@ -1,6 +1,8 @@
 import pytest
+from pydantic import ValidationError
 
 from tandem_worker.budget import ProviderBudget
+from tandem_worker.config import LiveLimits
 from tandem_worker.contracts import ContractError
 from tandem_worker.serve import ServeConfig
 
@@ -30,3 +32,17 @@ def test_the_service_defaults_cover_real_rooms():
     config = ServeConfig()
     assert config.limits.model_calls >= 200 and config.limits.actor_runs >= 20
     assert config.job_model_calls >= 50
+
+
+def test_service_actor_budget_is_valid_and_survives_config_reload():
+    config = ServeConfig()
+    assert config.limits.actor_runs == 40
+    assert ServeConfig.model_validate_json(config.model_dump_json()) == config
+    assert LiveLimits().actor_runs == 1
+    assert LiveLimits(actor_runs=40).actor_runs == 40
+
+
+@pytest.mark.parametrize("actor_runs", [0, 41])
+def test_actor_budget_remains_bounded(actor_runs):
+    with pytest.raises(ValidationError):
+        LiveLimits(actor_runs=actor_runs)

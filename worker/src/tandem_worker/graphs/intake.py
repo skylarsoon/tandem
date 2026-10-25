@@ -71,6 +71,17 @@ def _change(backend, claim, model, ctx) -> str:
 
 def run_intake(backend, claim, model) -> str:
     ctx: IntakeContext = backend.load_intake(claim)
+    # The same room-safe activity signals drive the companion during private chat.
+    # Never publish the question, profile details or model output as telemetry.
+    from ..progress import activity
+    activity(backend, claim, ctx.owner, "THINKING")
+    try:
+        return _run_intake(backend, claim, model, ctx)
+    finally:
+        activity(backend, claim, ctx.owner, "IDLE")
+
+
+def _run_intake(backend, claim, model, ctx: IntakeContext) -> str:
     if ctx.purpose == "BRIEF" or (ctx.is_organizer and ctx.brief_state in ("DRAFT", "PROPOSED") and ctx.purpose == "MESSAGE"):
         return _brief(backend, claim, model, ctx)
     if ctx.brief is not None and ctx.intake_state == "CONFIRMED" and ctx.purpose == "MESSAGE":
@@ -119,17 +130,25 @@ def run_intake(backend, claim, model) -> str:
         origin_line = f"Flying from {origin.value}, right? Tap confirm and I'll start looking at flights."
 
     topics = open_topics(coverage)
-    if topics and ctx.question_count < MAX_QUESTIONS:
+    if ctx.question_count >= MAX_QUESTIONS:
+        # Other unanswered details can be reviewed in the summary or asked
+        # when a plan depends on them. Origin and money still gate planning.
+        topics = [t for t in topics if t in ("origin", "money")]
+    if topics:
         # Ask exactly about the open essentials. The wording is ours; anything specific
         # to what they said comes from extraction's `unclear` reasons. (A model-written
         # question drifted to off-topic small talk in live runs and doubled latency.)
         question = fallback_question(topics, ctx, reasons)
         text = f"{origin_line} {question.text}".strip()
         backend.notify_owner(claim, ctx.owner, text, f"{step}:ask")
-        backend.update_intake(claim, ctx.owner, coverage, "ASKING", True, f"{step}:ask")
+        # The question budget limits the initial interview, not clarification of
+        # required answers. Repeating an incomplete summary cannot unblock intake.
+        # Keep an existing summary (and its pending patches) available for review.
+        backend.update_intake(claim, ctx.owner, coverage, ctx.intake_state,
+                              ctx.question_count < MAX_QUESTIONS, f"{step}:ask")
         return "ASKED"
 
-    # Everything essential is covered (or the question budget is spent): one summary.
+    # Planning prerequisites are covered: offer the details for review.
     backend.withdraw_patches(claim, ctx.owner, f"{step}:withdraw")
     for n, item in enumerate(items):
         if item.key == "origin_airport" and "origin_airport" in ctx.confirmed_keys:

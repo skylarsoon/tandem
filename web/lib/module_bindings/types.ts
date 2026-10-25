@@ -42,6 +42,19 @@ export const Agent = __t.object("Agent", {
 });
 export type Agent = __Infer<typeof Agent>;
 
+export const AgentAppearance = __t.object("AgentAppearance", {
+  owner: __t.identity(),
+  variant: __t.string(),
+});
+export type AgentAppearance = __Infer<typeof AgentAppearance>;
+
+export const AgentAppearanceRow = __t.object("AgentAppearanceRow", {
+  membershipId: __t.u64(),
+  roomId: __t.u64(),
+  variant: __t.string(),
+});
+export type AgentAppearanceRow = __Infer<typeof AgentAppearanceRow>;
+
 export const AgentMessage = __t.object("AgentMessage", {
   id: __t.u64(),
   messageKey: __t.string(),
@@ -369,6 +382,9 @@ export const Milestone = __t.object("Milestone", {
 });
 export type Milestone = __Infer<typeof Milestone>;
 
+export const MyAgentAppearance = __t.object("MyAgentAppearance", {});
+export type MyAgentAppearance = __Infer<typeof MyAgentAppearance>;
+
 export const MyAgentMessages = __t.object("MyAgentMessages", {});
 export type MyAgentMessages = __Infer<typeof MyAgentMessages>;
 
@@ -676,6 +692,9 @@ export type Room = __Infer<typeof Room>;
 
 export const RoomAgentActivity = __t.object("RoomAgentActivity", {});
 export type RoomAgentActivity = __Infer<typeof RoomAgentActivity>;
+
+export const RoomAgentAppearances = __t.object("RoomAgentAppearances", {});
+export type RoomAgentAppearances = __Infer<typeof RoomAgentAppearances>;
 
 export const RoomAgents = __t.object("RoomAgents", {});
 export type RoomAgents = __Infer<typeof RoomAgents>;

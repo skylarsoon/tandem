@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 const destinations = [
   { name: "The Dolomites", country: "Italy", note: "A little fresh air. A whole new perspective.", image: "dolomites", alt: "A wooden boat on a turquoise lake beneath forested mountains" },
@@ -8,7 +8,7 @@ const destinations = [
   { name: "Kyoto", country: "Japan", note: "Take the scenic route. See where it leads.", image: "kyoto", alt: "A traditional Japanese street leading toward a pagoda at sunset" },
 ];
 
-export function DestinationSlideshow() {
+export function DestinationSlideshow({ welcome }: { welcome?: ReactNode } = {}) {
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -43,11 +43,11 @@ export function DestinationSlideshow() {
   }
 
   return <section className="conversation-panel welcome-panel" aria-label="Travel inspiration">
-    <div className="welcome-copy">
+    {welcome ?? <div className="welcome-copy">
       <p className="eyebrow">LESS ORGANIZING. MORE GOING.</p>
-      <h2>Where should we begin?</h2>
+      <h2>Bringing people together with less friction.</h2>
       <p>A short drive, a long weekend, a place you’ve always wanted to see. Start a trip on the left and make room for the possibilities.</p>
-    </div>
+    </div>}
     <div className="destination-carousel" role="region" aria-roledescription="carousel" aria-label="Places to imagine"
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       onFocusCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(true); }}>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tandem — The orchestration</title>
+<style>
+:root{color-scheme:dark;font-family:Arial,sans-serif;background:#080c15;color:#edf1f7}*{box-sizing:border-box}body{margin:0;padding:36px 5vw 28px}header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:24px}h1{font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0}p{color:#98a9bf;font-size:14px;line-height:1.5;margin:8px 0}a,button,select{font:inherit}a,button{border:1px solid #46576d;color:#edf1f7;background:#111a28;border-radius:7px;padding:11px 17px;text-decoration:none;cursor:pointer}a.export{background:#62ddc5;border-color:#62ddc5;color:#080c15;white-space:nowrap}button:hover,a:hover{filter:brightness(1.15)}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #64b5f6;outline-offset:4px}canvas{display:block;width:100%;height:auto;aspect-ratio:16/9}main{max-width:1600px;margin:auto}.controls{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:20px}.controls input{flex:1;min-width:120px;accent-color:#62ddc5}.time{font-variant-numeric:tabular-nums;color:#98a9bf;font-size:14px;min-width:92px}select{padding:10px;border:1px solid #46576d;border-radius:7px;background:#111a28;color:#edf1f7;max-width:100%}.details{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-top:16px}.sr{position:absolute;left:-10000px}footer{margin-top:14px;border-top:1px solid #253247;padding-top:12px} @media(max-width:650px){body{padding:22px 16px}header{align-items:flex-start;flex-direction:column}.controls{gap:12px}select{width:100%}h1{font-size:24px}}
+</style>
+</head>
+<body><main>
+<header><div><h1>Tandem / The orchestration</h1><p>A looping visual explanation of the actual agent workflow.</p></div><a class="export" href="tandem-orchestration.mp4" download="tandem-orchestration.mp4">Export .mp4 ↗</a></header>
+<canvas id="stage" width="1920" height="1080" role="img" aria-label="Animated explanation of Tandem: durable job wake-up, the LangGraph coordinator, private personal agents, research and owner feedback, then a validated proposal awaiting human review."></canvas>
+<div class="controls"><button id="toggle" type="button" aria-label="Pause animation">Pause</button><label class="sr" for="seek">Animation position in seconds</label><input id="seek" type="range" min="0" max="48" step="0.01" value="0"><span class="time" id="time">0:00 / 0:48</span><label class="sr" for="chapter">Jump to chapter</label><select id="chapter"><option value="0">01 / The shared plan</option><option value="8">02 / The wake-up</option><option value="16">03 / The state graph</option><option value="24">04 / Personal agents</option><option value="32">05 / The feedback loop</option><option value="40">06 / Human review</option></select></div>
+<div class="details"><p>48 seconds · 1920 × 1080 · 30 fps · seamless loop · silent</p><p id="status" aria-live="polite">The MP4 is ready to download.</p></div>
+<footer><p>Conceptual choreography based on Tandem’s source code. Signals illustrate control flow, not measured timing. The movie ends at human review; it does not simulate consent.</p></footer>
+</main><script src="animation.js"></script><script>
+const canvas=document.getElementById('stage'),ctx=canvas.getContext('2d'),seek=document.getElementById('seek'),toggle=document.getElementById('toggle'),timeLabel=document.getElementById('time'),chapter=document.getElementById('chapter');
+let playing=!matchMedia('(prefers-reduced-motion: reduce)').matches,position=0,last=null;
+function sync(){toggle.textContent=playing?'Pause':'Play';toggle.setAttribute('aria-label',playing?'Pause animation':'Play animation');}
+function frame(now){if(last!==null&&playing)position=(position+Math.min((now-last)/1000,.1))%48;last=now;TandemAnimation.draw(ctx,position);seek.value=position;timeLabel.textContent=`0:${String(Math.floor(position)).padStart(2,'0')} / 0:48`;if(document.activeElement!==chapter)chapter.value=String(Math.floor(position/8)*8);requestAnimationFrame(frame);}
+toggle.onclick=()=>{playing=!playing;sync();};seek.oninput=()=>{position=Number(seek.value)%48;};chapter.onchange=()=>{position=Number(chapter.value);};
+document.addEventListener('visibilitychange',()=>{last=null;});sync();requestAnimationFrame(frame);
+</script></body></html>
