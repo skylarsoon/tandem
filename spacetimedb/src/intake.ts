@@ -21,7 +21,7 @@ import {
   validateRoomSettings,
   withReceipt,
 } from './guards';
-import { applyParticipationPreferences, applyPatch, constraintFromPatch, upsertConstraint } from './effects';
+import { applyParticipationPreferences, applyPatch, constraintFromPatch, upsertConstraint, reopenBroken } from './effects';
 import { hasMoneyRule } from './room_rules';
 import { MONEY_KEYS, findIntake, ownerConstraintKeys, queueAgent, startIntake } from './onboarding';
 
@@ -92,6 +92,7 @@ export const confirmTripBrief = spacetimedb.reducer({ roomId: t.u64(), revision:
   ];
   ctx.db.tripBrief.roomId.update({ ...brief, state: 'CONFIRMED', updatedAt: ctx.timestamp });
   ctx.db.room.id.update({ ...r, settingsJson: JSON.stringify(settings) });
+  reopenBroken(ctx, r.id);  // new dates can leave an agreed pick outside the trip
   const updated = invalidateRoom(ctx, r.id, { input: true }, 'trip brief confirmed');
   for (const m of ctx.db.membership.byRoomMember.filter(r.id)) startIntake(ctx, updated, m, reopen);
   emitEvent(ctx, r.id, 'TRIP_BRIEF_CONFIRMED', {

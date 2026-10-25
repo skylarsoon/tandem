@@ -1,6 +1,7 @@
 """Independent decisions inside a stage: each proposal is a version of one
 decision, validated for its scope and against what the group already agreed."""
 
+import json
 import time
 
 from conftest import PEOPLE, Room, expect_error, key
@@ -156,3 +157,25 @@ def test_a_general_agreement_needs_no_follow_up(ready_room, worker):
     agree(room, room.publish(worker, job_id, decision_id="dates", stage="GOALS_DATES"))
     assert room.jobs(worker) == [], "nothing left to plan after a general agreement"
     assert milestone(room, "GOALS_DATES")["state"] == "AGREED"
+
+
+def test_an_agreed_decision_a_change_breaks_is_reopened_and_one_it_doesnt_stands(ready_room, client, worker):
+    room, job_id = ready_room
+    flights = publish_selected(room, worker, job_id, record_flights(room, worker, job_id), scope="FLIGHT_BUNDLE",
+                               decision_id="flight", stage="TRAVEL")
+    agree(room, flights)
+    assert states(room)[flights["proposal_id"]] == "AGREED"
+    # Carol now says her fare must be under $100: her agreed flight ($640) breaks it.
+    client.call(room.people["carol"], "add_rule", room_id=room.room_id, source_quote=None,
+                rule_json=json.dumps({"category": "FLIGHT", "attribute": "total_cents", "operator": "lte", "value": 10000}))
+    assert states(room)[flights["proposal_id"]] == "SUPERSEDED"
+    events = [e for e in client.view(room.people["bob"], "room_events") if e["room_id"] == room.room_id]
+    assert any(e["type"] == "DECISION_REOPENED" for e in events) and "carol" not in json.dumps(events)
+    # A change that breaks nothing leaves agreement alone.
+    job_id = next_job(room, worker)
+    again = publish_selected(room, worker, job_id, record_flights(room, worker, job_id, {"carol": {"total_cents": 9000}}),
+                             scope="FLIGHT_BUNDLE", decision_id="flight", stage="TRAVEL")
+    agree(room, again)
+    client.call(room.people["bob"], "add_rule", room_id=room.room_id, source_quote=None,
+                rule_json=json.dumps({"category": "FLIGHT", "attribute": "total_cents", "operator": "lte", "value": 90000}))
+    assert states(room)[again["proposal_id"]] == "AGREED"

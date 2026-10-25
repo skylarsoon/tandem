@@ -98,6 +98,14 @@ def stay_filters(briefs, relax=(), per_room=2):
             ("RATING", lambda c: rating is None or (c.rating is not None and c.rating >= rating))]
 
 
+def scaled_share(candidate, n: int) -> int:
+    """What one person pays for a shared pick, scaled by n (exact): a split booking's whole
+    price, or n × a per-head price (contracts/decisions.json `pays`)."""
+    from .rules import decisions
+    pays = decisions()["categories"].get(candidate.category, {}).get("pays", "split")
+    return candidate.total_cents if pays == "split" else n * candidate.total_cents
+
+
 class TripOptions:
     """Everything a trip choice is made from, after the per-person and shared
     requirements have removed what can't be used."""
@@ -108,6 +116,7 @@ class TripOptions:
         self.briefs, self.by_owner = briefs, {b.owner: b for b in briefs}
         self.priced = [c for c in candidates if c.total_cents is not None]
         self.flights = self.shared = self.alone = None
+        self.committed = {}
 
 
 class TripSolver:
@@ -132,10 +141,11 @@ class TripSolver:
         """Usable options per traveller and shared part, or why there are none."""
         o = TripOptions(snapshot, briefs, candidates)
         members, n, by_owner, priced = o.members, o.n, o.by_owner, o.priced
-        # Known to break a hard requirement → not an option.
+        # Known to break a hard requirement → not an option. A stage without travel has no flights.
+        flying = "FLIGHT" in snapshot.components
         flights = {m: [c for c in priced if c.category == "FLIGHT" and c.owner == m and flight_violation(c, by_owner[m]) is None]
-                   for m in members}
-        conflicts = [self.owner_conflict(m, by_owner[m], candidates) for m in members if not flights[m]]
+                   if flying else [] for m in members}
+        conflicts = [self.owner_conflict(m, by_owner[m], candidates) for m in members if flying and not flights[m]]
 
         shared, shared_conflicts = {}, []
         if "STAY" in snapshot.components:
@@ -154,20 +164,26 @@ class TripSolver:
             shared["TRANSFER"] = [c for c in priced if c.category == "TRANSFER" and c.capacity is not None and c.capacity >= n]
             if not shared["TRANSFER"]:
                 shared_conflicts.append(Conflict(code="TRANSFER_UNAVAILABLE"))
+        for category in snapshot.components:  # any other shared pick (an activity, a dinner): what was found
+            if category not in ("FLIGHT", "STAY", "TRANSFER"):
+                shared[category] = [c for c in priced if c.category == category]
         conflicts += shared_conflicts
         if conflicts:
             return SolverResult(status="INFEASIBLE", policy_version=self.policy, conflicts=tuple(conflicts))
 
-        # Cheapest trip each traveller could have on their own, scaled by n.
-        min_shared = sum(min(c.total_cents for c in options) for options in shared.values())
-        alone = {m: n * min(c.total_cents for c in flights[m]) + min_shared for m in members}
-        over = [m for m in members if by_owner[m].trip_cap_cents is not None and alone[m] > n * by_owner[m].trip_cap_cents]
+        # Cheapest trip each traveller could have on their own, scaled by n; what the group
+        # already agreed counts toward their whole-trip limit.
+        min_shared = sum(min((scaled_share(c, n) for c in options), default=0) for options in shared.values())
+        alone = {m: (n * min(c.total_cents for c in flights[m]) if flights[m] else 0) + min_shared for m in members}
+        committed = snapshot.committed_scaled
+        over = [m for m in members if by_owner[m].trip_cap_cents is not None
+                and alone[m] + committed.get(m, 0) > n * by_owner[m].trip_cap_cents]
         if over:
             cause = self._requirement_cause(over, by_owner, briefs, flights, shared, priced, n, snapshot.people_per_bedroom)
             return SolverResult(status="INFEASIBLE", policy_version=self.policy, conflicts=tuple(
-                Conflict(code="TRIP_LIMIT", owner=m, cheapest_cents=-(-alone[m] // n),
+                Conflict(code="TRIP_LIMIT", owner=m, cheapest_cents=-(-(alone[m] + committed.get(m, 0)) // n),
                          trip_cap_cents=by_owner[m].trip_cap_cents, requirement=cause) for m in over))
-        o.flights, o.shared, o.alone = flights, shared, alone
+        o.flights, o.shared, o.alone, o.committed = flights, shared, alone, committed
         return o
 
     def no_combination(self, o):
@@ -185,25 +201,27 @@ class TripSolver:
         """Smallest worst burden first, then the cheapest total (CP-SAT)."""
         members, n, window, by_owner, flights, shared, alone = o.members, o.n, o.window, o.by_owner, o.flights, o.shared, o.alone
         model = cp_model.CpModel()
-        picks = {m: {c.id: model.new_bool_var(c.id) for c in flights[m]} for m in members}
+        picks = {m: {c.id: model.new_bool_var(c.id) for c in flights[m]} for m in members if flights[m]}
         shared_picks = {k: {c.id: model.new_bool_var(c.id) for c in options} for k, options in shared.items()}
         by_id = {c.id: c for options in [*flights.values(), *shared.values()] for c in options}
         for choice in [*picks.values(), *shared_picks.values()]:
             model.add_exactly_one(choice.values())
-        shared_cost = sum(by_id[i].total_cents * v for choice in shared_picks.values() for i, v in choice.items())
+        shared_cost = sum(scaled_share(by_id[i], n) * v for choice in shared_picks.values() for i, v in choice.items())
         arrival, burden = {}, {}
         for m in members:
-            arrival[m] = sum(by_id[i].arrival_epoch * v for i, v in picks[m].items())
-            scaled = sum(n * by_id[i].total_cents * v for i, v in picks[m].items()) + shared_cost
+            own = picks.get(m, {})
+            arrival[m] = sum(by_id[i].arrival_epoch * v for i, v in own.items())
+            scaled = sum(n * by_id[i].total_cents * v for i, v in own.items()) + shared_cost
             burden[m] = scaled - alone[m]
             if by_owner[m].trip_cap_cents is not None:
-                model.add(scaled <= n * by_owner[m].trip_cap_cents)
-        for i, a in enumerate(members):
-            for b in members[i + 1:]:
+                model.add(scaled + o.committed.get(m, 0) <= n * by_owner[m].trip_cap_cents)
+        flyers = [m for m in members if m in picks]
+        for i, a in enumerate(flyers):
+            for b in flyers[i + 1:]:
                 model.add(arrival[a] - arrival[b] <= window)
                 model.add(arrival[b] - arrival[a] <= window)
-        most = max(n * max(c.total_cents for c in flights[m]) + sum(max(c.total_cents for c in s) for s in shared.values()) - alone[m]
-                   for m in members)
+        most = max((n * max(c.total_cents for c in flights[m]) if flights[m] else 0)
+                   + sum(max(scaled_share(c, n) for c in s) for s in shared.values() if s) - alone[m] for m in members)
         worst = model.new_int_var(0, max(most, 0), "worst_burden")
         for m in members:
             model.add(worst >= burden[m])
@@ -224,14 +242,16 @@ class TripSolver:
 
         def chosen(choice):
             return by_id[next(i for i, v in choice.items() if solver.value(v))]
-        return overall, {m: chosen(picks[m]) for m in members}, {k: chosen(choice) for k, choice in shared_picks.items()}
+        return overall, {m: chosen(picks[m]) for m in picks}, {k: chosen(choice) for k, choice in shared_picks.items()}
 
     def finish(self, o, status, flight_of, shared_of):
         """The chosen plan with each traveller's private impact and the room-safe summary."""
-        shared_total = sum(c.total_cents for c in shared_of.values())
+        shared_total = sum(scaled_share(c, o.n) for c in shared_of.values())  # one person's share, scaled by n
         impacts = tuple(self._impact(m, o.n, flight_of, shared_total, o.alone, o.flights, o.shared, o.window) for m in o.members)
+        order = {k: i for i, k in enumerate(("STAY", "TRANSFER"))}
         return SolverResult(status=status, policy_version=self.policy,
-            selected=tuple(flight_of[m].id for m in o.members) + tuple(shared_of[k].id for k in ("STAY", "TRANSFER") if k in shared_of),
+            selected=tuple(flight_of[m].id for m in o.members if m in flight_of)
+            + tuple(shared_of[k].id for k in sorted(shared_of, key=lambda k: (order.get(k, len(order)), k))),
             impacts=impacts, group=self._summary(o.n, flight_of, shared_of, o.alone, o.flights, o.shared, impacts, o.window,
                                                  o.briefs, o.priced))
 
@@ -246,7 +266,8 @@ class TripSolver:
             stays = [c for c in priced if c.category == "STAY" and all(ok(c) for _, ok in stay_filters(briefs, (requirement,), per_room))]
             if stays and min(c.total_cents for c in stays) < min(c.total_cents for c in shared["STAY"]):
                 cheapest = min(c.total_cents for c in stays) + others
-                if all(n * min(c.total_cents for c in flights[o]) + cheapest <= n * by_owner[o].trip_cap_cents for o in over):
+                if all((n * min(c.total_cents for c in flights[o]) if flights[o] else 0) + cheapest <= n * by_owner[o].trip_cap_cents
+                       for o in over):
                     return requirement
         return None
 
@@ -280,12 +301,13 @@ class TripSolver:
 
     @staticmethod
     def _impact(owner, n, flight_of, shared_total, alone, flights, shared, window):
-        pick = flight_of[owner]
-        scaled_extra = n * pick.total_cents + shared_total - alone[owner]
+        pick = flight_of.get(owner)  # a stage of shared picks has no pick of their own
+        own = pick.total_cents if pick else 0
+        scaled_extra = n * own + shared_total - alone[owner]
         share = round(shared_total / n)
         extra = round(scaled_extra / n)
         reason = "NONE"
-        if extra > 0:
+        if extra > 0 and pick is not None:
             cheapest_fare = min(c.total_cents for c in flights[owner])
             # Would their own cheapest fare have broken the shared arrival rule?
             others = [c.arrival_epoch for o, c in flight_of.items() if o != owner]
@@ -295,17 +317,19 @@ class TripSolver:
                 reason = "ARRIVAL_WINDOW"
             elif pick.total_cents == cheapest_fare:
                 reason = "SHARED_CHOICE"
-        return Impact(owner=owner, candidate=pick.id, price_cents=pick.total_cents + share,
-                      cheapest_alone_cents=pick.total_cents + share - extra, extra_cents=extra, reason=reason,
-                      flight_cents=pick.total_cents, share_cents=share)
+        elif extra > 0:
+            reason = "SHARED_CHOICE"
+        return Impact(owner=owner, candidate=pick.id if pick else None, price_cents=own + share,
+                      cheapest_alone_cents=own + share - extra, extra_cents=extra, reason=reason,
+                      flight_cents=pick.total_cents if pick else None, share_cents=share)
 
     @staticmethod
     def _summary(n, flight_of, shared_of, alone, flights, shared, impacts, window, briefs, priced):
         arrivals = [c.arrival_epoch for c in flight_of.values()]
         total = sum(c.total_cents for c in [*flight_of.values(), *shared_of.values()])
-        cheapest_total = sum(min(c.total_cents for c in options) for options in [*flights.values(), *shared.values()])
+        cheapest_total = sum(min(c.total_cents for c in options) for options in [*flights.values(), *shared.values()] if options)
         cheapest_spread = None
-        if cheapest_total < total:
+        if cheapest_total < total and arrivals:
             cheapest = {o: [c for c in flights[o] if c.total_cents == min(x.total_cents for x in flights[o])] for o in flights}
             cheapest_spread = closest_spread(cheapest)
         stay, transfer = shared_of.get("STAY"), shared_of.get("TRANSFER")
@@ -315,13 +339,13 @@ class TripSolver:
             sleeps = [c.total_cents for c in priced if c.category == "STAY" and c.complete and stay_filters(briefs)[0][1](c)]
             premium = max(0, stay.total_cents - min(sleeps, default=stay.total_cents))
         extras = [i.extra_cents for i in impacts]
-        return GroupSummary(total_cents=total, earliest_arrival=min(arrivals), latest_arrival=max(arrivals),
+        return GroupSummary(total_cents=total, earliest_arrival=min(arrivals, default=None), latest_arrival=max(arrivals, default=None),
             arrival_window_seconds=window, travellers_paying_extra=sum(1 for e in extras if e > 0),
             max_extra_cents=max(extras), cheapest_total_cents=cheapest_total if cheapest_total < total else None,
             cheapest_spread_seconds=cheapest_spread,
             stay=stay.id if stay else None, stay_total_cents=stay.total_cents if stay else None,
             transfer=transfer.id if transfer else None, transfer_total_cents=transfer.total_cents if transfer else None,
-            share_each_cents=round(sum(c.total_cents for c in shared_of.values()) / n), stay_premium_cents=premium)
+            share_each_cents=round(sum(scaled_share(c, n) for c in shared_of.values()) / n), stay_premium_cents=premium)
 
 
 class TripValidator:
@@ -332,9 +356,10 @@ class TripValidator:
         flights = [c for c in records if c.category == "FLIGHT"]
         shared = {c.category: c for c in records if c.category != "FLIGHT"}
         n = len(snapshot.members)
+        flying = "FLIGHT" in snapshot.components
         required = {k for k in snapshot.components if k != "FLIGHT"}
-        if (len(set(selected)) != len(selected) or len(records) != len(selected) or len(flights) != n
-                or {c.owner for c in flights} != set(snapshot.members)
+        if (len(set(selected)) != len(selected) or len(records) != len(selected) or len(flights) != (n if flying else 0)
+                or (flying and {c.owner for c in flights} != set(snapshot.members))
                 or set(shared) != required or len(shared) != len(records) - len(flights)):
             checks.append("INVALID_COVERAGE")
         by_owner = {b.owner: b for b in briefs}
@@ -358,10 +383,12 @@ class TripValidator:
                 checks.append("STAY_REQUIREMENTS")
         if "TRANSFER" in shared and (shared["TRANSFER"].capacity or 0) < n:
             checks.append("TRANSFER_CAPACITY")
-        shared_total = sum(c.total_cents or 0 for c in shared.values())
-        for candidate in flights:
-            cap = by_owner[candidate.owner].trip_cap_cents
-            if cap is not None and candidate.total_cents is not None and n * candidate.total_cents + shared_total > n * cap:
+        # Each person's whole trip: their own pick, their share, and what the group already agreed.
+        shared_total = sum(scaled_share(c, n) for c in shared.values() if c.total_cents is not None)
+        own = {c.owner: c.total_cents or 0 for c in flights}
+        for member in snapshot.members:
+            cap = by_owner[member].trip_cap_cents
+            if cap is not None and n * own.get(member, 0) + shared_total + snapshot.committed_scaled.get(member, 0) > n * cap:
                 checks.append("TRIP_COST")
         if flights and max(c.arrival_epoch for c in flights) - min(c.arrival_epoch for c in flights) > snapshot.arrival_overlap_seconds:
             checks.append("ARRIVAL_OVERLAP")

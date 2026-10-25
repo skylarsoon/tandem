@@ -49,6 +49,8 @@ def nudges(snapshot, brief, candidate, shared):
         found.append(("rooming", f"The best-value place for the group{', ' + stay['title'] if stay.get('title') else ''}, "
                       f"has {rooms} bedroom{'s' if rooms != 1 else ''} for {n} of you. OK to share a room?",
                       _patch("own_bedroom", False), _patch("own_bedroom", True)))
+    if candidate.get("category", "FLIGHT") != "FLIGHT" or not candidate:
+        return found  # the rest is about their own flight; a stage of shared picks has none
     if candidate.get("baggage_included") is False and "baggage_required" not in asked:
         found.append(("bag", f"Your best-value fare (${candidate['total_cents'] / 100:,.2f}) doesn't include a checked bag. "
                       "Do you need one?", _patch("baggage_required", True), _patch("baggage_required", False)))
@@ -122,11 +124,18 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             raise ContractError("INVALID_MODEL_OUTPUT")
         # Model eligibility cannot override numeric checks or required evidence.
         candidate = task["candidate"]
-        trip_cost = None if candidate["total_cents"] is None else candidate["total_cents"] + context["share_cents"]
-        if (trip_cost is None or candidate["total_cents"] > brief.hard_cap_cents
-                or (brief.trip_cap_cents is not None and trip_cost > brief.trip_cap_cents)):
+        # Their own pick (a flight) counts in full; a shared pick only as their share. What the
+        # group already agreed counts toward their whole-trip limit.
+        flight = candidate.get("category", "FLIGHT") == "FLIGHT" and candidate.get("owner") == brief.owner
+        snapshot = task.get("snapshot") or {}
+        n = len(snapshot.get("members") or ()) or 1
+        committed = snapshot.get("committed_scaled", {}).get(brief.owner, 0)
+        own = candidate["total_cents"] if flight else 0
+        trip_cost = None if candidate["total_cents"] is None else own + context["share_cents"]
+        if (trip_cost is None or (flight and candidate["total_cents"] > brief.hard_cap_cents)
+                or (brief.trip_cap_cents is not None and n * trip_cost + committed > n * brief.trip_cap_cents)):
             decision = Decision(act=Act.OBJECT, evaluation="INELIGIBLE", blocker="HARD_LIMIT")
-        elif brief.baggage_required and candidate["baggage_included"] is not True and decision.evaluation == "ELIGIBLE":
+        elif flight and brief.baggage_required and candidate["baggage_included"] is not True and decision.evaluation == "ELIGIBLE":
             decision = Decision(act=Act.OBJECT, evaluation="INCOMPLETE_EVIDENCE", blocker="BAGGAGE_UNKNOWN", research=True)
         # A concern no search can act on (no over-limit, no missing bag) goes to the
         # owner, once, instead of burning research rounds; their yes settles it.

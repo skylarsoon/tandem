@@ -20,8 +20,12 @@ def duration(seconds: int) -> str:
 
 def group_text(group: GroupSummary, zone: str | None, titles: dict[str, str] | None = None) -> str:
     titles = titles or {}
-    text = (f"Total {money(group.total_cents)}. Everyone lands between {local_time(group.earliest_arrival, zone).replace(' local time', '')} "
-            f"and {local_time(group.latest_arrival, zone)}, within the group's {duration(group.arrival_window_seconds)} window.")
+    text = f"Total {money(group.total_cents)}."
+    if group.earliest_arrival is not None:
+        within = (f", within the group's {duration(group.arrival_window_seconds)} window"
+                  if group.arrival_window_seconds < 10**8 else "")  # separate arrivals: no window to mention
+        text += (f" Everyone lands between {local_time(group.earliest_arrival, zone).replace(' local time', '')} "
+                 f"and {local_time(group.latest_arrival, zone)}{within}.")
     if group.cheapest_total_cents is not None:
         text += (f" Landing together costs {money(group.total_cents - group.cheapest_total_cents)} more than everyone's cheapest fares"
                  + (f", which would land {duration(group.cheapest_spread_seconds)} apart." if group.cheapest_spread_seconds else "."))
@@ -44,6 +48,12 @@ def impact_text(impact: Impact, window_seconds: int) -> str:
     why = {"ARRIVAL_WINDOW": f"so everyone lands within {duration(window_seconds)} of each other",
            "SHARED_CHOICE": "because of the stay and transfer the group's limits allow"}.get(
                impact.reason, "to keep the group's trade-offs balanced")
+    if impact.share_cents and impact.flight_cents is None:  # a stage of shared picks only
+        text = f"Your share is {money(impact.share_cents)}."
+        if impact.extra_cents == 0:
+            return text + " That's the cheapest option available to you."
+        return text + (f" That's {money(impact.extra_cents)} more than the cheapest option available to you "
+                       f"({money(impact.cheapest_alone_cents)}), {why}.")
     if impact.share_cents:
         text = (f"Your trip costs {money(impact.price_cents)}: your {money(impact.flight_cents)} flight plus a "
                 f"{money(impact.share_cents)} equal share of the stay and transfer.")

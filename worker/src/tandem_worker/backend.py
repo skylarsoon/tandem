@@ -435,6 +435,57 @@ class LocalBackend:
                 if verdict == "VIOLATED" or (verdict == "UNKNOWN" and rule.owner is not None):
                     raise ContractError("INVALID_PROPOSAL")
 
+    # ---------- agreement (the database's twin) ----------
+
+    def respond(self, owner: str, proposal_id: str, response: str = "ACCEPT") -> None:
+        """An owner's answer to a proposal. When everyone affected accepts, it's agreed: a stage
+        decision becomes a commitment and the next stage is planned."""
+        with self._tx() as state:
+            proposal = state["proposals"].get(proposal_id)
+            if not proposal or owner not in proposal["required_members"]:
+                raise ContractError("NOT_AUTHORIZED")
+            if proposal["state"] not in ("AWAITING_REVIEW", "AGREED"):
+                raise ContractError("STALE_SNAPSHOT")
+            proposal.setdefault("responses", {})[owner] = response
+            state["consents"].append({"proposal": proposal_id, "owner": owner, "response": response})
+            agreed = all(proposal["responses"].get(m) == "ACCEPT" for m in proposal["required_members"])
+            if agreed != (proposal["state"] == "AGREED"):
+                proposal["state"] = "AGREED" if agreed else "AWAITING_REVIEW"
+                self._commit(state)
+                if agreed and proposal.get("scope", "COMPLETE_PLAN") != "COMPLETE_PLAN":
+                    self._new_job(state)  # agreeing one stage queues planning of the next
+
+    def _commit(self, state):
+        """The snapshot's commitments and what they cost each person, from the agreed proposals."""
+        from .contracts import Commitment
+        from .rules import committed_costs
+        agreed = [p for p in state["proposals"].values() if p["state"] == "AGREED"]
+        commitments = [Commitment(decision_id=p.get("decision_id", "trip"), scope=p.get("scope", "COMPLETE_PLAN"),
+                                  refs=tuple(c["id"] for c in p["terms"]["selected"])) for p in agreed]
+        facts = {c["id"]: c for p in agreed for c in p["terms"]["selected"]}
+        state["snapshot"]["commitments"] = [primitive(c) for c in commitments]
+        state["snapshot"]["committed_scaled"] = committed_costs(commitments, facts, lambda f: f.get("owner"),
+                                                                tuple(state["snapshot"]["members"]))
+
+    def _reopen_broken(self, state):
+        """An agreed decision a confirmed change now breaks (a pick against someone's rules, or
+        their whole-trip limit with everything agreed) is reopened, never kept silently."""
+        snapshot = Snapshot.model_validate(state["snapshot"])
+        n = len(snapshot.members)
+        caps = {r.owner: r.value for r in self._room_rules(state).binding() if r.aggregate == "my_cost" and r.operator == "lte"}
+        for proposal in sorted((p for p in state["proposals"].values() if p["state"] == "AGREED"),
+                               key=lambda p: p.get("generation", ""), reverse=True):
+            records = [Candidate.model_validate(c) for c in proposal["terms"]["selected"]]
+            try:
+                self._check_rules(state, snapshot, records)
+                broken = any(cost > n * caps[m] for m, cost in snapshot.committed_scaled.items() if m in caps)
+            except ContractError:
+                broken = True
+            if broken:
+                proposal["state"] = "REOPENED"
+                self._commit(state)
+                snapshot = Snapshot.model_validate(state["snapshot"])
+
     def notify_owner(self, claim, owner, text, key):
         with self._tx() as state:
             self._checked(state, claim)
@@ -488,7 +539,9 @@ class LocalBackend:
                 job.update(status="SUPERSEDED", token=None, expiry=0)
                 self._close_threads(state, job["generation"], "SUPERSEDED")
         for proposal in state["proposals"].values():
-            proposal["state"] = "STALE"
+            if proposal["state"] != "AGREED":  # agreed decisions stand; pending ones are out of date
+                proposal["state"] = "STALE"
+        self._reopen_broken(state)
         return self._new_job(state)
 
     def update_preferences(self, owner, preferences):

@@ -2,7 +2,7 @@ import { t } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import { emitEvent, fail, invalidateRoom, nonEmpty, parseJson, requireHuman, requireMember } from './guards';
 import { addOwnedRule } from './room_rules';
-import { applyPatch, messageOwnAgent, upsertConstraint } from './effects';
+import { applyPatch, messageOwnAgent, reopenBroken, upsertConstraint } from './effects';
 
 // Direct form entry counts as owner confirmation.
 export const setConstraint = spacetimedb.reducer(
@@ -58,6 +58,7 @@ export const addRule = spacetimedb.reducer(
     requireHuman(ctx);
     requireMember(ctx, roomId);
     addOwnedRule(ctx, roomId, parseJson(ruleJson, 'ruleJson'), sourceQuote ?? '');
+    reopenBroken(ctx, roomId);
     invalidateRoom(ctx, roomId, { input: true }, 'rule added');
     emitEvent(ctx, roomId, 'REQUIREMENTS_UPDATED', { message: 'A participant updated their requirements' });
   }
@@ -84,5 +85,8 @@ export const setRuleState = spacetimedb.reducer({ ruleId: t.u64(), state: t.stri
   if (rule.state === state) return;
   ctx.db.participantRule.id.update({ ...rule, state, updatedAt: ctx.timestamp });
   // Only binding changes replan: keeping an active rule changes nothing for planning.
-  if (state === 'set_aside' || rule.state === 'set_aside') invalidateRoom(ctx, rule.roomId, { input: true }, 'rule state changed');
+  if (state === 'set_aside' || rule.state === 'set_aside') {
+    reopenBroken(ctx, rule.roomId);
+    invalidateRoom(ctx, rule.roomId, { input: true }, 'rule state changed');
+  }
 });

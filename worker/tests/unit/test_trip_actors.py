@@ -170,7 +170,7 @@ def test_activity_is_a_per_person_estimate_on_a_0_to_5_scale():
     candidate = one(booking_attractions, rows("booking_attractions")[0], ACTIVITY)
     assert candidate.category == "ACTIVITY" and candidate.owner is None
     assert candidate.total_cents == 3750 and candidate.cost_basis == "ESTIMATE_PER_PERSON"
-    assert not candidate.complete
+    assert candidate.complete, "approved as a per-person estimate, like the database's price basis for activities"
     assert candidate.rating == 4.7 and candidate.free_cancellation is True
     assert candidate.title == "Oahu's Circle Island Tour Operated By Fil-Am Travel & Tours"
 

@@ -222,3 +222,55 @@ export function costLimitsHold(rules: OwnedRule[], owner: Identity, n: number, o
   }
   return true;
 }
+
+type Agreed = { proposal: { id: bigint }; scope: string; selectedRefs: string[] };
+
+// Agreed decisions a confirmed change now breaks: a pick against its people's rules or
+// the trip's dates, or someone's whole-trip limit with everything agreed. Budget breaks
+// are resolved newest first, so older agreements stand where they still fit.
+export function brokenCommitments<C extends Agreed>(ctx: Ctx, roomId: bigint, agreed: C[]): C[] {
+  const room = ctx.db.room.id.find(roomId);
+  if (!room) return [];
+  const settings = JSON.parse(room.settingsJson) as Record<string, unknown>;
+  const active = [...ctx.db.membership.byRoomMember.filter(roomId)].filter(m => m.active);
+  const rules = bindingRules(ctx, roomId);
+  const counted = (c: C) => c.scope !== 'COMPLETE_PLAN' && c.scope !== 'GENERAL_AGREEMENT' && c.scope !== 'LEGACY';
+  const picks = (c: C) =>
+    c.selectedRefs.flatMap(ref => {
+      let row;
+      for (const x of ctx.db.candidate.byRoomRef.filter([roomId, ref])) row = x;
+      return row ? [{ ref, category: row.category, facts: JSON.parse(row.factsJson) as Record<string, unknown> }] : [];
+    });
+  const newest = [...agreed].sort((a, b) => (a.proposal.id < b.proposal.id ? 1 : -1));
+  const broken: C[] = [];
+  for (const c of newest) {
+    for (const { ref, category, facts } of picks(c)) {
+      const owners = category === 'FLIGHT'
+        ? active.filter(m => Number(m.id) === facts.owner_member_id).map(m => m.member)
+        : active.map(m => m.member);
+      try {
+        checkCandidateRules(rules, owners, category, facts, ref);
+        checkTripBounds(settings, category, facts, ref);
+      } catch {
+        broken.push(c);
+        break;
+      }
+    }
+  }
+  let kept = newest.filter(c => !broken.includes(c));
+  const over = () =>
+    active.some(m => {
+      let own = 0, shared = 0;
+      for (const c of kept.filter(counted)) {
+        for (const { category, facts } of picks(c)) {
+          const total = typeof facts.total_cents === 'number' ? facts.total_cents : 0;
+          if (category === 'FLIGHT') own += facts.owner_member_id === Number(m.id) ? total : 0;
+          else if (category === 'STAY' || category === 'TRANSFER') shared += total;
+          else own += total; // per head
+        }
+      }
+      return !costLimitsHold(rules, m.member, active.length, own, shared);
+    });
+  while (kept.length > 0 && over()) broken.push(kept.shift()!);
+  return broken;
+}

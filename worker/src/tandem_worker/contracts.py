@@ -93,6 +93,9 @@ class Snapshot(Record):
     activities: int | None = None
     # Agreed decisions: what later planning builds on and must not silently drop.
     commitments: tuple[Commitment, ...] = ()
+    # What those agreed decisions already cost each person, scaled by n (rules.committed_costs):
+    # what's left of a budget for this stage. Agreed prices are in the shared terms, so not private.
+    committed_scaled: dict[str, int] = Field(default_factory=dict)
     # Each traveller's cumulative approved compromise in this room (H_i, from the ledger).
     compromise_history: dict[str, float] = Field(default_factory=dict)
 
@@ -108,7 +111,9 @@ class Snapshot(Record):
 
 Category = Literal["FLIGHT", "STAY", "TRANSFER", "ACTIVITY", "DINNER"]
 # A complete total can go into an approvable plan; the others are observations or estimates.
-COMPLETE_BASIS = {"FLIGHT": "COMPLETE_FLIGHT_TOTAL", "STAY": "COMPLETE_STAY_TOTAL", "TRANSFER": "COMPLETE_TRANSFER_TOTAL"}
+# Activities and dinners only ever have a per-person estimate, approved as such (as the database's PRICE_BASIS).
+COMPLETE_BASIS = {"FLIGHT": "COMPLETE_FLIGHT_TOTAL", "STAY": "COMPLETE_STAY_TOTAL", "TRANSFER": "COMPLETE_TRANSFER_TOTAL",
+                  "ACTIVITY": "ESTIMATE_PER_PERSON", "DINNER": "ESTIMATE_PER_PERSON"}
 SHARED = ("STAY", "TRANSFER")
 
 
@@ -317,20 +322,21 @@ class Question(Record):
 class Impact(Record):
     """One traveller's position in a plan. Private to that traveller."""
     owner: str
-    candidate: str
-    price_cents: int  # what they pay in total: flight plus their share
+    candidate: str | None = None  # their own pick, if the plan has one (a stage of shared picks has none)
+    price_cents: int  # what they pay in total: their own pick plus their share
     cheapest_alone_cents: int
     extra_cents: int = Field(ge=0)
     reason: Literal["NONE", "ARRIVAL_WINDOW", "SHARED_CHOICE"] = "NONE"
     flight_cents: int | None = None
-    share_cents: int = 0  # equal share of the stay and transfer
+    share_cents: int = 0  # their share of the shared picks (split, or per head)
 
 
 class GroupSummary(Record):
     """Room-safe facts about a plan: no caps, reasons or names."""
     total_cents: int
-    earliest_arrival: int
-    latest_arrival: int
+    # Arrivals, when the plan includes travel.
+    earliest_arrival: int | None = None
+    latest_arrival: int | None = None
     arrival_window_seconds: int
     travellers_paying_extra: int = 0
     max_extra_cents: int = 0

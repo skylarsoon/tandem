@@ -195,8 +195,17 @@ class SpacetimeBackend:
             start_date=settings.get("start_date"), end_date=settings.get("end_date"),
             commitments=tuple(Commitment(decision_id=c["decision_id"], scope=c["scope"], refs=tuple(c["selected_candidate_refs"]))
                               for c in ctx.get("commitments", [])),
+            committed_scaled=self._committed(ctx),
             compromise_history={self.owner_name(m): float(ctx.get("compromise_history", {}).get(str(m["member_id"]), 0.0))
                                 for m in ctx["members"] if m["active"]})
+
+    def _committed(self, ctx: dict) -> dict[str, int]:
+        from ..rules import committed_costs
+        members = {m["member_id"]: self.owner_name(m) for m in ctx["members"] if m["active"]}
+        facts = {c["candidate_ref"]: {**c["facts"], "category": c["category"]} for c in ctx.get("candidates", [])}
+        agreed = [Commitment(decision_id=c["decision_id"], scope=c["scope"], refs=tuple(c["selected_candidate_refs"]))
+                  for c in ctx.get("commitments", [])]
+        return committed_costs(agreed, facts, lambda f: members.get(f.get("owner_member_id")), tuple(members.values()))
 
     def _claim(self, job: dict, worker_id: str) -> Claim:
         if job["kind"] == "PROFILE":

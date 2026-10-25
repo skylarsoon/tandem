@@ -12,7 +12,7 @@ from ..contracts import Act, Candidate, Conflict, ContractError, Decision, Paylo
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
 from ..explain_rules import rule_conflict_note
 from ..progress import activity, report as progress
-from ..rules import dates_outside_trip, decisions, evaluate, search_dates
+from ..rules import dates_outside_trip, decisions, evaluate, remaining_stages, search_dates, stage_decisions
 from ..shortlist import dedupe, shortlist_choices
 from ..solver import POLICY, RELAXABLE, TripSolver, flight_violation, relax_nudge
 from .personal import build_personal, nudges, question_for, send_message
@@ -28,20 +28,26 @@ RESEARCH_CATEGORIES = {"TRIP_LIMIT": ("FLIGHT", "STAY"), "STAY_UNAVAILABLE": ("S
 DECISION = "trip"
 
 
-def next_stage(snapshot: Snapshot) -> str | None:
-    """The first of the organizer's stages not yet agreed (None: none left)."""
+def next_decision(snapshot: Snapshot) -> tuple[str, str] | None:
+    """The first of the organizer's stage decisions not yet agreed: (category, id), or None."""
     agreed = {c.decision_id for c in snapshot.commitments}
-    return next((s for s in snapshot.stages if s.lower() not in agreed), None)
+    return next(((c, d) for c, d in stage_decisions(snapshot) if d not in agreed), None)
+
+
+def next_stage(snapshot: Snapshot) -> str | None:
+    found = next_decision(snapshot)
+    return found[0] if found else None
 
 
 def planned_decision(snapshot: Snapshot) -> tuple[str, str, str]:
-    """(decision id, scope, milestone) of what this job plans: one stage, as the catalog
-    says that kind of choice is decided, or the whole trip in a room without stages."""
-    if not snapshot.stages or not snapshot.components:
+    """(decision id, scope, milestone) of what this job plans: one stage decision, as the
+    catalog says that kind of choice is decided, or the whole trip in a room without stages."""
+    found = next_decision(snapshot) if snapshot.stages and snapshot.components else None
+    if found is None:
         return DECISION, "COMPLETE_PLAN", "TRAVEL"
-    category = snapshot.components[0]
+    category, decision_id = found
     shape = decisions()["categories"][category]
-    return category.lower(), shape["scope"], shape["milestone"]
+    return decision_id, shape["scope"], shape["milestone"]
 
 
 class CoordinatorState(TypedDict, total=False):
@@ -151,9 +157,14 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         # Stable observation/request time across a replay, persisted in the op receipt.
         stamp = backend.operation(claim, f"research-time:{state['round']}", {}, "local", clock.now)
         trip = len(snapshot.components) > 1
-        initial = [*snapshot.components, "ACTIVITY", "DINNER"] if trip else ["FLIGHT"]
+        initial = [*snapshot.components, "ACTIVITY", "DINNER"] if trip else list(snapshot.components)
+        # A stage searches what comes later too: what's left of each budget is held for it.
+        initial += [c for c in remaining_stages(snapshot) if c not in initial]
         routes, facts = [], None
-        if snapshot.onboarding:
+        if snapshot.onboarding and "FLIGHT" not in initial:
+            facts = {"destination": snapshot.destination, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
+                     "party_size": len(snapshot.members), "pickup_time": state.get("pickup_time")}
+        elif snapshot.onboarding:
             # Search from what people confirmed; wait until everyone has said where they fly from.
             briefs = {o: backend.read_brief(claim, o) for o in snapshot.members}
             if any(b.origin_airport is None for b in briefs.values()):
@@ -167,7 +178,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                      "party_size": len(snapshot.members), "pickup_time": state.get("pickup_time")}
             # The airport transfer is searched once flights are chosen, for the group's latest landing.
             initial = [c for c in initial if c != "TRANSFER"]
-        request = {"purpose": purpose, "members": list(snapshot.members), "scope": "TRIP" if trip else "FLIGHTS_ONLY",
+        request = {"purpose": purpose, "members": list(snapshot.members),
+            "scope": "TRIP" if any(c != "FLIGHT" for c in initial) else "FLIGHTS_ONLY",
             "categories": initial if purpose == "INITIAL" else state.get("research_categories") or ["FLIGHT"],
             "routes": routes, "trip": facts,
             "room_id": snapshot.room_id,
@@ -203,6 +215,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             # Searched early; nothing is proposed until everyone has confirmed their onboarding.
             return {"outcome": "WAITING_FOR_INTAKE", "solver_status": "", "selected": []}
         excluded, now = set(state.get("excluded", ())), clock.now()
+        # A repeated stage (another activity) never picks what an earlier one of its kind agreed.
+        this = planned_decision(snapshot)[0].split(":")[0]
+        excluded |= {ref for c in snapshot.commitments if c.decision_id.split(":")[0] == this
+                     and c.decision_id != planned_decision(snapshot)[0] for ref in c.refs}
         briefs = briefs_for(snapshot)
         by_owner = {b.owner: b for b in briefs}
         relaxations = digest([b.model_dump(mode="json") for b in briefs])[:12]
@@ -267,7 +283,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         update = {"selected": list(result.selected), "draft_ref": draft, "solver_status": result.status, "outcome": outcome,
                   "solve_key": key, "solve_request": request, "resolve": False, "group_window": [],
                   "excluded": sorted(excluded), **counts}
-        if result.group:
+        if result.group and result.group.earliest_arrival is not None:
             zone = next(c.arrival_timezone for c in candidates if c.id == result.selected[0])
             update["group_window"] = [result.group.earliest_arrival, result.group.latest_arrival, zone]
             if plan_for is not snapshot:
@@ -287,8 +303,10 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         candidates = {c["id"]: c for c in state["candidates"]}
         selected = {candidates[r]["owner"]: candidates[r] for r in state["selected"] if candidates[r]["owner"]}
         shared = [candidates[r] for r in state["selected"] if not candidates[r]["owner"]]
-        if set(selected) != set(snapshot.members):
+        if selected and set(selected) != set(snapshot.members) or not (selected or shared):
             raise ContractError("INVALID_COVERAGE")
+        # A stage of shared picks (a stay, an activity): each agent weighs the shared pick itself.
+        own = {m: selected.get(m) for m in snapshot.members}
         result = solution(state)
         impacts = {i.owner: i.model_dump(mode="json") for i in result.impacts}
         share = result.group.share_each_cents if result.group else 0
@@ -297,7 +315,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         nudged = [backend.ask_owner(claim, question_for(claim, owner, "MISSING_FACT", f"nudge:{topic}", prompt,
                                                         {"yes": yes, "no": no}))
                   for owner in snapshot.members
-                  for topic, prompt, yes, no in nudges(state["snapshot"], backend.read_brief(claim, owner), selected[owner], shared)]
+                  for topic, prompt, yes, no in nudges(state["snapshot"], backend.read_brief(claim, owner), own[owner] or {}, shared)]
         if nudged:
             return {"questions": nudged}
         window = state.get("group_window") or None
@@ -308,15 +326,16 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         eligible = set()
         for owner in snapshot.members:
             thread_id = "conversation-" + digest([claim.generation, state["round"], state["cycle"], owner])[:24]
+            mine = [own[owner]] if own[owner] else []
             initial = Payload(draft_ref=state["draft_ref"], evaluation="REQUESTED",
-                              candidate_refs=(selected[owner]["id"], *(c["id"] for c in shared)))
+                              candidate_refs=tuple(c["id"] for c in [*mine, *shared]))
             inbound_ref = send_message(backend, claim, state["snapshot"], "mediator", owner, Act.PROPOSE, initial,
                 thread_id, tuple(sorted(("mediator", owner))), state["round"], operation_ref=f"dispatch:{owner}:{state['cycle']}",
-                candidate=[selected[owner], *shared], group_window=window, share_cents=share)
+                candidate=[*mine, *shared], group_window=window, share_cents=share)
             sender, recipient, inbound_type = "mediator", owner, "PROPOSE"
             inbound_payload = initial.model_dump(mode="json")
             for turn in range(limits.thread_turns):
-                task = {"owner": recipient, "sender": sender, "candidate": selected[recipient],
+                task = {"owner": recipient, "sender": sender, "candidate": own[recipient] or shared[0],
                     "shared": shared, "share_cents": share,
                     "draft_ref": state["draft_ref"], "inbound_type": inbound_type, "inbound_ref": inbound_ref,
                     "inbound_payload": inbound_payload,
@@ -335,7 +354,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     return {"outcome": "NO_PROGRESS", "questions": []}
                 fingerprints.add(fingerprint)
                 if decision.research:
-                    evidence = task["inbound_evidence"] if decision.act == Act.COUNTERPROPOSE and task["inbound_payload"]["blocker"] == decision.blocker else [selected[recipient]]
+                    evidence = task["inbound_evidence"] if decision.act == Act.COUNTERPROPOSE and task["inbound_payload"]["blocker"] == decision.blocker else [own[recipient] or shared[0]]
                     return {"need_research": True, "research_cause_ref": result["message_ref"], "questions": [],
                         "research_target_owners": sorted({c["owner"] for c in evidence if c["owner"]}) or list(snapshot.members),
                         "research_blocker_code": decision.blocker if decision.blocker != "NONE" else "MISSING_FACT"}

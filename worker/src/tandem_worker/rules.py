@@ -83,6 +83,59 @@ class RoomRules(Record):
         return self.model_copy(update={"bounds": trip_bound_rules(start_date, end_date)})
 
 
+def stage_decisions(snapshot) -> list[tuple[str, str]]:
+    """The organizer's stages as decisions, in order: (category, decision id). A stage the
+    catalog repeats (repeats_setting) is that many decisions, or one per full trip day."""
+    from datetime import date as _date
+    out = []
+    for category in snapshot.stages:
+        setting = decisions()["categories"][category].get("repeats_setting")
+        if setting is None:
+            out.append((category, category.lower()))
+            continue
+        count = getattr(snapshot, setting, None)
+        if count is None and snapshot.start_date and snapshot.end_date:
+            count = max(1, (_date.fromisoformat(snapshot.end_date) - _date.fromisoformat(snapshot.start_date)).days - 1)
+        out += [(category, f"{category.lower()}:{i}") for i in range(1, (count or 1) + 1)]
+    return out
+
+
+def remaining_stages(snapshot) -> dict[str, int]:
+    """Decisions still to come after the one being planned: category -> how many."""
+    if not snapshot.stages or not snapshot.components:
+        return {}
+    agreed = {c.decision_id for c in snapshot.commitments}
+    left = [(c, d) for c, d in stage_decisions(snapshot) if d not in agreed]
+    out: dict[str, int] = {}
+    for category, _ in left[1:]:  # the first is the one being planned now
+        out[category] = out.get(category, 0) + 1
+    return out
+
+
+def committed_costs(commitments, facts_by_ref: dict, owner_of, members) -> dict[str, int]:
+    """What the group's agreed decisions already cost each person, exactly, scaled by n (as
+    the database checks budgets: n × their own picks and per-head items, plus whole shared
+    totals). A complete plan already contains its parts, so only partial decisions count."""
+    n, shapes = len(members), decisions()["categories"]
+    out = {m: 0 for m in members}
+    for commitment in commitments:
+        if commitment.scope in ("COMPLETE_PLAN", "GENERAL_AGREEMENT", "LEGACY"):
+            continue
+        for ref in commitment.refs:
+            facts = facts_by_ref.get(ref)
+            if not facts or facts.get("total_cents") is None or facts.get("category") not in shapes:
+                continue
+            pays = shapes[facts["category"]]["pays"]
+            if pays == "each":
+                owner = owner_of(facts)
+                if owner in out:
+                    out[owner] += n * facts["total_cents"]
+            else:
+                for m in members:
+                    out[m] += facts["total_cents"] if pays == "split" else n * facts["total_cents"]
+    return out
+
+
 def search_dates(rules: RoomRules, owner: str, category: str, start: str | None, end: str | None) -> tuple[str | None, str | None]:
     """The dates to search for one person: the trip's dates, narrowed by their own firm rules
     on attributes the catalog marks search_date (e.g. "can't leave before the 21st")."""

@@ -231,7 +231,7 @@ export const LEGACY_KEYS = {
 
 export const DECISIONS = {
   "version": 1,
-  "about": "How each kind of choice is made, as data. chooses: one_per_person (each traveller picks their own) or one_for_group. pays: each (your own pick), split (shared equally) or per_person (a per-head price). A room plans the categories its settings list; group rules limit the group's combined choice, with values from room settings. When the organizer gives stages (an order), each stage is decided on its own: scope is the kind of proposal it publishes and milestone the progress stage it moves.",
+  "about": "How each kind of choice is made, as data. chooses: one_per_person (each traveller picks their own) or one_for_group. pays: each (your own pick), split (shared equally) or per_person (a per-head price). A room plans the categories its settings list; group rules limit the group's combined choice, with values from room settings. When the organizer gives stages (an order), each stage is decided on its own: scope is the kind of proposal it publishes and milestone the progress stage it moves. repeats_setting: a stage decided several times (one decision each), as many as that room setting says, or one per full day of the trip.",
   "categories": {
     "FLIGHT": {
       "chooses": "one_per_person",
@@ -257,7 +257,8 @@ export const DECISIONS = {
       "chooses": "one_for_group",
       "pays": "per_person",
       "scope": "ACTIVITY_DECISION",
-      "milestone": "STAY_EXPERIENCES"
+      "milestone": "STAY_EXPERIENCES",
+      "repeats_setting": "activities"
     },
     "DINNER": {
       "chooses": "one_for_group",

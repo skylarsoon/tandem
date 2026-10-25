@@ -1,6 +1,6 @@
 import { ScheduleAt } from 'spacetimedb';
 import type { Identity } from 'spacetimedb';
-import { addOwnedRule, mirrorLegacy } from './room_rules';
+import { addOwnedRule, brokenCommitments, mirrorLegacy } from './room_rules';
 import {
   type Ctx,
   HARDNESS,
@@ -82,6 +82,7 @@ export function applyPatch(ctx: Ctx, roomId: bigint, patchJson: string, replan =
   const patch = parseJson(patchJson, 'patchJson') as { rule?: unknown; source_quote?: unknown } | null;
   if (patch && typeof patch === 'object' && patch.rule !== undefined) {
     addOwnedRule(ctx, roomId, patch.rule, typeof patch.source_quote === 'string' ? patch.source_quote : '');
+    reopenBroken(ctx, roomId);
     if (replan) invalidateRoom(ctx, roomId, { input: true }, 'rule confirmed');
     emitEvent(ctx, roomId, 'REQUIREMENTS_UPDATED', { message: 'A participant updated their requirements' });
     return;
@@ -114,6 +115,7 @@ export function upsertConstraint(ctx: Ctx, roomId: bigint, input: ConstraintInpu
   }
   // The same limit in the generic rule language, which is what planning reads.
   mirrorLegacy(ctx, roomId, ctx.sender, input.key, input);
+  reopenBroken(ctx, roomId);
   // A batch of confirmations (an onboarding summary) replans once, at the end.
   if (replan) invalidateRoom(ctx, roomId, { input: true }, 'constraint confirmed');
   emitEvent(ctx, roomId, 'REQUIREMENTS_UPDATED', { message: 'A participant updated their requirements' });
@@ -199,6 +201,17 @@ export function supersedeProposal(ctx: Ctx, p: ProposalRow): void {
   }
   for (const e of [...ctx.db.compromiseEntry.byProposal.filter(p.id)]) {
     if (e.state === 'ACTIVE') ctx.db.compromiseEntry.id.update({ ...e, state: 'SUPERSEDED', updatedAt: ctx.timestamp });
+  }
+}
+
+// An agreed decision a confirmed change breaks (a pick against someone's rules or the
+// trip's dates, or a whole-trip limit with everything agreed) is reopened, never kept
+// silently: it stops counting, and the next plan decides it again. The room hears only that.
+export function reopenBroken(ctx: Ctx, roomId: bigint): void {
+  for (const c of brokenCommitments(ctx, roomId, commitments(ctx, roomId))) {
+    supersedeProposal(ctx, c.proposal);
+    refreshMilestone(ctx, roomId, c.proposal.stage);
+    emitEvent(ctx, roomId, 'DECISION_REOPENED', { decision_id: c.decisionId, message: 'A change means an agreed decision is planned again' });
   }
 }
 

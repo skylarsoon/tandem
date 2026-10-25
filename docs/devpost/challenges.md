@@ -163,6 +163,12 @@ Now only firm statements become limits. A hedged one is kept as a preference: it
 
 **"No plan" that blamed the wrong thing.** When Chris's new date left no flight, the old explanation only knew the named limits, so it would have told him his fare limit was the problem. Now the explanation names every rule that ruled his options out, in his words, starting with dates that can't fit the trip at all: "none of the options found for you fits what you said, “I can't depart until November 25 now” … and the trip's dates (the trip ends Nov 24)". The room only hears "1 traveller: no option found fits their limits".
 
+**One big decision instead of a few small ones.** The organizer said "flights first, then accommodation, then activities", but the planner chose everything at once, and nothing happened after people agreed. The database already supported deciding one part at a time; the worker never used it, and much of it assumed every plan had a flight (each agent judged "your flight", the summary needed landing times, the validator wanted one flight each). Now the planner follows the organizer's order: one decision per stage, each agreed separately, the next starting on its own, three activities on three different days.
+
+**The first stage could spend the second stage's money.** Alex has $1,200 for the whole trip. Planned alone, flights could take most of it and leave nothing for the stay. While planning a stage, each person's budget is now what's left after what the group already agreed and after the cheapest the later stages can cost them.
+
+**Agreed is agreed, unless it no longer fits.** When Alex's budget drops to $900, the flights everyone already agreed still fit, so they stand; only the stay that was still being reviewed is planned again. But if a change breaks something agreed (a new limit on a fare already chosen, new trip dates), that decision is reopened and planned again, newest first, rather than silently kept.
+
 ## Honest limits
 
 **The backend can't judge wording.** A database can check that a message cites real facts, comes from someone allowed to speak, and doesn't quote a private reason word for word. It can't tell whether "Alice needs money for her apartment" is a reworded leak. We kept semantic checks in the worker (a constrained voice and validated sentences), made the backend enforce everything mechanical, and wrote down which layer is responsible for what.

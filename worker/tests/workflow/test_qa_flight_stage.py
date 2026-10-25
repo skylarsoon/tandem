@@ -95,6 +95,8 @@ class QAResearch:
             found += [Candidate(id=f"stay-{i}", category="STAY", cost_basis="COMPLETE_STAY_TOTAL",
                                 source_url=f"https://fixtures.invalid/qa/stay/{i}", **{**s, **common})
                       for i, s in enumerate(FLIGHTS["stays"])]
+        found += [Candidate(id=f"idea-{i}", cost_basis="ESTIMATE_PER_PERSON", source_url=f"https://fixtures.invalid/qa/idea/{i}",
+                            **{**idea, **common}) for i, idea in enumerate(FLIGHTS["ideas"]) if idea["category"] in wanted]
         return found
 
 
@@ -158,11 +160,21 @@ def no_bag(name, question):
     return not question.prompt.endswith("Do you need one?")
 
 
-def plan(backend, worker, answer=no_bag):
+def live(report, decision_id=None):
+    """Proposals awaiting review (of one decision), newest first."""
+    found = [(pid, p) for pid, p in report["proposals"].items() if p["state"] == "AWAITING_REVIEW"
+             and (decision_id is None or p.get("decision_id") == decision_id)]
+    return sorted(found, key=lambda x: x[1]["generation"], reverse=True)
+
+
+def plan(backend, worker, answer=no_bag, until=None):
+    """Run planning until a proposal is waiting (or `until(report)`), or "no plan" is said."""
+    events_before = len(backend.shared_report()["events"])
     for _ in range(12):
         drain(backend, worker, onboarding_only=False)
         report = backend.shared_report()
-        if report["proposals"] or any(e["kind"] == "NO_FEASIBLE_PLAN" for e in report["events"]):
+        no_plan = any(e["kind"] == "NO_FEASIBLE_PLAN" for e in report["events"][events_before:])
+        if (until(report) if until else live(report)) or no_plan:
             return report
         for name in NAMES:
             for q in backend.owner_questions(name):
@@ -173,6 +185,15 @@ def plan(backend, worker, answer=no_bag):
 
 def latest(report):
     return max(report["proposals"].values(), key=lambda p: p["generation"]) if report["proposals"] else None
+
+
+def agree(backend, proposal_id):
+    for name in NAMES:
+        backend.respond(name, proposal_id, "ACCEPT")
+
+
+def flies_with_share(flight_cents, share_cents, budget_cents):
+    return flight_cents + share_cents <= budget_cents
 
 
 def picks(proposal) -> dict:
@@ -243,3 +264,68 @@ def test_qa_03_a_date_that_misses_the_trip_has_no_plan_and_says_why(qa):
     assert "Chris" not in json.dumps(events) and "November 25" not in json.dumps(events), "the room hears counts, not whose dates"
     note = backend.conversation("Chris")[-1]["body"]
     assert "I can't depart until November 25 now" in note and "the trip ends Nov 24" in note, note
+
+
+def test_the_organizers_order_flights_then_the_stay_then_each_activity(qa):
+    backend, worker, _ = qa
+    [(flight_id, flights)] = live(plan(backend, worker), "flight")
+    agree(backend, flight_id)
+    [(stay_id, stay)] = live(plan(backend, worker, until=lambda r: live(r, "stay")), "stay")
+    assert stay["scope"] == "SINGLE_SHARED_BOOKING" and [c["category"] for c in stay["terms"]["selected"]] == ["STAY"]
+    share = stay["terms"]["selected"][0]["total_cents"] / 4
+    budgets = {"Alex": 120000, "Bella": 250000, "Chris": 180000, "Dana": 170000}
+    for name, flight in picks(flights).items():
+        assert flight["total_cents"] + share <= budgets[name], "with the agreed flight, the stay fits every budget"
+    agree(backend, stay_id)
+    chosen = []
+    for n in (1, 2, 3):  # Nov 20-24: three full days, one group activity each
+        decision = f"activity:{n}"
+        [(activity_id, activity)] = live(plan(backend, worker, until=lambda r, d=decision: live(r, d)), decision)
+        assert activity["scope"] == "ACTIVITY_DECISION" and len(activity["terms"]["selected"]) == 1
+        chosen.append(activity["terms"]["selected"][0]["title"])
+        agree(backend, activity_id)
+    assert len(set(chosen)) == 3, "never the same activity twice"
+    drain(backend, worker, onboarding_only=False)
+    report = backend.shared_report()
+    assert not live(report) and any(j["outcome"] == "ALL_DECIDED" for j in report["jobs"])
+
+
+def test_qa_02_a_lower_budget_replans_only_what_isnt_agreed(qa):
+    backend, worker, _ = qa
+    [(flight_id, flights)] = live(plan(backend, worker), "flight")
+    agree(backend, flight_id)
+    [(old_stay_id, _)] = live(plan(backend, worker, until=lambda r: live(r, "stay")), "stay")
+    change = PERSONAS["changes"]["QA-02"]
+    backend.say("Alex", change["says"])
+    drain(backend, worker)
+    [pending] = [p for p in backend.patches_of("Alex") if p["state"] == "PENDING"]
+    assert (pending["patch"]["key"], pending["patch"]["value"]) == ("trip_budget_total", 90000)
+    backend.confirm_patch("Alex", pending["id"])
+    report = plan(backend, worker, until=lambda r: live(r, "stay"))
+    [(stay_id, stay)] = live(report, "stay")
+    proposals = report["proposals"]
+    assert stay_id != old_stay_id and proposals[old_stay_id]["state"] == "STALE", "the pending stay was out of date"
+    assert proposals[flight_id]["state"] == "AGREED", "the agreed flights still fit $900, so they stand"
+    alex_flight = picks(flights)["Alex"]["total_cents"]
+    assert alex_flight + stay["terms"]["selected"][0]["total_cents"] / 4 <= 90000
+
+
+def test_qa_05_what_is_saved_matches_what_is_true_now(qa):
+    backend, worker, _ = qa
+    [(flight_id, _)] = live(plan(backend, worker), "flight")
+    agree(backend, flight_id)
+    [(stay_id, _)] = live(plan(backend, worker, until=lambda r: live(r, "stay")), "stay")
+    backend.respond("Bella", stay_id, "ACCEPT")  # one approval, then the room changes
+    backend.say("Alex", PERSONAS["changes"]["QA-02"]["says"])
+    drain(backend, worker)
+    backend.confirm_patch("Alex", next(p["id"] for p in backend.patches_of("Alex") if p["state"] == "PENDING"))
+    report = plan(backend, worker, until=lambda r: live(r, "stay"))
+    proposals = report["proposals"]
+    # One live version per decision; old versions don't count; approvals never carry over.
+    assert len(live(report, "stay")) == 1 and proposals[stay_id]["state"] == "STALE"
+    [(new_stay_id, new_stay)] = live(report, "stay")
+    assert not new_stay.get("responses"), "Bella's yes was for the old version"
+    # The commitments are exactly the agreed decisions, with their picks.
+    agreed = {p["decision_id"]: {c["id"] for c in p["terms"]["selected"]} for p in proposals.values() if p["state"] == "AGREED"}
+    assert agreed == {"flight": {c["id"] for c in proposals[flight_id]["terms"]["selected"]}}
+    assert {c["owner"] for c in proposals[flight_id]["terms"]["selected"]} == set(NAMES), "one flight each, to its owner"
