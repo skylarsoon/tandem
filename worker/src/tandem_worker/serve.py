@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import date, timedelta
 from typing import Literal
 from pathlib import Path
@@ -145,7 +146,10 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
 
     def run(job):
         try:
-            return {"job": job["id"], "kind": job["kind"], "room": job["room_id"], **worker.run_one(str(job["id"]))}
+            budget = (providers.model.job_budget(job["room_id"], job["id"])
+                      if isinstance(providers.model, ClaudeModel) else nullcontext())
+            with budget:
+                return {"job": job["id"], "kind": job["kind"], "room": job["room_id"], **worker.run_one(str(job["id"]))}
         except ContractError as error:
             if error.code not in {"JOB_NOT_ELIGIBLE", "THREAD_ALREADY_RUNNING", "STALE_SNAPSHOT"}:
                 raise

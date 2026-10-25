@@ -63,6 +63,46 @@ def test_shared_budget_survives_new_client_and_blocks_hidden_retry(live_case):
     assert len(live_case.claude.requests) == 2
 
 
+def test_server_job_budgets_are_independent_and_survive_restart(live_case):
+    model, _ = make_model(live_case, max_calls=2)
+    # Existing service-wide usage must not block new jobs.
+    model.decide({})
+    model.decide({})
+    for room, job in [(1, 1), (1, 2), (2, 1)]:
+        with model.job_budget(room, job):
+            assert model.decide({}) == Decision()
+            assert model.decide({}) == Decision()
+            with pytest.raises(ContractError, match="MODEL_CALL_BUDGET_EXHAUSTED"):
+                model.decide({})
+    restarted, _ = make_model(live_case, max_calls=2)
+    with restarted.job_budget(1, 1):
+        with pytest.raises(ContractError, match="MODEL_CALL_BUDGET_EXHAUSTED"):
+            restarted.decide({})
+    # Leaving a job restores the original budget.
+    with pytest.raises(ContractError, match="MODEL_CALL_BUDGET_EXHAUSTED"):
+        model.decide({})
+    assert len(live_case.claude.requests) == 8
+
+
+def test_concurrent_server_jobs_keep_separate_budgets(live_case):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    model, _ = make_model(live_case, max_calls=1)
+    barrier = Barrier(2)
+
+    def run(job):
+        with model.job_budget(1, job):
+            barrier.wait(timeout=5)
+            assert model.decide({}) == Decision()
+            with pytest.raises(ContractError, match="MODEL_CALL_BUDGET_EXHAUSTED"):
+                model.decide({})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(run, [1, 2]))
+    assert len(live_case.claude.requests) == 2
+
+
 @pytest.mark.parametrize("stop,code", [("refusal", "CLAUDE_REFUSED"), ("max_tokens", "CLAUDE_TRUNCATED")])
 def test_refusal_and_truncation_are_explicit(live_case, stop, code):
     live_case.claude.overrides = [SimpleNamespace(stop_reason=stop, id="test", usage=None)]

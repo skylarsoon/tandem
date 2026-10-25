@@ -8,7 +8,7 @@ from .contracts import ContractError
 
 
 class ProviderBudget:
-    def __init__(self, path, scope, *, model_calls=4, actor_runs=1):
+    def __init__(self, path, scope, *, model_calls=100, actor_runs=1):
         self.path, self.scope = str(path), scope
         self.limits = {"claude": model_calls, "apify": actor_runs}
         with sqlite3.connect(self.path) as conn:

@@ -181,11 +181,20 @@ local budgets include retries and persist across client/process recreation; they
 are attempt limits, not a dollar estimate for Claude.
 
 Default live limits are one Actor run with `maxTotalChargeUsd=1` where supported,
-ten collected results, four Claude message attempts, 512 output tokens/message,
+ten collected results, 100 Claude message attempts, 4096 output tokens/message,
 30-second request timeouts, a two-minute Actor polling deadline and 15-minute local
 evidence freshness. Actor charge caps do not establish a universal total-cost
 guarantee for every provider charge category. SDK retries are disabled; transient
 Claude retries, corrections and voice regeneration share the same message budget.
+
+For the room-driven server (`serve` without an operator config containing
+`searches`), `limits.model_calls` applies separately to each job, including
+PROFILE, INTAKE, INTERPRET and PLAN. Attempts persist in `providers.sqlite` across
+restarts and retries of that job; unrelated jobs and rooms have independent
+allowances. Actor-run limits remain shared by the server. Operator-configured
+live runs and smoke tests retain their execution-wide provider budgets.
+`live.example.json` explicitly caps smoke tests at four model calls; normal live
+configuration defaults to 100 and can set `limits.model_calls` up to 500.
 
 ### Provider details and teammate handoff
 

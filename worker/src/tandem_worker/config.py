@@ -16,7 +16,7 @@ from .contracts import Brief, ContractError, Record
 
 
 class LiveLimits(Record):
-    model_calls: int = Field(default=4, ge=1, le=500)
+    model_calls: int = Field(default=100, ge=1, le=500)
     actor_runs: int = Field(default=1, ge=1, le=20)
     # Includes the model's reasoning tokens, not just the JSON answer.
     max_output_tokens: int = Field(default=4096, ge=128, le=8192)

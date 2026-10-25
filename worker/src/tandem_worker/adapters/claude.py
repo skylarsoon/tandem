@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from types import SimpleNamespace
 
 from pydantic import ValidationError
@@ -46,6 +48,23 @@ class ClaudeModel:
         self.max_tokens, self.timeout, self.pause = max_tokens, timeout, pause
         self.calls = 0
         self.metrics = []
+        self._job_budget = ContextVar("claude_job_budget", default=None)
+
+    @contextmanager
+    def job_budget(self, room_id, job_id):
+        """Isolate server jobs while retaining attempts across retries/restarts."""
+        from ..budget import ProviderBudget
+        from ..contracts import digest
+
+        if self.budget is None:
+            raise ValueError("DURABLE_JOB_BUDGET_REQUIRED")
+        budget = ProviderBudget(self.budget.path, digest([self.budget.scope, "job", str(room_id), str(job_id)]),
+            model_calls=self.budget.limits["claude"], actor_runs=self.budget.limits["apify"])
+        token = self._job_budget.set(budget)
+        try:
+            yield
+        finally:
+            self._job_budget.reset(token)
 
     def check_access(self):
         try:
@@ -57,10 +76,11 @@ class ClaudeModel:
         return {"model": self.model, "resolved_model": record.id, "access": "OK"}
 
     def _structured(self, context, schema, instruction, kind):
+        budget = self._job_budget.get() or self.budget
         for attempt in range(3):
-            if self.budget:
-                self.budget.reserve("claude")
-            elif self.calls >= 4:
+            if budget:
+                budget.reserve("claude")
+            elif self.calls >= 100:
                 raise ContractError("MODEL_CALL_BUDGET_EXHAUSTED")
             self.calls += 1
             started = time.monotonic()
@@ -115,8 +135,8 @@ class ClaudeModel:
                         code = "INVALID_MODEL_OUTPUT"
             metric.update(latency_ms=round((time.monotonic() - started) * 1000), outcome=code or "OK")
             self.metrics.append(metric)
-            if self.budget:
-                self.budget.record(**metric)
+            if budget:
+                budget.record(**metric)
             if code is None:
                 return result
             if code in {"CLAUDE_RATE_LIMITED", "CLAUDE_UNAVAILABLE", "CLAUDE_TIMEOUT", "CLAUDE_CONNECTION_FAILED"} and attempt < 2:
