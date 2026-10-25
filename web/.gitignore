@@ -12,3 +12,4 @@ next-env.d.ts
 /public/vision/wasm/
 
 .vercel/
+.vercel
