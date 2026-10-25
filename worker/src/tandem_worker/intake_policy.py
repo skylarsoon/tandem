@@ -29,6 +29,9 @@ NONSTOP = ("nonstop", "non-stop", "direct", "no connection", "no layover", "no s
 AMOUNT = re.compile(r"\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k\b|K\b)?")
 
 
+NUMBER_WORDS = {"no": 0, "zero": 0, "one": 1, "a single": 1, "two": 2, "three": 3}
+
+
 def amounts(text: str) -> set[float]:
     """Dollar figures mentioned in text: "$1,200", "900", "1.5k"."""
     found = set()
@@ -36,6 +39,12 @@ def amounts(text: str) -> set[float]:
         value = float(number.replace(",", ""))
         found.add(value * 1000 if thousands else value)
     return found
+
+
+def counts(text: str) -> set[float]:
+    """Numbers mentioned in text, small ones in words too ("no more than one stop")."""
+    lowered = f" {text.lower()} "
+    return amounts(text) | {float(v) for w, v in NUMBER_WORDS.items() if f" {w} " in lowered}
 
 
 def mentions(text: str, cues: tuple[str, ...]) -> bool:
@@ -75,7 +84,7 @@ def check_item(item: IntakeItem, said: str) -> str | None:
         return None if item.interpreted or all(t is None or t in quote for t in times) else "NUMBER_NOT_SAID"
     if item.key == "max_stops":
         ok = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 3
-        stated = str(value) in quote or (value == 0 and mentions(quote, NONSTOP))
+        stated = float(value) in counts(quote) or (value == 0 and mentions(quote, NONSTOP))
         return None if ok and (item.interpreted or stated) else "BAD_VALUE"
     if item.key == "trip_note":
         return None if isinstance(value, str) and 0 < len(value) <= 200 else "BAD_VALUE"
@@ -104,7 +113,7 @@ def _check_rule(item: IntakeItem, said: str) -> str | None:
         elif kind == "date":  # "November 21" or "the 21st" states 2026-11-21's day
             stated = float(date.fromisoformat(v).day) in amounts(quote)
         elif kind in ("int", "number", "epoch"):
-            stated = any(abs(f - v) < 0.01 for f in amounts(quote))
+            stated = any(abs(f - v) < 0.01 for f in counts(quote))
         else:
             stated = str(v).lower() in quote.lower()
         if not stated and not item.interpreted:

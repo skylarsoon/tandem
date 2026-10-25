@@ -128,3 +128,9 @@ def test_dates_that_dont_work_are_followed_up_and_own_dates_answer_them():
     assert coverage["dates"] == "ANSWERED"
     assert {i.rule["value"] for i in kept} == {"2026-11-21", "2026-11-24"}, "a day they never said is dropped"
     assert describe(kept[0]) == "Flight: departure date at least Nov 21"
+
+
+def test_a_number_said_in_words_counts_as_said():
+    said = "I'd prefer no more than one stop, but that's flexible."
+    [kept] = verify(IntakeExtraction(items=(item("max_stops", 1, "I'd prefer no more than one stop", hardness="SOFT"),)), ctx(said))[0]
+    assert (kept.value, kept.hardness) == (1, "SOFT")
