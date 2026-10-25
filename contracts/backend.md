@@ -230,6 +230,43 @@ New constraint keys: `origin_airport` (IATA), `arrival_window` (`{"earliest": "H
 
 ---
 
+## 6d. Rules: one language for what people need
+
+Design: `docs/superpowers/specs/2026-10-24-generic-rules-design.md`. What people need is stored and checked as data. No module or worker code names a particular limit.
+
+**The catalogs**, in `contracts/`. Edit them there, then run `scripts/sync-catalogs.py`, which copies them to the module, the web app and the worker.
+- `attributes.json`: what candidates of each category carry, with types (money, int, number, bool, time, epoch, text), plus totals such as `my_cost`.
+- `decisions.json`: who picks each category (`one_per_person` / `one_for_group`), who pays (`each` / `split` / `per_person`), and group rules such as "land within the room's window".
+- `legacy_keys.json`: how the 12 old named limits become rules, needs and search facts.
+
+**Rules and evaluation**
+- **A rule:** `{category, attribute | aggregate, operator, value, kind}`. Operators are `eq, neq, lt, lte, gt, gte, in, not_in, between`; a `between` on times may wrap midnight.
+- **Outcomes:** evaluation answers `SATISFIED / VIOLATED / UNKNOWN / NOT_APPLICABLE`. A missing fact is `UNKNOWN`, which publication refuses.
+- **One meaning:** `spacetimedb/src/rules.ts` and `worker/.../rules.py` both pass `contracts/rule_cases.json`, and they agree with the optimizer's own evaluator.
+
+**Tables** (private): `participant_rule`, `participant_need`, `search_fact`.
+- Every confirmed named limit is mirrored into them; confirming it again replaces what it produced.
+- A `SOFT` limit is a preference and isn't enforced, unless `enforce_soft` is set, as it is for bags.
+- A flexible budget is firm at the top of its authorized range.
+- A cleared value (set aside) produces nothing.
+
+**Calls**
+- `add_rule(roomId, ruleJson, sourceQuote?)`: owner; the rule is checked against the catalog (`INVALID_RULE`).
+- `remove_rule(ruleId)`.
+- `set_rule_state(ruleId, active|set_aside|kept)`.
+- A constraint patch may carry `{"rule": {...}, "source_quote"}` instead of a named key. It's validated when proposed and applied on confirmation. Any money rule covers onboarding's money topic.
+
+**Publication** checks, with the shared evaluator:
+- each traveller's rules on their own pick, and everyone's rules on shared picks;
+- what shared picks must hold: explicit needs, plus attributes a room setting shares (bedrooms by `people_per_bedroom`);
+- `my_cost` limits.
+
+**Worker access**
+- The job context carries `rules`, `needs` and `search_facts`; `my_rules` shows your own.
+- The worker reads them through `read_rules` and never checkpoints them.
+- The shortlist and the generic compiler (`compiler.py`) use them.
+- `tandem-worker optimizer-report` writes `docs/optimizer/scenarios.md`: every scenario step by step, with the optimizer checked against an independent recount and compared with `TripSolver`.
+
 ## 6c. Profile onboarding (persistent, across rooms)
 
 "Let your agent get to know you": a short core flow (9 questions), then optional sections. All questions, options and limits live in **`contracts/profile_questions.json`** (version 1, 46 questions). It's the single source: run `scripts/sync-catalogs.py` after editing it, and it copies the catalog to the module (`spacetimedb/src/profile_catalog.ts`), the web app (`web/lib/profile_catalog.ts`) and the worker. A test fails if a copy is stale. The web page is `/profile`.

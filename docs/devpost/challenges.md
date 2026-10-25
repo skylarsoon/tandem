@@ -134,6 +134,10 @@ Agreeing one part also queues planning of the next.
 
 The risk was a heuristic quietly turning into a verdict. "No plan among these five" isn't "no plan exists", so an infeasible shortlist is redone with flights it hadn't tried before Tandem searches again, and the "no plan" message counts how many options it checked. Someone with no usable flight at all is told why, privately, instead of being planned around.
 
+**Every new limit meant code in six places.** "Max one stop" was a named key that the database, the solver, the shortlist, the explanations, onboarding and the optimizer's adapter each interpreted in their own code. Now a limit is data: a category, an attribute, an operator and a value, stored with the person's own words. The database and the worker each have one evaluator, and both must give identical answers on a shared test file. A test fails if the compiler that feeds the optimizer ever names a category, and on its first run it caught two room settings we'd hard-coded.
+
+**Cheapest isn't fair.** Making the optimizer's steps visible showed something the tests had missed. With fairness still switched off, it saves the group $10 by making one person pay $90 extra, where the old solver spreads $50 across two people. So the old solver stays the default until people tell us how much each thing matters to them.
+
 **Adding an argument broke every caller at once.** SpacetimeDB rejects a call that is missing an argument ("missing reducer argument `burdens`"), so adding one to `publish_proposal` broke the simulator, the worker and the tests together. Every caller is now updated in the same commit, and the module and the worker have to be deployed together.
 
 ## Honest limits

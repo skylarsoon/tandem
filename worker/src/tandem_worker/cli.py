@@ -114,6 +114,9 @@ def _main():
     serve_parser.add_argument("--port", type=int, default=8080)
     serve_parser.add_argument("--poll-interval", type=float, default=3)
     serve_parser.add_argument("--settle-seconds", type=float, default=2)
+    report = sub.add_parser("optimizer-report", help="Transparent optimizer runs over the fixture scenarios (Markdown)")
+    report.add_argument("--scenario", action="append", help="Only these scenarios (repeatable)")
+    report.add_argument("--out", type=Path, help="Write here instead of printing")
     intake = sub.add_parser("intake", help="Onboarding simulations")
     intake_actions = intake.add_subparsers(dest="intake_action", required=True)
     simulate_parser = intake_actions.add_parser("simulate", help="Claude plays each persona against the live worker")
@@ -131,6 +134,15 @@ def _main():
             parser.error("an operator live config plans exactly one --room")
         serve_live(load_config(args.config), load_settings(args.env_file), args.state_dir, args.room[0],
                    host=args.host, port=args.port, poll_interval=args.poll_interval, settle_seconds=args.settle_seconds)
+        return
+    if args.command == "optimizer-report":
+        from .fixtures import FRICTION
+        from .trace import report as optimizer_report
+        text = optimizer_report(args.scenario or ["happy", *FRICTION, "fair-split"])
+        if args.out:
+            args.out.write_text(text + "\n")
+        else:
+            print(text)
         return
     if args.command in {"serve", "intake"}:
         from .config import load_settings
