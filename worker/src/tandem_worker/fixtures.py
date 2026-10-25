@@ -156,6 +156,9 @@ class ScriptedModel:
     def profile_summary(self, context):
         return ProfileSummary(summary="You: " + " ".join(f.rstrip(".") + "." for f in context["facts"])[:1100])
 
+    def recover(self, context):
+        raise ValueError("scripted agents use the fixed recovery wording")
+
 
 # ---------- Onboarding personas ----------
 

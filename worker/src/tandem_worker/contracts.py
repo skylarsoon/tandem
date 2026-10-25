@@ -313,14 +313,49 @@ class Question(Record):
     id: str
     owner: str
     version: int = 1
-    kind: Literal["PARTICIPATION", "DISCLOSURE", "CONSULTATION", "EXPLORE", "MISSING_FACT"]
+    kind: Literal["PARTICIPATION", "DISCLOSURE", "CONSULTATION", "EXPLORE", "MISSING_FACT", "RECOVERY"]
     action_ref: str
     snapshot_ref: str
-    answer: bool | None = None
+    # Yes or no; for RECOVERY, the id of the choice they picked.
+    answer: bool | str | None = None
     # Owner-only wording of exactly what is being asked (never shown to the room).
     prompt: str = ""
     # A just-in-time question: the constraint each answer records, {"yes": patch, "no": patch}.
     nudge: dict | None = None
+    # CONSULTATION: the option it's about, remembered if they say no (see Declined).
+    option: dict | None = None
+    # RECOVERY: the ways forward offered ({id, label, kind, ...}), for which decision, and a
+    # digest of the person's own rules when asked (a pause holds until those change).
+    choices: tuple[dict, ...] = ()
+    decision_id: str = ""
+    rules_ref: str = ""
+
+
+class Declined(Record):
+    """An option someone said no to, remembered across replans. Private to them."""
+    owner: str
+    decision_id: str
+    key: str  # the option, stable across searches (recovery.option_key)
+    price_cents: int | None = None
+    # Their preferences it didn't meet when they said no: {category, attribute, operator, value}.
+    unmet: tuple[dict, ...] = ()
+    reason: str = ""  # their own why, if they gave one
+    seq: int = 0  # answer order
+
+
+class RecoveryAnswer(Record):
+    """A way forward someone picked after saying no to every option for a decision."""
+    owner: str
+    decision_id: str
+    rules_ref: str
+    choice: dict
+    seq: int = 0
+
+
+class RecoveryPrompt(Record):
+    """Their agent's question after they said no to everything: which way forward."""
+    prompt: str
+    recommended: str | None = None  # one of the offered choice ids, if what they said points to it
 
 
 class Impact(Record):
@@ -468,8 +503,9 @@ class ResearchRequest(Record):
     permission_revision: int
     observed_at: float
     blocker_message_ref: str = ""
+    # DECLINED: someone said no to every option and asked for another search (recovery.py).
     blocker_code: Literal["NONE", "HARD_LIMIT", "BAGGAGE_UNKNOWN", "MISSING_FACT", "NO_MATCHING_CANDIDATE", "ARRIVAL_OVERLAP",
-                          "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE"] = "NONE"
+                          "STAY_UNAVAILABLE", "TRANSFER_UNAVAILABLE", "DECLINED"] = "NONE"
     # Which categories to search; flights are per target owner, the others are shared.
     categories: tuple[Category, ...] = ("FLIGHT",)
     # Onboarded rooms search from people's answers; other rooms use configured searches.
@@ -656,3 +692,6 @@ class IntakeContext(Record):
     # Their persistent profile answers (question id -> value): defaults to offer
     # for this trip, never to assume.
     profile: dict = Field(default_factory=dict)
+    # A question their agent is waiting on after they said no to every option:
+    # {"prompt", "choices": [{id, label, ...}]}. A reply that changes nothing is pointed back to it.
+    open_recovery: dict | None = None

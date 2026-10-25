@@ -9,7 +9,8 @@ from types import SimpleNamespace
 
 from pydantic import ValidationError
 
-from ..contracts import BriefDraft, ContractError, Decision, IntakeExtraction, IntakeQuestion, ProfileSummary, VoiceDraft
+from ..contracts import (BriefDraft, ContractError, Decision, IntakeExtraction, IntakeQuestion, ProfileSummary, RecoveryPrompt,
+                         VoiceDraft)
 
 
 def error_code(error):
@@ -160,6 +161,19 @@ class ClaudeModel:
             "their own profile and the summary they confirmed, and `their_rules` what they told you for this trip in their own "
             "words: judge the plan as they would (what they care about, how they like to be involved), within their limits. "
             "Both are private: never repeat them to anyone but your owner.", "decision")
+
+    def recover(self, context):
+        return self._structured(context, RecoveryPrompt,
+            "You are this person's own trip agent, writing to them privately. They said no to every option you asked "
+            "them about for this decision (`declined`: each option, which of their preferences it missed, and their own "
+            "reason if they gave one). Work out what they most likely object to, from their reasons, `their_rules` (their "
+            "own words) and `persona` (who they are, from the profile they confirmed). Write ONE short message (two or three "
+            "sentences, containing a question) that names the real trade-off in plain words and asks which of `choices` "
+            "they'd take. If what they said clearly points to one choice, set recommended to its id and say why in their "
+            "terms; if it's unclear, ask the one question that would tell you, still pointing to the choices, and leave "
+            "recommended empty. Refer only to the given choices: never invent options, prices, dates or promises, never "
+            "pressure them, never mention anyone else. If `nothing_left` is true, say plainly that nothing found works "
+            "for what they've told you and that pausing holds this decision until something changes.", "recover")
 
     def voice(self, context):
         return self._structured(context, VoiceDraft,

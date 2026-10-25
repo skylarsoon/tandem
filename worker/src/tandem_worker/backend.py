@@ -12,8 +12,8 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .contracts import (TOPICS, Brief, Candidate, Claim, ContractError, IntakeContext, IntakeMessage, Limits, Message,
-                        Preferences, Question, Snapshot, TripBrief, ValidationReport, digest)
+from .contracts import (TOPICS, Brief, Candidate, Claim, ContractError, Declined, IntakeContext, IntakeMessage, Limits, Message,
+                        Preferences, Question, RecoveryAnswer, Snapshot, TripBrief, ValidationReport, digest)
 from .briefs import NO_CONFIRMED_CAP, apply_row
 from .intake_policy import MAX_QUESTIONS, MONEY_KEYS
 from .ports import Clock, SystemClock
@@ -328,14 +328,29 @@ class LocalBackend:
             return tuple(owner for owner in state["snapshot"]["members"]
                 if state.get("refusals", {}).get(f"{owner}:{draft_ref}") == revisions)
 
-    def answer_question(self, owner, question_id, version, answer, request_key):
-        if not isinstance(answer, bool):
-            raise ContractError("INVALID_ANSWER")
+    def declines(self, claim):
+        with self._tx() as state:
+            self._checked(state, claim)
+            return [Declined.model_validate(d) for d in state.get("declines", []) if d["owner"] in state["snapshot"]["members"]]
+
+    def recovery_answers(self, claim):
+        with self._tx() as state:
+            self._checked(state, claim)
+            return [RecoveryAnswer.model_validate(a) for a in state.get("recovery_answers", [])
+                    if a["owner"] in state["snapshot"]["members"]]
+
+    def answer_question(self, owner, question_id, version, answer, request_key, reason=None):
         with self._tx() as state:
             question = state["questions"][question_id]
             if owner != question["owner"] or owner not in state["snapshot"]["members"]:
                 raise ContractError("NOT_AUTHORIZED")
-            body = dict(question=question_id, version=version, answer=answer)
+            recovery = question["kind"] == "RECOVERY"
+            picked = next((c for c in question.get("choices") or () if c["id"] == answer), None) if recovery else None
+            if (recovery and picked is None) or (not recovery and not isinstance(answer, bool)):
+                raise ContractError("INVALID_ANSWER")
+            if reason is not None and (not isinstance(reason, str) or len(reason) > 500):
+                raise ContractError("INVALID_ANSWER")
+            body = dict(question=question_id, version=version, answer=answer, reason=reason)
             key = f"answer:{owner}:{request_key}"
             old = self._receipt(state, key, body)
             if old:
@@ -345,16 +360,33 @@ class LocalBackend:
             if question["answer"] is not None:
                 raise ContractError("ALREADY_ANSWERED")
             question["answer"] = answer
+            state["answer_seq"] = state.get("answer_seq", 0) + 1
+            if recovery:
+                # What they picked is remembered for this decision. A change is confirmed like
+                # any other (kept as a patch) and the room replans; anything else resumes the job.
+                state.setdefault("recovery_answers", []).append(dict(owner=owner, decision_id=question["decision_id"],
+                    rules_ref=question["rules_ref"], choice=picked, seq=state["answer_seq"]))
+                if picked.get("patches"):
+                    board = self._onboarding(state)
+                    for patch in picked["patches"]:
+                        board["patches"].append({"id": len(board["patches"]) + 1, "owner": owner, "patch": patch,
+                                                 "source_message_id": None, "state": "CONFIRMED"})
+                        self._apply(state, owner, patch)
+                    self._supersede(state, "input_revision")
+                    return self._record(state, key, body, question_id)
             if question.get("nudge"):
                 # A just-in-time answer is the owner's confirmed constraint; the waiting
                 # job resumes and re-plans with it (no restart, so others' questions stand).
                 self._apply(state, owner, question["nudge"]["yes" if answer else "no"])
-            if not answer and question["kind"] == "CONSULTATION":
+            if answer is False and question["kind"] == "CONSULTATION":
                 state.setdefault("refusals", {})[f"{owner}:{question['action_ref']}"] = [
                     state["snapshot"]["input_revision"], state["snapshot"]["membership_revision"]]
+                if question.get("option"):  # remembered across replans, with their why if they gave one
+                    state.setdefault("declines", []).append(dict(owner=owner, **question["option"], reason=reason or "",
+                                                                 seq=state["answer_seq"]))
             # Disclosure/consultation answers are action grants. They invalidate
             # old execution authority, never create final proposal consent.
-            if answer and question["kind"] in {"DISCLOSURE", "CONSULTATION", "EXPLORE", "PARTICIPATION"}:
+            if answer is True and question["kind"] in {"DISCLOSURE", "CONSULTATION", "EXPLORE", "PARTICIPATION"}:
                 if question["kind"] == "PARTICIPATION":
                     prefs = state["briefs"][owner]["preferences"]
                     prefs.update(confirmed=True, revision=prefs["revision"] + 1)
@@ -799,7 +831,13 @@ class LocalBackend:
                 confirmed_keys=tuple(board["constraints"].get(owner, {})), intake_state=intake.get("state"),
                 coverage=intake.get("coverage", {}), question_count=intake.get("question_count", 0),
                 preferences_confirmed=state["briefs"][owner]["preferences"]["confirmed"],
-                profile=state.get("profiles", {}).get(owner, {}))
+                profile=state.get("profiles", {}).get(owner, {}), open_recovery=self._open_recovery(state, owner))
+
+    @staticmethod
+    def _open_recovery(state, owner):
+        found = [q for q in state.get("questions", {}).values() if q["owner"] == owner and q["kind"] == "RECOVERY"
+                 and q["answer"] is None and q["snapshot_ref"] == digest(state["snapshot"])]
+        return {"prompt": found[-1]["prompt"], "choices": list(found[-1]["choices"])} if found else None
 
     def propose_patch(self, claim, owner, patch, source_message_id, key):
         with self._tx() as state:

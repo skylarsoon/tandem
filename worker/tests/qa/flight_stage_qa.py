@@ -21,7 +21,7 @@ import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 
 HERE = Path(__file__).resolve()
 ROOT = HERE.parents[3]
@@ -34,11 +34,11 @@ from tandem_worker.adapters.claude import ClaudeModel  # noqa: E402
 from tandem_worker.adapters.spacetime import StdbHttp, some  # noqa: E402
 from tandem_worker.budget import ProviderBudget  # noqa: E402
 from tandem_worker.config import LiveLimits, load_settings  # noqa: E402
-from tandem_worker.contracts import digest  # noqa: E402
+from tandem_worker.contracts import Record, digest  # noqa: E402
 from tandem_worker.live import CheckedResearch, Providers  # noqa: E402
 from tandem_worker.optimizer_bridge import TandemOptimizerBridge  # noqa: E402
 from tandem_worker.serve import ServeConfig, serve  # noqa: E402
-from tandem_worker.simulate import TravellerAnswer, TravellerReply  # noqa: E402
+from tandem_worker.simulate import TravellerReply  # noqa: E402
 
 NAMES = offline.NAMES
 ORGANIZER = offline.PERSONAS["organizer"]
@@ -47,6 +47,15 @@ TABLES = ("room", "membership", "trip_brief", "intake", "private_message", "cons
           "profile_calibration", "question", "job", "proposal", "proposal_decision", "participant_impact", "consent",
           "proposal_burden", "compromise_entry", "decision_event", "milestone")
 SOLVES: list[dict] = []
+
+
+class TravellerVerdict(Record):
+    yes: bool
+    why: str = Field(default="", max_length=200)  # with a no: their reason, in a few words
+
+
+class TravellerChoice(Record):
+    choice: str
 
 
 class RecordingBridge(TandemOptimizerBridge):
@@ -93,8 +102,19 @@ class Persona:
         return self.model._structured(context, TravellerReply, self.system(room) + " Write your next message.", "traveller").reply
 
     def answer(self, room, question):
-        return self.model._structured({"question": question}, TravellerAnswer,
-            self.system(room) + " Your agent asks a yes/no question; answer as you truly would.", "traveller").yes
+        """Yes or no, as they truly would; with a no, their reason in a few words."""
+        verdict = self.model._structured({"question": question}, TravellerVerdict,
+            self.system(room) + " Your agent asks a yes/no question; answer as you truly would. If you say no, put your "
+            "reason in a few words in why.", "traveller")
+        return verdict.yes, verdict.why.strip()
+
+    def choose(self, room, question, choices):
+        """After saying no to everything, the way forward they'd truly take."""
+        ids = [c["id"] for c in choices]
+        picked = self.model._structured({"question": question, "choices": [{"id": c["id"], "label": c["label"]} for c in choices]},
+            TravellerChoice, self.system(room) + " Your agent asks which way forward you'd take. Reply with the id of the "
+            "one choice you'd truly pick.", "traveller").choice
+        return picked if picked in ids else "pause"
 
 
 def spacetime(*args):
@@ -221,14 +241,27 @@ class Run:
                     self.call(name, "confirm_constraint_patch", patch_id=p["id"])
                     did = True
         for q in self.mine(name, "my_questions", room):
-            if q["state"] == "OPEN":
-                yes = self.personas[name].answer(room, q["prompt"])
+            if q["state"] == "OPEN" and q["kind"] == "PLAN_RECOVERY":
+                choices = json.loads(q["action_json"])["choices"]
+                picked = self.personas[name].choose(room, q["prompt"], choices)
+                label = next(c["label"] for c in choices if c["id"] == picked)
+                self.call(name, "answer_question", question_id=q["id"], version=q["version"],
+                          answer_json=json.dumps({"choice": picked}))
+                self.personas[name].extra.setdefault(room, []).append(f"(you picked: {label})")
+                self.log.append({"room": key, "who": name, "kind": q["kind"], "asked": q["prompt"],
+                                 "offered": [c["label"] for c in choices], "picked": picked, "label": label})
+                did = True
+            elif q["state"] == "OPEN":
+                yes, why = self.personas[name].answer(room, q["prompt"])
                 action = json.loads(q["action_json"])
                 payload = ({"answer": yes, "constraint": action["nudge"]["yes" if yes else "no"]} if action.get("nudge")
-                           else {"granted": yes} if q["kind"] in ("CONCESSION_CONSULTATION", "OBJECTION_DISCLOSURE", "BROADER_EXPLORATION")
+                           else {"granted": yes, **({"reason": why} if not yes and why else {})}
+                           if q["kind"] in ("CONCESSION_CONSULTATION", "OBJECTION_DISCLOSURE", "BROADER_EXPLORATION")
                            else {"answer": yes})
                 self.call(name, "answer_question", question_id=q["id"], version=q["version"], answer_json=json.dumps(payload))
-                self.log.append({"room": key, "who": name, "kind": q["kind"], "asked": q["prompt"], "yes": yes})
+                self.log.append({"room": key, "who": name, "kind": q["kind"], "asked": q["prompt"], "yes": yes,
+                                 **({"why": why} if not yes and why else {}),
+                                 **({"option": action["option"]["key"]} if action.get("option") else {})})
                 did = True
         if accept_from:
             for p in self.mine(name, "room_proposals", room):
@@ -285,7 +318,8 @@ def main():
     run.room("A")
     run.room("B")
     run.room("C", variant="bella_pricey_nonstop")
-    planned = lambda k: bool(run.proposals(k, "flight")) or bool(run.events(k, "NO_FEASIBLE_PLAN"))  # noqa: E731
+    planned = lambda k: (bool(run.proposals(k, "flight")) or bool(run.events(k, "NO_FEASIBLE_PLAN"))  # noqa: E731
+                         or bool(run.events(k, "STAGE_ON_HOLD")))
     ok_initial = run.settle("ABC", planned)
     run.rows("01-initial")
 

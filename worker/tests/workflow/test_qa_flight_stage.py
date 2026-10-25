@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tandem_worker.backend import LocalBackend
-from tandem_worker.contracts import BriefDraft, Candidate, IntakeExtraction, TripBrief
+from tandem_worker.contracts import BriefDraft, Candidate, IntakeExtraction, RecoveryPrompt, TripBrief
 from tandem_worker.fixtures import ScriptedModel
 from tandem_worker.intake_policy import open_topics
 from tandem_worker.ports import FakeClock
@@ -105,7 +105,7 @@ def by_question_id(answers: dict) -> dict:
     return {ids[k]: v for k, v in answers.items() if v != "SKIPPED"}
 
 
-def make_room(tmp_path, variant=None):
+def make_room(tmp_path, variant=None, model=None):
     clock = FakeClock()
     backend = LocalBackend(tmp_path / "backend.sqlite", clock)
     backend.seed_trip(NAMES, organizer=PERSONAS["organizer"])
@@ -114,7 +114,7 @@ def make_room(tmp_path, variant=None):
         backend.set_profile(name, by_question_id(user["answers"]))
         backend.set_profile_summary(name, traveller(name)["summary"])
     research = QAResearch(variant)
-    return backend, Worker(backend, QAModel(), research, tmp_path / "checkpoints.sqlite", clock=clock), research
+    return backend, Worker(backend, model or QAModel(), research, tmp_path / "checkpoints.sqlite", clock=clock), research
 
 
 def drain(backend, worker, onboarding_only=True):
@@ -181,7 +181,9 @@ def plan(backend, worker, answer=no_bag, until=None):
         for name in NAMES:
             for q in backend.owner_questions(name):
                 if q.answer is None:
-                    backend.answer_question(name, q.id, q.version, answer(name, q), "a-" + q.id)
+                    given = answer(name, q)  # yes/no or a choice id, or (no, why)
+                    value, reason = given if isinstance(given, tuple) else (given, None)
+                    backend.answer_question(name, q.id, q.version, value, "a-" + q.id, reason=reason)
     raise AssertionError("planning didn't settle")
 
 
@@ -414,17 +416,142 @@ def test_danas_vegetarian_need_comes_from_her_profile_and_waits_for_food(qa):
     assert picks(flights)["Dana"]["category"] == "FLIGHT"
 
 
-def test_saying_no_to_every_option_is_said_back_as_that(tmp_path):
-    """Live, Bella declined each compromise she was asked about; the note said "no fare with a
-    complete price was found", which wasn't true. It's her choice, and it's said back as hers."""
+# ---------- QA-04 follow-up: after saying no to every option ----------
+
+def declining_bella(log, pick=None, why="Too many stops, or too pricey"):
+    """Bella says no to every compromise she's asked about (with her why), and answers her
+    agent's question afterwards with pick(question) (a choice id)."""
+    def answer(name, question):
+        log.append((name, question.kind, question))
+        if name == "Bella" and question.kind == "CONSULTATION":
+            return False, why
+        if name == "Bella" and question.kind == "RECOVERY":
+            return pick(question)
+        return no_bag(name, question)
+    return answer
+
+
+def waiting_on_bella(backend):
+    return lambda report: any(q.kind == "RECOVERY" and q.answer is None for q in backend.owner_questions("Bella"))
+
+
+def on_hold(report):
+    return any(e["kind"] == "STAGE_ON_HOLD" for e in report["events"])
+
+
+def choice(question, words):
+    return next(c["id"] for c in question.choices if words in c["label"])
+
+
+class RecoveringModel(QAModel):
+    """Bella's agent words the question itself: it reads her reasons and points to a choice."""
+    def __init__(self):
+        super().__init__()
+        self.recoveries = []
+
+    def recover(self, context):
+        self.recoveries.append(json.loads(json.dumps(context)))
+        return RecoveryPrompt(prompt="You'd rather pay more than sit through layovers. Go up to $1,350 for the nonstop?",
+                              recommended="change-1")
+
+
+def test_qa_04_bella_says_what_she_would_change_and_gets_a_valid_plan(tmp_path):
+    """She declines all four options; her agent asks once, with concrete ways forward built from
+    what she declined; she picks one; the room replans and she gets a plan, never re-asked."""
+    model = RecoveringModel()
+    backend, worker, _ = make_room(tmp_path, variant="bella_pricey_nonstop", model=model)
+    onboard(backend, worker)
+    log = []
+    report = plan(backend, worker, answer=declining_bella(log, lambda q: choice(q, "fare at most $1,350")))
+    bella = [q for name, kind, q in log if name == "Bella"]
+    [recovery] = [q for q in bella if q.kind == "RECOVERY"]
+    consulted = [q for q in bella if q.kind == "CONSULTATION"]
+    assert len(consulted) == 4 and bella[-1] is recovery, "four no's, then one question, then nothing more to her"
+    # The ways forward come from what she declined: the smallest change that brings each kind back.
+    assert [c["label"] for c in recovery.choices] == [
+        "Flight: fare at most $1,350: that brings back HA1 LAX-HNL (nonstop, $1,350)",
+        "Flight: connections at most 1: that brings back UA2034 LAX-HNL (1 stop, $430)",
+        "Look at leaving a day later (Nov 21)", "Look for more options (a wider search)",
+        "Pause this for now; I'll pick it up when something you've told me changes"]
+    assert recovery.choices[0]["recommended"] is True and recovery.prompt.startswith("You'd rather pay more")
+    # Her agent read her own reasons and what each option missed; nobody else's.
+    [context] = model.recoveries
+    assert {d["their_reason"] for d in context["declined"]} == {"Too many stops, or too pricey"}
+    assert "Flight: fare at most $800" in context["declined"][0]["missed"] or any(
+        "Flight: fare at most $800" in d["missed"] for d in context["declined"])
+    assert not any(n in json.dumps(context) for n in ("Alex", "Chris", "Dana"))
+    # Her pick is a confirmed change, kept like any other.
+    [budget] = [p["patch"] for p in backend.patches_of("Bella") if p["state"] == "CONFIRMED"
+                and p["patch"].get("key") == "flight_budget_total" and p["patch"]["value"] == 135000]
+    assert budget["hardness"] == "SOFT"
+    # A new valid plan: the nonstop she'd now pay for, every hard limit kept.
+    [(_, flights)] = live(report, "flight")
+    assert picks(flights)["Bella"]["flight_identity"].startswith("HA1")
+    assert picks(flights)["Bella"]["total_cents"] <= 250000
+    # The room sees the plan as always (each flight and fare), never her reasons, limits or choices.
+    room = json.dumps(backend.shared_report())
+    assert "Too many stops" not in room and "fare at most" not in room and "brings back" not in room
+
+
+def test_a_no_is_remembered_when_someone_elses_change_replans(tmp_path):
+    """Alex's budget change replans the room: Bella isn't asked about the options she declined again."""
     backend, worker, _ = make_room(tmp_path, variant="bella_pricey_nonstop")
     onboard(backend, worker)
+    log = []
+    plan(backend, worker, answer=declining_bella(log, lambda q: "pause"), until=waiting_on_bella(backend))
+    before = len(log)
+    backend.say("Alex", PERSONAS["changes"]["QA-02"]["says"])
+    drain(backend, worker)
+    backend.confirm_patch("Alex", next(p["id"] for p in backend.patches_of("Alex") if p["state"] == "PENDING"))
+    plan(backend, worker, answer=declining_bella(log, lambda q: "pause"), until=waiting_on_bella(backend))
+    assert not [q for name, kind, q in log[before:] if name == "Bella" and kind == "CONSULTATION"]
+    [again] = [q for q in backend.owner_questions("Bella") if q.answer is None]
+    assert again.kind == "RECOVERY", "only the open question, asked again for the new plan"
 
-    def answer(name, question):
-        return False if name == "Bella" and question.kind == "CONSULTATION" else no_bag(name, question)
-    report = plan(backend, worker, answer=answer)
-    assert not live(report, "flight")
-    note = backend.conversation("Bella")[-1]["body"]
-    assert note.startswith("No plan fits yet: you said no to") and "complete price" not in note, note
-    room = [e["payload"]["text"] for e in report["events"] if e["kind"] == "NO_FEASIBLE_PLAN"][-1]
-    assert "none of the options found works for them" in room and "Bella" not in room
+
+def test_searching_again_that_finds_nothing_new_isnt_offered_again_then_she_pauses(tmp_path):
+    backend, worker, research = make_room(tmp_path, variant="bella_pricey_nonstop")
+    onboard(backend, worker)
+    log, picks_made = [], iter(["wider", "later", "pause"])
+    report = plan(backend, worker, answer=declining_bella(log, lambda q: next(picks_made)), until=on_hold)
+    rounds = [q for name, kind, q in log if name == "Bella" and kind == "RECOVERY"]
+    offered = [[c["id"] for c in q.choices] for q in rounds]
+    assert offered == [["change-1", "change-2", "later", "wider", "pause"], ["change-1", "change-2", "later", "pause"],
+                       ["change-1", "change-2", "pause"]], "a search she tried isn't offered again"
+    searches = [r for r in research.requests if r["purpose"] == "TARGETED"]
+    assert [(r["blocker_code"], r["target_owners"], r["categories"]) for r in searches] == [("DECLINED", ["Bella"], ["FLIGHT"])] * 2
+    [bella_later] = [r for r in searches[1]["routes"] if r["owner"] == "Bella"]
+    assert bella_later["date"] == "2026-11-21", "leaving a day later"
+    # Paused: said back to her, and the room hears only that flights wait on someone.
+    assert backend.conversation("Bella")[-1]["body"].startswith("Paused. Flights will wait")
+    [event] = [e for e in report["events"] if e["kind"] == "STAGE_ON_HOLD"]
+    assert event["payload"]["text"] == "Flights on hold: 1 traveller asked to pause until something changes."
+    assert not live(report) and not any(e["kind"] == "NO_FEASIBLE_PLAN" for e in report["events"])
+
+
+def test_a_pause_holds_until_she_changes_something_not_when_others_do(tmp_path):
+    backend, worker, _ = make_room(tmp_path, variant="bella_pricey_nonstop")
+    onboard(backend, worker)
+    log = []
+    plan(backend, worker, answer=declining_bella(log, lambda q: "pause"), until=on_hold)
+    asked = len(log)
+    backend.say("Alex", PERSONAS["changes"]["QA-02"]["says"])
+    drain(backend, worker)
+    backend.confirm_patch("Alex", next(p["id"] for p in backend.patches_of("Alex") if p["state"] == "PENDING"))
+    drain(backend, worker, onboarding_only=False)
+    report = backend.shared_report()
+    held = [e["key"].split(":")[0] for e in report["events"] if e["kind"] == "STAGE_ON_HOLD"]
+    assert len(set(held)) == 2 and not live(report), "the replan for Alex's change is held too"
+    assert not [q for q in backend.owner_questions("Bella") if q.answer is None] and len(log) == asked
+
+
+def test_a_reply_in_chat_that_changes_nothing_is_pointed_back_to_the_choices(tmp_path):
+    backend, worker, _ = make_room(tmp_path, variant="bella_pricey_nonstop")
+    onboard(backend, worker)
+    plan(backend, worker, answer=declining_bella([], lambda q: "pause"), until=waiting_on_bella(backend))
+    backend.say("Bella", "Hmm, I really don't know. None of those felt right.")
+    drain(backend, worker)
+    reply = backend.conversation("Bella")[-1]["body"]
+    assert reply.startswith("I couldn't tell which way you'd like to go.")
+    assert "• Flight: fare at most $1,350: that brings back HA1 LAX-HNL (nonstop, $1,350)" in reply
+    assert [q.kind for q in backend.owner_questions("Bella") if q.answer is None] == ["RECOVERY"], "still waiting on her"

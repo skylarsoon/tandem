@@ -80,7 +80,7 @@ All take `jobId` + `attempt` and run the checks in §2 unless noted. "Key" = `re
 | `submit_agent_message` | reducer | see §5 | Durable message + thread advance + turn charge, atomically. Key: `messageKey`. |
 | `record_message_processed` | reducer | `jobId`, `attempt`, `messageId`, `recipientAgentId`, `replyIds[]` | Consumer receipt. Same replies again is a no-op; different replies → `KEY_BODY_MISMATCH`; wrong recipient → `NOT_AUTHORIZED`. |
 | `close_threads` | reducer | `jobId`, `attempt`, `reason` | Closes the job's open threads (e.g. `RESEARCH_REQUIRED`, `NO_PROGRESS`). |
-| `ask_owner` | reducer | `jobId`, `attempt`, `requestKey`, `memberId`, `kind`, `actionJson` (`{"action_ref": "<draft>"}`), `prompt`, `answerSchemaJson`, `threadId?` | Private versioned question (v1). Kinds: `MISSING_FACT`, `PARTICIPATION_CONFIRMATION`, `OBJECTION_DISCLOSURE`, `CONCESSION_CONSULTATION`, `BROADER_EXPLORATION`. `threadId` closes that thread with `WAITING_FOR_OWNER`. Context lists the question under its `request_key`. |
+| `ask_owner` | reducer | `jobId`, `attempt`, `requestKey`, `memberId`, `kind`, `actionJson` (`{"action_ref": "<draft>"}`), `prompt`, `answerSchemaJson`, `threadId?` | Private versioned question (v1). Kinds: `MISSING_FACT`, `PARTICIPATION_CONFIRMATION`, `OBJECTION_DISCLOSURE`, `CONCESSION_CONSULTATION`, `BROADER_EXPLORATION`, `PLAN_RECOVERY` (§6e; its `actionJson` must carry valid `choices`). `threadId` closes that thread with `WAITING_FOR_OWNER`. Context lists the question under its `request_key`. |
 | `park_job` | reducer | `jobId`, `attempt`, `requestKey`, `graphThreadRef`, `questionIds[]` | `WAITING_FOR_INPUT`, lease released, `graph_thread_ref` stored, open threads closed (`NEEDS_OWNER_INPUT`). If every listed question is already answered, the job goes straight back to `PENDING`. |
 | `schedule_resume` | (built in) | | No call needed: `answer_question` and `park_job` requeue the job once all its questions are answered. Resume with a new `claim_job`; `graph_thread_ref` comes back in the claim. |
 | `publish_proposal` | procedure | `jobId`, `attempt`, `requestKey`, `stage`, `decisionId`, `scope`, `termsJson`, `sharedSummaryJson`, `validationJson`, `evidenceRefs[]`, `affectedMemberIds[]` (empty = all active), `impacts[{member_id, impact_json}]`, `burdens[{member_id, burden_micros}]` (may be empty), `selectedCandidateRefs[]` | See "Publication" below. Returns `proposal_id`, `version`, `terms_digest`; retrying the same key returns the same proposal. Stages: `UNDERSTAND`, `GOALS_DATES`, `TRAVEL`, `STAY_EXPERIENCES`, `COMPLETE_PLAN`. |
@@ -213,7 +213,34 @@ Checks, in one transaction (nothing is written if any fail):
 | `PARTICIPATION_CONFIRMATION` | `{"confirmed": false}` | Decline: stays unconfirmed, the waiting job resumes |
 | `MISSING_FACT` + `{"constraint": {patch}}` | constraint patch | Confirms that constraint → new generation |
 | `MISSING_FACT` otherwise | e.g. `{"answer": true}` | Stored; the waiting job resumes |
-| `OBJECTION_DISCLOSURE`, `CONCESSION_CONSULTATION`, `BROADER_EXPLORATION` | `{"granted": bool}` | Stores a grant for (owner, kind, `action_ref`). **Granted:** bumps the permission revision → new generation; the grant stays valid while input and membership revisions are unchanged. **Refused:** the waiting job resumes and the blocker remains. Never creates consent. |
+| `OBJECTION_DISCLOSURE`, `CONCESSION_CONSULTATION`, `BROADER_EXPLORATION` | `{"granted": bool, "reason"?: string}` | Stores a grant for (owner, kind, `action_ref`). **Granted:** bumps the permission revision → new generation; the grant stays valid while input and membership revisions are unchanged. **Refused:** the waiting job resumes and the blocker remains; `reason` (≤ 500 chars, optional) is their own why, kept with the answer. Never creates consent. |
+| `PLAN_RECOVERY` | `{"choice": "<offered id>"}` | One of the ways forward offered (§6e). A `change` is kept as `CONFIRMED` `constraint_patch` rows and applied like any confirmed patch → one new generation. Anything else resumes the waiting job. |
+
+### 6e. After someone says no to every option (`PLAN_RECOVERY`)
+
+A "no" to a `CONCESSION_CONSULTATION` is information, and it's remembered across replans.
+
+- **What a no is about.** The worker puts `option` in the consultation's `actionJson`: `{"decision_id", "key", "price_cents", "unmet"}`.
+  - `key` is the same option across searches (each search gives it a new id).
+  - `unmet` lists the person's preferences it missed, as `{category, attribute, operator, value}`.
+- **What the worker gets.** The job context lists every refused consultation in the room as `declines`: `{question_id, member_id, option, reason}`. It lists every answered `PLAN_RECOVERY` as `recoveries`: `{question_id, member_id, action, choice}`. Both are worker-only and read per person.
+- **When a declined option comes back.** It stays out of every later plan for that decision unless something changed in its favour:
+  - a preference it missed now holds;
+  - its price dropped;
+  - they took it back.
+
+  Someone else's change never brings it back.
+- **The question.** When the only thing blocking a plan is people's own "no", the job doesn't search again. Their agent asks each of them one `PLAN_RECOVERY` question, and `actionJson` holds `{"action_ref", "decision_id", "rules_ref", "choices"}`.
+  - **Choices.** Each is `{id, label, kind}`, with `kind` one of:
+    - `change`, with `patches`: loosen a preference so a declined option fits, using the smallest such change;
+    - `accept`: take a declined option after all;
+    - `search`, with `search`: leave a day later (`{"shift_days": 1}`) or a wider search (`{"wider": true}`), never one they already tried;
+    - `pause`.
+  - **Wording.** Claude writes the prompt from their reasons, their own words and their profile. It may mark one offered choice `recommended`, but it never invents one.
+  - **Limit.** After 3 rounds only `pause` is offered, and the prompt says plainly that nothing found works for what they said.
+- **Pause.** The decision waits (job outcome `STAGE_PAUSED`; room event `STAGE_ON_HOLD`, with `text` and `travellers_paused`, never who or why). It stays paused until that person changes something they've told their agent. Later stages wait too, since the organizer's order stands.
+- **A chat reply instead.** If they reply in chat and the reply changes nothing, their agent points them back to the choices once. A reply that does change something goes through the usual change flow, and the replan replaces the open question.
+- **Hard limits.** These are never relaxed: a declined option already met them, and every change is one the person picks.
 
 ---
 

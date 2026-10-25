@@ -43,3 +43,21 @@ def declined_note(conflict: Conflict) -> str:
     found = "the option" if n == 1 else f"each of the {n} options"
     return (f"No plan fits yet: you said no to {found} I asked you about. Tell me what you'd accept "
             "(a connection, a higher fare, another time), or I can look for more options.")
+
+
+PLURALS = {"FLIGHT": "Flights", "STAY": "The place to stay", "TRANSFER": "The airport transfer", "ACTIVITY": "Activities",
+           "DINNER": "Dinner"}
+
+
+def paused_note(stage: str) -> str:
+    """They asked to pause after saying no to everything: said back, with how to pick it up."""
+    thing = PLURALS.get(stage, "This decision")
+    return (f"Paused. {thing} will wait until something you've told me changes: tell me a fare you'd pay, "
+            "a trade-off you'd take or other dates, and I'll pick it up again.")
+
+
+def on_hold_event(stage: str, people: int) -> dict:
+    """The room hears that a decision waits, and on how many people: never who or why."""
+    thing = PLURALS.get(stage, "This decision")
+    who = "1 traveller" if people == 1 else f"{people} travellers"
+    return {"text": f"{thing} on hold: {who} asked to pause until something changes.", "travellers_paused": people}

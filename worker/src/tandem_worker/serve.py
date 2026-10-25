@@ -60,7 +60,9 @@ def searches_for(request: dict, dinner_query: str) -> tuple[list[MemoSearch], Tr
         targeted = {"HARD_LIMIT": MemoFilters(sort_by="price", max_stops=stops),
                     "NO_MATCHING_CANDIDATE": MemoFilters(sort_by="price", max_stops=stops),
                     "BAGGAGE_UNKNOWN": MemoFilters(sort_by="price", checked_bags=1, max_stops=stops),
-                    "ARRIVAL_OVERLAP": MemoFilters(sort_by="arrival", max_stops=stops)}
+                    "ARRIVAL_OVERLAP": MemoFilters(sort_by="arrival", max_stops=stops),
+                    # They said no to everything found: look again, ordered differently (same hard filters).
+                    "DECLINED": MemoFilters(sort_by="duration", max_stops=stops)}
         flights.append(MemoSearch(owner=route["owner"], origin=route["origin"], destination=route["destination"],
             departure_date=date.fromisoformat(route["date"]), origin_timezone=_airport(route["origin"])["tz"],
             destination_timezone=_airport(route["destination"])["tz"], initial_filters=MemoFilters(max_stops=stops),

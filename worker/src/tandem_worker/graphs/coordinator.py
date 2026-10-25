@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import inspect
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import TypedDict
 from zoneinfo import ZoneInfo
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from ..contracts import Act, Candidate, Conflict, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
+from pydantic import ValidationError
+
+from ..contracts import (Act, Candidate, Conflict, ContractError, Decision, Payload, RecoveryPrompt, Snapshot, SolverResult,
+                         ValidationReport, digest)
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
-from ..explain_rules import declined_note, rule_conflict_note
+from ..explain_rules import declined_note, on_hold_event, paused_note, rule_conflict_note
+from ..intake_policy import describe_rule
+from ..persona import persona
 from ..progress import activity, report as progress
+from ..recovery import (check_prompt, choices, fallback_prompt, option_key, option_text, paused, rounds, rules_ref,
+                        still_declined, unmet)
 from ..rules import dates_outside_trip, decisions, evaluate, remaining_stages, search_dates, stage_decisions
 from ..shortlist import dedupe, shortlist_choices
 from ..solver import POLICY, RELAXABLE, TripSolver, flight_violation, relax_nudge
@@ -81,6 +88,11 @@ class CoordinatorState(TypedDict, total=False):
     # Neutral counts: flights the solver was shown vs valid flights found.
     flights_checked: int
     flights_found: int
+    # Who said no to every option left (asked how to go on), and a search one of them picked:
+    # how many days to move their search (recovery.py).
+    recover: list[str]
+    recovery_search: bool
+    research_shift: dict
 
 
 def build_coordinator(backend, claim, model, research, solver, validator, clock, limits, checkpointer):
@@ -175,6 +187,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             # Each person's own dates (their firm rules narrow the trip's) — a search needs them, like the airport.
             rules = backend.read_rules(claim)
             dates = {o: search_dates(rules, o, "FLIGHT", snapshot.start_date, snapshot.end_date) for o in briefs}
+            # A way forward someone picked after saying no to everything: leave a day later, say.
+            shift = state.get("research_shift") or {}
+            dates = {o: (later(d[0], shift.get(o, 0)), d[1]) for o, d in dates.items()}
             routes = [{"owner": o, "origin": b.origin_airport, "destination": snapshot.destination_airport,
                        "date": dates[o][0], "return_date": dates[o][1], "max_stops": b.max_stops} for o, b in briefs.items()]
             facts = {"destination": snapshot.destination, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
@@ -199,6 +214,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                 # Legacy form edits can queue PLAN before that brief exists;
                 # confirming onboarding will enqueue a fresh generation.
                 return {"outcome": "WAITING_FOR_INTAKE"}
+            if purpose == "TARGETED" and state.get("recovery_search") and error.code.startswith("TARGETED_"):
+                # The search they asked for can't run here: it found nothing new, and they're asked again.
+                return {"need_research": False, "recovery_search": False, "research_shift": {}}
             if purpose != "TARGETED" or error.code != "TARGETED_SEARCH_NOT_AUTHORIZED":
                 raise
             # No approved search could change the result: explain instead of failing.
@@ -213,7 +231,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             candidates[candidate.id] = candidate
         fresh = dedupe(candidates.values())
         backend.store_candidates(claim, fresh)
-        return {"candidates": candidates_data(fresh), "need_research": False}
+        return {"candidates": candidates_data(fresh), "need_research": False, "recovery_search": False, "research_shift": {}}
 
     def solve(state):
         snapshot = current()
@@ -234,6 +252,16 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         # Everyone's rules (private: read here, never kept in the graph's state), and the trip's dates.
         room_rules = backend.read_rules(claim).within_trip(snapshot.start_date, snapshot.end_date)
         takes_rules = "rules" in inspect.signature(solver.solve).parameters
+        # Someone who said no to everything asked to pause this decision: it waits until they change something.
+        decision_id = planned_decision(snapshot)[0]
+        declines, answers = backend.declines(claim), backend.recovery_answers(claim)
+        held = [o for o in snapshot.members if paused(answers, room_rules, o, decision_id)]
+        if held:
+            backend.room_event(claim, "STAGE_ON_HOLD", on_hold_event(next_stage(snapshot) or "FLIGHT", len(held)),
+                               f"on-hold:{decision_id}")
+            return {"outcome": "STAGE_PAUSED", "solver_status": "", "selected": []}
+        # What people said no to stays out, unless something changed in its favour since.
+        excluded |= still_declined(declines, answers, state["candidates"], room_rules, decision_id)
 
         def shortlisted(excluded):
             """One solve, over a shortlist: a few distinct flights per traveller from
@@ -302,6 +330,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                 return {**update, "need_research": True, "research_categories": ["TRANSFER"],
                         "research_blocker_code": "TRANSFER_UNAVAILABLE", "research_target_owners": list(snapshot.members),
                         "pickup_time": pickup_after(result.group.latest_arrival, zone)}
+        if result.status == "INFEASIBLE" and result.conflicts and all(c.code == "DECLINED" and c.owner for c in result.conflicts):
+            # The only thing in the way is people's own "no": ask them how to go on (no search can know).
+            return {**update, "recover": sorted({c.owner for c in result.conflicts})}
         if result.status == "INFEASIBLE":
             owners = sorted({c.owner for c in result.conflicts if c.owner})
             categories = sorted({k for c in result.conflicts for k in RESEARCH_CATEGORIES.get(c.code, ("FLIGHT",))})
@@ -354,7 +385,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     "inbound_evidence": [candidates[ref] for ref in inbound_payload["candidate_refs"]],
                     "thread_id": thread_id, "round": state["round"], "snapshot": state["snapshot"],
                     "permitted_recipients": ["mediator", *snapshot.members],
-                    "window_seconds": snapshot.arrival_overlap_seconds,
+                    "window_seconds": snapshot.arrival_overlap_seconds, "decision_id": planned_decision(snapshot)[0],
                     "operation_ref": digest([claim.generation, state["round"], state["cycle"], owner, turn])}
                 result = personal.invoke({"task": task})
                 if result["questions"]:
@@ -400,6 +431,23 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         if any(q.answer is None for q in questions):
             raise ContractError("ANSWERS_NOT_READY")
         update = {"questions": [], "cycle": state["cycle"] + 1, "outcome": ""}
+        picked = [(q, next(c for c in q.choices if c["id"] == q.answer)) for q in questions if q.kind == "RECOVERY"]
+        if picked:
+            # A change they picked replans the room as soon as it's confirmed (this job is superseded);
+            # here: pause, search again, or take a declined option after all (solve lets it back).
+            stage = next_stage(current()) or "FLIGHT"
+            pausing = [q for q, c in picked if c["kind"] == "pause"]
+            if pausing:
+                for q in pausing:
+                    backend.notify_owner(claim, q.owner, paused_note(stage), f"paused:{q.id}")
+                backend.room_event(claim, "STAGE_ON_HOLD", on_hold_event(stage, len(pausing)), f"on-hold:{q.decision_id}")
+                return {**update, "outcome": "STAGE_PAUSED"}
+            searches = [(q, c) for q, c in picked if c["kind"] == "search"]
+            if searches:
+                return {**update, "need_research": True, "recovery_search": True, "research_blocker_code": "DECLINED",
+                        "research_target_owners": sorted({q.owner for q, _ in searches}), "research_categories": [stage],
+                        "research_shift": {q.owner: c["search"].get("shift_days", 0) for q, c in searches}}
+            return {**update, "resolve": True}
         if any(q.action_ref.startswith(("relax:", "nudge:")) for q in questions):
             # Re-solve with whatever was granted; a refusal leaves that requirement in place.
             return {**update, "resolve": True}
@@ -417,6 +465,55 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
     def next_round(state):
         backend.close_threads(claim, "RESEARCH_REQUIRED")
         return {"round": state["round"] + 1, "cycle": 0}
+
+    def recover(state):
+        """Someone said no to every option left for this decision: their agent asks them one
+        question with concrete ways forward, built from what they declined (recovery.py)."""
+        snapshot = current()
+        decision_id, stage = planned_decision(snapshot)[0], next_stage(snapshot) or "FLIGHT"
+        rules = backend.read_rules(claim)
+        declines, answers = backend.declines(claim), backend.recovery_answers(claim)
+        by_key = {}
+        for c in state["candidates"]:
+            by_key.setdefault(option_key(c), c)
+        asked = []
+        for owner in state["recover"]:
+            offered, left = choices(owner, decision_id, stage, declines, answers, state["candidates"], set(state["excluded"]),
+                                    rules, snapshot.start_date, snapshot.end_date)
+            mine = list({d.key: d for d in declines if d.owner == owner and d.decision_id == decision_id}.values())
+            prompt, offered = recovery_prompt(owner, stage, mine, by_key, offered, left, rules)
+            n = len(rounds(answers, owner, decision_id))
+            question = question_for(claim, owner, "RECOVERY", f"recover:{decision_id}:{n}", prompt).model_copy(
+                update={"choices": tuple(offered), "decision_id": decision_id, "rules_ref": rules_ref(rules, owner)})
+            asked.append(backend.ask_owner(claim, question))
+        activity(backend, claim, "mediator", "WAITING_FOR_OWNER")
+        return {"questions": asked, "recover": []}
+
+    def recovery_prompt(owner, stage, declined, by_key, offered, left, rules):
+        """Their own agent's wording, from what they said no to and why: it names the real trade-off
+        and may recommend one of the offered choices, never invent one. Fixed wording otherwise."""
+        own = [f"{describe_rule(r)} (“{r.source_quote}”)" if r.source_quote else describe_rule(r)
+               for r in [*rules.binding(owner), *rules.soft(owner)] if r.owner == owner]
+        context = {"owner": owner, "decision": stage.lower(), "persona": persona(backend.read_profile(claim, owner)),
+                   "their_rules": own, "nothing_left": not left,
+                   "declined": [{"option": option_text(by_key[d.key]),
+                                 "missed": [describe_rule(r) for r in unmet(rules, owner, by_key[d.key])],
+                                 "their_reason": d.reason} for d in declined if d.key in by_key],
+                   "choices": [{"id": c["id"], "label": c["label"]} for c in offered]}
+        for attempt in range(2):
+            try:
+                raw = backend.operation(claim, f"recover:{digest(context)}:{attempt}", context, "model",
+                                        lambda: model.recover(context))
+                text, recommended = check_prompt(RecoveryPrompt.model_validate(raw), offered)
+                break
+            except (ValidationError, ValueError):
+                continue
+        else:
+            return fallback_prompt(stage, len(declined), left), offered
+        if recommended:  # what they said points to one: it goes first
+            offered = [{**c, "recommended": True} for c in offered if c["id"] == recommended] + \
+                      [c for c in offered if c["id"] != recommended]
+        return text, offered
 
     def validate_publish(state):
         snapshot = current()
@@ -467,6 +564,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         return {"outcome": "NO_FEASIBLE_CANDIDATE"}
 
     def route(state):
+        if state.get("recover"):
+            return "recover"
         if state.get("questions"):
             return "await_owner"
         if state.get("outcome"):
@@ -498,7 +597,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
     builder = StateGraph(CoordinatorState)
     for name, fn in [("load_snapshot", load), ("discover", discover), ("solve", solve), ("dialogue", dialogue),
                      ("await_owner", await_owner), ("next_round", next_round), ("validate_publish", validate_publish),
-                     ("exhausted", exhausted)]:
+                     ("exhausted", exhausted), ("recover", recover)]:
         builder.add_node(name, observed(name, fn))
     builder.add_edge(START, "load_snapshot")
     builder.add_conditional_edges("load_snapshot", lambda s: "await_owner" if s["questions"] else "discover")
@@ -506,12 +605,17 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
     builder.add_conditional_edges("solve", lambda s: route(s) if s["outcome"] or s["solver_status"] == "INFEASIBLE"
                                   or s.get("need_research") else "dialogue")
     builder.add_conditional_edges("dialogue", route)
-    builder.add_conditional_edges("await_owner", lambda s: END if s["outcome"] else
+    builder.add_conditional_edges("await_owner", lambda s: END if s["outcome"] else "next_round" if s.get("need_research") else
                                   "solve" if s.get("resolve") else "dialogue" if s.get("selected") else "discover")
+    builder.add_edge("recover", "await_owner")
     builder.add_edge("next_round", "discover")
     builder.add_edge("validate_publish", END)
     builder.add_edge("exhausted", END)
     return builder.compile(checkpointer=checkpointer)
+
+
+def later(day: str | None, days: int) -> str | None:
+    return (date.fromisoformat(day) + timedelta(days=days)).isoformat() if day and days else day
 
 
 def candidates_data(candidates):
