@@ -10,3 +10,4 @@ export * from './dialogue';
 export * from './proposals';
 export * from './live';
 export * from './views';
+export * from './profile';

@@ -94,6 +94,50 @@ const profile = table(
   }
 );
 
+// Persistent profile onboarding (contracts/profile_questions.json): one row per
+// answered or skipped question. No row means unknown; SKIPPED is "not now";
+// explicit "none" / "no preference" are answers. Private to the owner.
+const profileAnswer = table(
+  {
+    name: 'profile_answer',
+    indexes: [{ accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] }],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    owner: t.identity(),
+    questionId: t.string(),
+    key: t.string(),
+    status: t.string(),
+    valueJson: t.string(),
+    catalogVersion: t.u32(),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// The agent's "Does this sound like you?" summary of the profile, which the
+// owner confirms or corrects. Corrections are context, never requirements.
+const profileCalibration = table(
+  { name: 'profile_calibration' },
+  {
+    owner: t.identity().primaryKey(),
+    state: t.string(),
+    summary: t.option(t.string()),
+    correction: t.option(t.string()),
+    profileRevision: t.u64(),
+    jobId: t.option(t.u64()),
+    updatedAt: t.timestamp(),
+  }
+);
+
+// Whose profile a PROFILE job summarizes (profile jobs belong to no room).
+const profileJob = table(
+  { name: 'profile_job' },
+  {
+    jobId: t.u64().primaryKey(),
+    owner: t.identity(),
+  }
+);
+
 const participationPreferences = table(
   { name: 'participation_preferences' },
   {
@@ -661,6 +705,9 @@ const spacetimedb = schema({
   membership,
   agent,
   profile,
+  profileAnswer,
+  profileCalibration,
+  profileJob,
   participationPreferences,
   presence,
   agentStatus,
@@ -694,6 +741,7 @@ const spacetimedb = schema({
 export default spacetimedb;
 
 export {
+  profileCalibration,
   room,
   membership,
   agent,

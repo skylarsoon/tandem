@@ -323,6 +323,12 @@ function buildContext(ctx: Ctx, j: JobRow) {
       intake: intakeRow
         ? { state: intakeRow.state, coverage: parsed(intakeRow.coverageJson), question_count: intakeRow.questionCount }
         : null,
+      // Their persistent profile answers: defaults to suggest for this room, never to assume.
+      profile: Object.fromEntries(
+        [...ctx.db.profileAnswer.byOwner.filter(m.member)]
+          .filter(a => a.status === 'ANSWERED')
+          .map(a => [a.questionId, parsed(a.valueJson)])
+      ),
     };
   }
 

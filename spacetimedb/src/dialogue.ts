@@ -458,6 +458,16 @@ export const proposeConstraintPatch = spacetimedb.reducer(
           fail('INVALID_EVIDENCE_REF', 'source_quote must be the owner\'s exact words from the cited message');
         }
       }
+      // A suggestion from the owner's profile cites the question they answered there;
+      // like every patch it only applies once they confirm it for this room.
+      const fromProfile = (JSON.parse(args.patchJson) as { source_profile?: unknown }).source_profile;
+      if (fromProfile !== undefined) {
+        let answered = false;
+        for (const a of ctx.db.profileAnswer.byOwner.filter(m.member)) {
+          if (a.questionId === fromProfile && a.status === 'ANSWERED') answered = true;
+        }
+        if (!answered) fail('INVALID_EVIDENCE_REF', 'source_profile must be a question the owner answered in their profile');
+      }
       ctx.db.constraintPatch.insert({
         id: 0n,
         roomId: j.roomId,

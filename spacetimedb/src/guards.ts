@@ -12,7 +12,7 @@ export type AgentRow = NonNullable<ReturnType<Ctx['db']['agent']['id']['find']>>
 // ---------- Vocabulary ----------
 
 export const ROOM_STATUS = ['COLLECTING', 'NEGOTIATING', 'AWAITING_REVIEW', 'AGREED'] as const;
-export const JOB_KINDS = ['PLAN', 'INTERPRET', 'INTAKE'] as const;
+export const JOB_KINDS = ['PLAN', 'INTERPRET', 'INTAKE', 'PROFILE'] as const;
 export const BRIEF_STATES = ['DRAFT', 'PROPOSED', 'CONFIRMED'] as const;
 export const INTAKE_STATES = ['ASKING', 'SUMMARY', 'CONFIRMED'] as const;
 // Essential onboarding topics; everything else is captured if mentioned or asked just in time.
