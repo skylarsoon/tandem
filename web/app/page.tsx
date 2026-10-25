@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Planning } from "../components/planning";
 import { Workflow } from "../components/workflow";
+import { HomeWelcome } from "../components/design";
 import { workflow as projectWorkflow } from "../lib/workflow";
 import { connect } from "../lib/client";
 import {
@@ -59,23 +60,21 @@ export default function Page() {
     }
   }, []);
   return (
-    <main>
-      <header>
-        <div>
-          <p className="eyebrow">TANDEM / LIVE DEMO</p>
-          <h1>A plan everyone can choose.</h1>
-          <p>Personal agents explore. People decide.</p>
-        </div>
-        <a className="badge" href="/profile">Your agent profile →</a>
-      </header>
+    <main id="main-content">
       {error ? (
-        <p role="alert" className="notice">
-          {error}
-        </p>
+        <>
+          <HomeWelcome available={false} />
+          <section className="card setup-state">
+            <p className="eyebrow">LET’S GET CONNECTED</p>
+            <h2>Your shared space is almost ready.</h2>
+            <p>Plans and private conversations will appear once the app is connected.</p>
+            <p role="alert" className="notice">{error}</p>
+          </section>
+        </>
       ) : client ? (
         <Dashboard client={client} />
       ) : (
-        <p>Connecting…</p>
+        <p className="card" role="status">Connecting to your plans…</p>
       )}
     </main>
   );
@@ -161,84 +160,100 @@ function Dashboard({ client }: { client: Client }) {
   };
   return (
     <>
+      {!roomId && <HomeWelcome available={ready} />}
       <div className="connection">
         <span className={`dot ${ready ? "online" : ""}`} />
         {state.status} · {process.env.NEXT_PUBLIC_STDB_DB}
-        <small>Claude + Apify · subscription-triggered worker.</small>
+        <small>Your plans stay in sync. Your private space stays yours.</small>
       </div>
       {(error || state.error) && (
         <p role="alert" className="notice">
           {error || state.error}
         </p>
       )}
-      <section className="card">
-        <h2>Your rooms</h2>
-        <div className="actions">
+      <section className="card plans-panel" aria-labelledby="your-plans-heading">
+        <div className="section-heading">
+          <h2 id="your-plans-heading">Your plans</h2>
+          <span className="eyebrow">{rows("my_rooms").length} SHARED PLANS</span>
+        </div>
+        <div className="plan-list">
           {rows("my_rooms").map((r) => (
             <Button
               key={String(r.id)}
+              className="plan-card"
               disabled={disabled}
               aria-pressed={String(r.id) === roomId}
               onClick={() => select(String(r.id))}
             >
-              {r.goal}
+              <span className="plan-card-title">{r.goal}</span>
+              <span className="plan-card-hint" aria-hidden="true">Open group room →</span>
             </Button>
           ))}
         </div>
-        <div className="entry">
-          <label>
-            Your display name
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              placeholder="Use the name in the operator config"
-            />
-          </label>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void act(() =>
-                reducers.createRoom({ goal, displayName: name.trim() }),
-              );
-            }}
-          >
+        {!rows("my_rooms").length && <p className="empty-state">A good plan starts with your people. Create a room or join one with an invite code.</p>}
+        <details className="plan-entry" open={!roomId}>
+          <summary>Start a plan or join your friends</summary>
+          <div className="entry">
             <label>
-              New room goal
+              Your display name
               <input
-                value={goal}
-                onChange={(e) => setGoal(e.target.value)}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 required
+                placeholder="What should we call you?"
               />
             </label>
-            <Button disabled={disabled || !name.trim() || !goal.trim()}>
-              Create room
-            </Button>
-          </form>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void act(() =>
-                reducers.joinRoom({
-                  inviteCode: invite.trim(),
-                  displayName: name.trim(),
-                }),
-              );
-            }}
-          >
-            <label>
-              Invite code
-              <input
-                value={invite}
-                onChange={(e) => setInvite(e.target.value)}
-                required
-              />
-            </label>
-            <Button disabled={disabled || !name.trim() || !invite.trim()}>
-              Join room
-            </Button>
-          </form>
-        </div>
+            <form
+              id="create-plan"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act(() =>
+                  reducers.createRoom({ goal, displayName: name.trim() }),
+                );
+              }}
+            >
+              <p className="eyebrow">01 / START SOMETHING</p>
+              <h3>What should we do together?</h3>
+              <label>
+                New room goal
+                <input
+                  value={goal}
+                  onChange={(e) => setGoal(e.target.value)}
+                  required
+                />
+              </label>
+              <Button className="primary" disabled={disabled || !name.trim() || !goal.trim()}>
+                Create room
+              </Button>
+            </form>
+            <form
+              id="join-plan"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act(() =>
+                  reducers.joinRoom({
+                    inviteCode: invite.trim(),
+                    displayName: name.trim(),
+                  }),
+                );
+              }}
+            >
+              <p className="eyebrow">02 / YOUR PEOPLE</p>
+              <h3>Good company starts here.</h3>
+              <label>
+                Invite code
+                <input
+                  value={invite}
+                  onChange={(e) => setInvite(e.target.value)}
+                  required
+                />
+              </label>
+              <Button disabled={disabled || !name.trim() || !invite.trim()}>
+                Join room
+              </Button>
+            </form>
+          </div>
+        </details>
       </section>
       {roomId && !ready && <p>Waiting for synchronized room data…</p>}
       {!ready &&
@@ -256,7 +271,7 @@ function Dashboard({ client }: { client: Client }) {
           <section className="card room-head">
             <div>
               <p className="eyebrow">ROOM {roomId}</p>
-              <h2>{room.goal}</h2>
+              <h1>{room.goal}</h1>
               <p>
                 Recorded status: <strong>{room.status}</strong>
               </p>
@@ -294,8 +309,8 @@ function Dashboard({ client }: { client: Client }) {
             connected={ready}
           />
           <div className="columns">
-            <div>
-              <section className="card">
+            <div className="personal-column">
+              <section className="card" id="private-settings">
                 <h2>My settings</h2>
                 <p className="muted">
                   Private constraints. Preferences grant authority only after
@@ -373,6 +388,8 @@ function Dashboard({ client }: { client: Client }) {
               <section className="card private">
                 <p className="eyebrow">ONLY YOU</p>
                 <h2>My Agent</h2>
+                <img className="private-art" src="/artwork/pip.png" alt="Your lavender companion, Pip" width={400} height={206} />
+                <p className="muted">Your companion’s looking out for you. The group cannot see this conversation or your private reasons.</p>
                 {rows("my_questions")
                   .filter((q) => q.state === "OPEN")
                   .map((q) => (
@@ -442,7 +459,7 @@ function Dashboard({ client }: { client: Client }) {
                 ))}
               </section>
             </div>
-            <div>
+            <div className="shared-column">
               <section className="card">
                 <h2>Live negotiation</h2>
                 <p className="muted">
@@ -478,7 +495,7 @@ function Dashboard({ client }: { client: Client }) {
                   </span>
                 ))}
               </section>
-              <section className="card">
+              <section className="card proposals-panel" id="review-proposals">
                 <h2>Proposals</h2>
                 <p className="muted">
                   Review exact terms. Approval does not reserve or purchase
@@ -761,7 +778,7 @@ function Proposal({
     terms = json<Row>(p.termsJson, {});
   const [note, setNote] = useState("");
   return (
-    <article>
+    <article className="proposal">
       <div className="actions">
         <h3>Version {p.version}</h3>
         <span className="badge">{p.state}</span>
@@ -811,6 +828,7 @@ function Proposal({
             ].map(([response, label]) => (
               <Button
                 key={response}
+                className={response === "ACCEPT" ? "primary" : "secondary"}
                 disabled={disabled}
                 onClick={() =>
                   void act(() => respond(proposalAction(p, response, note)))

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { ProfileOnboarding } from "../../components/profile";
 import { connect } from "../../lib/client";
+import { ProfileCompanion } from "../../components/design";
 
 /** Persistent profile onboarding: "Let your agent get to know you". The same
  *  browser identity as the rooms page, so rooms can suggest from it. */
@@ -24,16 +25,21 @@ export default function ProfilePage() {
     }
   }, []);
   return (
-    <main>
-      <header>
+    <main id="main-content">
+      <header className="page-heading">
         <div>
-          <p className="eyebrow">TANDEM / YOUR AGENT</p>
-          <h1>Let your agent get to know you.</h1>
+          <p className="eyebrow">A LITTLE ABOUT YOU / PRIVATE</p>
+          <h1>A little more you.</h1>
           <p>Skip anything. Change it anytime. Private unless a plan needs it.</p>
         </div>
-        <a className="badge" href="/">Your rooms →</a>
+        <a className="button secondary" href="/">Your plans →</a>
       </header>
-      {error ? <p role="alert" className="notice">{error}</p> : client ? <ProfileOnboarding client={client} /> : <p>Connecting…</p>}
+      <div className="profile-layout">
+        <ProfileCompanion />
+        <div className="profile-content">
+          {error ? <p role="alert" className="notice">{error}</p> : client ? <ProfileOnboarding client={client} /> : <p role="status">Connecting…</p>}
+        </div>
+      </div>
     </main>
   );
 }
