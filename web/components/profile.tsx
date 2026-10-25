@@ -26,12 +26,14 @@ export function ProfileOnboarding({ client }: { client: Client }) {
   const answers = answersFrom(rows("my_profile_answers"));
   const calibration = rows("my_profile_calibration")[0];
   const [mode, setMode] = useState<Mode | undefined>();
-  const [step, setStep] = useState(0);
+  const [selectedStep, setStep] = useState<number>();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const reducers = client.connection.reducers;
   const ready_ = state.status === "ready";
-  const current: Mode = mode ?? (answers.C01 ? "review" : "core");
+  const firstUnanswered = core.findIndex((q) => !answers[q.id]);
+  const step = selectedStep ?? Math.max(0, firstUnanswered);
+  const current: Mode = mode ?? (firstUnanswered === -1 ? "review" : "core");
 
   /** Runs one action; resolves to whether it succeeded (errors are shown, not thrown). */
   async function act(fn: () => Promise<unknown>): Promise<boolean> {
@@ -82,7 +84,7 @@ export function ProfileOnboarding({ client }: { client: Client }) {
           <Calibration client={client} calibration={calibration} act={act} disabled={pending} />
           <div className="profile-actions">
             <button onClick={() => setMode("review")}>Finish</button>
-            <button onClick={() => setMode("more")}>Add more about me</button>
+            <button onClick={() => setMode("more")}>Add more about me (optional)</button>
           </div>
         </section>
       )}
@@ -111,7 +113,7 @@ export function ProfileOnboarding({ client }: { client: Client }) {
             <>
               <Calibration client={client} calibration={calibration} act={act} disabled={pending} />
               <div className="profile-actions">
-                <button onClick={() => setMode("more")}>Add more about me</button>
+                <button onClick={() => setMode("more")}>Add more about me (optional)</button>
                 <button onClick={() => { setStep(0); setMode("core"); }}>Go through the core questions again</button>
               </div>
             </>
@@ -121,7 +123,10 @@ export function ProfileOnboarding({ client }: { client: Client }) {
   );
 
   function next() {
-    if (step < core.length - 1) setStep(step + 1);
+    if (step < core.length - 1) {
+      setStep(step + 1);
+      setMode("core");
+    }
     else setMode("done");
   }
 }
