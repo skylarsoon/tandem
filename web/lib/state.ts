@@ -18,6 +18,11 @@ export const roomTables = [
   "room_consent_counts",
   "room_presence",
   "room_agent_activity",
+  "room_trip_brief",
+  "room_intake_progress",
+  "my_intake",
+  "my_constraint_patches",
+  "my_rules",
   "my_constraints",
   "my_questions",
   "my_private_messages",
@@ -77,10 +82,18 @@ export function questionAnswer(kind: string, yes: boolean, preferences: Row) {
 export function questionAction(question: Row, yes: boolean, preferences: Row) {
   if (question.state !== "OPEN")
     throw new Error("This question is no longer open");
+  const answer = questionAnswer(question.kind, yes, preferences);
+  const nudge = json<Row>(question.actionJson, {}).nudge;
+  if (question.kind === "MISSING_FACT" && nudge) {
+    const choice = nudge[yes ? "yes" : "no"];
+    if (!choice || typeof choice !== "object")
+      throw new Error("This question has no valid offered answer");
+    Object.assign(answer, { constraint: choice });
+  }
   return {
     questionId: question.id,
     version: question.version,
-    answerJson: JSON.stringify(questionAnswer(question.kind, yes, preferences)),
+    answerJson: JSON.stringify(answer),
   };
 }
 export function proposalAction(proposal: Row, response: string, note?: string) {

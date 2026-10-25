@@ -54,6 +54,18 @@ def test_unconfirmed_preferences_wait_before_any_visible_message(setup_worker):
     assert worker.reconcile()[0]["outcome"] == "AWAITING_REVIEW"
 
 
+def test_room_research_waits_for_onboarding_without_provider_calls(setup_worker):
+    from tandem_worker.serve import RoomResearch
+
+    backend, worker, job, model, *_ = setup_worker()
+    # A form-flow room has confirmed budgets but no trip brief/routes. No
+    # provider objects are needed: it must stop before reaching any of them.
+    worker.research = RoomResearch(None, None, None, None, None, None)
+    assert worker.run_one(job)["outcome"] == "WAITING_FOR_INTAKE"
+    assert backend.shared_report()["proposals"] == {}
+    assert model.decisions == []
+
+
 class ObjectingModel(ScriptedModel):
     def decide(self, context):
         if context["owner"] == "p1":

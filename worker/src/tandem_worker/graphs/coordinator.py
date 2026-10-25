@@ -135,6 +135,11 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         try:
             raw = backend.operation(claim, f"research:{state['round']}", request, "research", lambda: research.search(request))
         except ContractError as error:
+            if error.code == "ROOM_NOT_ONBOARDED":
+                # Room-based research needs a confirmed trip brief and routes.
+                # Legacy form edits can queue PLAN before that brief exists;
+                # confirming onboarding will enqueue a fresh generation.
+                return {"outcome": "WAITING_FOR_INTAKE"}
             if purpose != "TARGETED" or error.code != "TARGETED_SEARCH_NOT_AUTHORIZED":
                 raise
             # No approved search could change the result: explain instead of failing.
@@ -417,7 +422,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         builder.add_node(name, observed(name, fn))
     builder.add_edge(START, "load_snapshot")
     builder.add_conditional_edges("load_snapshot", lambda s: "await_owner" if s["questions"] else "discover")
-    builder.add_edge("discover", "solve")
+    builder.add_conditional_edges("discover", lambda s: END if s.get("outcome") else "solve")
     builder.add_conditional_edges("solve", lambda s: route(s) if s["outcome"] or s["solver_status"] == "INFEASIBLE"
                                   or s.get("need_research") else "dialogue")
     builder.add_conditional_edges("dialogue", route)

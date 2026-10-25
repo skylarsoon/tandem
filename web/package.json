@@ -20,6 +20,7 @@
     "spacetimedb": "2.13.*"
   },
   "devDependencies": {
+    "esbuild": "0.28.2",
     "@playwright/test": "^1.56.0",
     "@types/node": "^22",
     "@types/react": "^19",
