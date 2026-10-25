@@ -73,8 +73,8 @@ class Snapshot(Record):
     members: tuple[str, ...]
     arrival_overlap_seconds: int = Field(default=7200, ge=0)
     policy_version: Literal["flight_cost_v1", "minimax_v1"] = "minimax_v1"
-    # Parts the plan must choose. Activities and dinner are suggestions, never required.
-    components: tuple[Literal["FLIGHT", "STAY", "TRANSFER"], ...] = ("FLIGHT",)
+    # Parts the plan must choose: categories from contracts/decisions.json.
+    components: tuple[str, ...] = ("FLIGHT",)
     # Travellers without an own-room request share this many to a bedroom.
     people_per_bedroom: int = Field(default=2, ge=1, le=8)
     # The room was described and onboarded: silence on a topic means "not asked
@@ -96,6 +96,9 @@ class Snapshot(Record):
     def valid_members(self):
         if not self.members or len(set(self.members)) != len(self.members) or "mediator" in self.members:
             raise ValueError("INVALID_MEMBERSHIP")
+        from .rules import decisions
+        if set(self.components) - set(decisions()["categories"]):
+            raise ValueError("UNKNOWN_COMPONENT")
         return self
 
 

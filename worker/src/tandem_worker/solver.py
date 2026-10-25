@@ -118,7 +118,7 @@ class TripSolver:
     def __init__(self, time_limit=5):
         self.time_limit = time_limit
 
-    def solve(self, snapshot, briefs, candidates):
+    def solve(self, snapshot, briefs, candidates, rules=None):
         options = self.prepare(snapshot, briefs, candidates)
         if isinstance(options, SolverResult):
             return options

@@ -186,3 +186,42 @@ export const LEGACY_KEYS = {
   },
   "kept_prefix": "kept_"
 } as const;
+
+export const DECISIONS = {
+  "version": 1,
+  "about": "How each kind of choice is made, as data. chooses: one_per_person (each traveller picks their own) or one_for_group. pays: each (your own pick), split (shared equally) or per_person (a per-head price). A room plans the categories its settings list; group rules limit the group's combined choice, with values from room settings.",
+  "categories": {
+    "FLIGHT": {
+      "chooses": "one_per_person",
+      "pays": "each"
+    },
+    "STAY": {
+      "chooses": "one_for_group",
+      "pays": "split",
+      "fits_everyone": "capacity"
+    },
+    "TRANSFER": {
+      "chooses": "one_for_group",
+      "pays": "split",
+      "fits_everyone": "capacity"
+    },
+    "ACTIVITY": {
+      "chooses": "one_for_group",
+      "pays": "per_person"
+    },
+    "DINNER": {
+      "chooses": "one_for_group",
+      "pays": "per_person"
+    }
+  },
+  "group_rules": [
+    {
+      "id": "arrive_together",
+      "spread": "arrival_epoch",
+      "across": "FLIGHT",
+      "operator": "lte",
+      "value_setting": "arrival_overlap_seconds",
+      "default": 7200
+    }
+  ]
+} as const;

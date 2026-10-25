@@ -16,7 +16,7 @@ from collections import Counter
 from typing import Callable, Iterable
 
 from .contracts import Candidate, GroupShortlist, Shortlist
-from .solver import flight_violation
+from .rules import RoomRules, decisions, evaluate
 
 # (name, key): each slot takes the not-yet-chosen option with the smallest key;
 # a key of None means the option doesn't qualify for that slot.
@@ -115,13 +115,13 @@ def shortlist(candidates: Iterable[Candidate], *, include: Callable[[Candidate],
                      empty_groups=tuple(g for g in groups if not valid[g]), lock_conflicts=tuple(sorted(set(lock_conflicts))))
 
 
-def closest_window(options_by_owner: dict[str, list[Candidate]]) -> tuple[int, int] | None:
-    """The smallest arrival window holding one option per traveller (a sweep), or
-    None if someone has no option. If any combination lands within the room's
-    allowed spread, the options inside this window form one."""
+def closest_window(options_by_owner: dict[str, list[Candidate]], attribute: str = "arrival_epoch") -> tuple[int, int] | None:
+    """The smallest window of `attribute` holding one option per traveller (a sweep),
+    or None if someone has no option. If any combination meets the group's spread
+    rule, the options inside this window form one."""
     if not options_by_owner or any(not o for o in options_by_owner.values()):
         return None
-    events = sorted((c.arrival_epoch, owner, c.id) for owner, options in options_by_owner.items() for c in options)
+    events = sorted((getattr(c, attribute), owner, c.id) for owner, options in options_by_owner.items() for c in options)
     need, counts, have, best, left = len(options_by_owner), Counter(), 0, None, 0
     for arrival, owner, _ in events:
         counts[owner] += 1
@@ -137,42 +137,67 @@ def closest_window(options_by_owner: dict[str, list[Candidate]]) -> tuple[int, i
     return best
 
 
-def shortlist_flights(candidates: Iterable[Candidate], snapshot, briefs, *, limit: int, now: float,
+def shortlist_choices(candidates: Iterable[Candidate], snapshot, rules: RoomRules, *, limit: int, now: float,
                       locked: Iterable[str] = (), tried: Iterable[str] = ()) -> Shortlist:
-    """Each traveller's flights cut to `limit`: the cheapest, the one nearest the
-    group's closest common landing window, then the most distinct by arrival time
-    and price. Excluded first: duplicates, expired, malformed, and fares that
-    break the owner's confirmed hard limits (exactly as the solver judges them)."""
+    """Every choice each traveller makes for themselves (contracts/decisions.json:
+    one_per_person) cut to `limit` options per person: the cheapest, the one nearest
+    the group's closest common window for any group rule that spreads across that
+    choice, then the most distinct. Excluded first: duplicates, expired, malformed,
+    and options that break the owner's own rules (evaluated as the database does)."""
     candidates = list(candidates)
-    by_owner = {b.owner: b for b in briefs}
+    shapes = decisions()["categories"]
+    personal = [c for c in snapshot.components if shapes[c]["chooses"] == "one_per_person"]
+    result = None
+    for category in personal:
+        result = _shortlist_category(candidates if result is None else list(result.candidates), category, snapshot, rules,
+                                     limit=limit, now=now, locked=locked, tried=tried, earlier=result)
+    if result is None:
+        return Shortlist(candidates=tuple(sorted(candidates, key=lambda c: c.id)), groups=())
+    return result
+
+
+def _shortlist_category(candidates, category, snapshot, rules, *, limit, now, locked, tried, earlier):
+    spread = next((g["spread"] for g in decisions()["group_rules"] if g["across"] == category), None)
 
     def invalid(c):
-        if c.total_cents is None or c.arrival_epoch is None:
+        if c.total_cents is None or (spread and getattr(c, spread, None) is None):
             return "MALFORMED"
-        return flight_violation(c, by_owner[c.owner]) if c.owner in by_owner else "UNKNOWN_GROUP"
+        if c.owner not in snapshot.members:
+            return "UNKNOWN_GROUP"
+        for rule in rules.binding(c.owner, category):
+            if evaluate(rule, c.model_dump(mode="json")) == "VIOLATED":
+                return f"RULE:{rule.attribute}"
+        return None
 
     def usable(c):
-        return c.valid_until > now and c.observed_at <= now and invalid(c) is None
+        return c.category == category and c.valid_until > now and c.observed_at <= now and invalid(c) is None
 
-    flights = {o: [c for c in candidates if c.category == "FLIGHT" and c.owner == o and usable(c)] for o in snapshot.members}
-    window = closest_window(flights)
-    middle = None if window is None else (window[0] + window[1]) / 2
+    options = {o: [c for c in candidates if c.owner == o and usable(c)] for o in snapshot.members}
+    slots: list[Slot] = [("cheapest", lambda c: (c.total_cents, getattr(c, spread) if spread else 0))]
+    if spread:
+        window = closest_window(options, spread)
+        middle = None if window is None else (window[0] + window[1]) / 2
 
-    def anchor(c):
-        if window is None or not window[0] <= c.arrival_epoch <= window[1]:
-            return None
-        return (abs(c.arrival_epoch - middle), c.total_cents)
+        def anchor(c):
+            at = getattr(c, spread)
+            return None if window is None or not window[0] <= at <= window[1] else (abs(at - middle), c.total_cents)
+        slots.append(("group_anchor", anchor))
 
-    spans = {o: (max((c.arrival_epoch for c in f), default=0) - min((c.arrival_epoch for c in f), default=0),
-                 max((c.total_cents for c in f), default=0) - min((c.total_cents for c in f), default=0))
-             for o, f in flights.items()}
+    def span(values):
+        values = list(values)
+        return (max(values) - min(values)) if values else 0
+    spans = {o: (span(getattr(c, spread) for c in f) if spread else 0, span(c.total_cents for c in f)) for o, f in options.items()}
 
     def distance(a, b):
-        arrival_span, price_span = spans.get(a.owner, (0, 0))
-        return ((abs(a.arrival_epoch - b.arrival_epoch) / arrival_span if arrival_span else 0.0)
-                + (abs(a.total_cents - b.total_cents) / price_span if price_span else 0.0))
+        along, price = spans.get(a.owner, (0, 0))
+        return ((abs(getattr(a, spread) - getattr(b, spread)) / along if spread and along else 0.0)
+                + (abs(a.total_cents - b.total_cents) / price if price else 0.0))
 
-    slots: list[Slot] = [("cheapest", lambda c: (c.total_cents, c.arrival_epoch)), ("group_anchor", anchor)]
-    return shortlist(candidates, include=lambda c: c.category == "FLIGHT", group_of=lambda c: c.owner,
-                     groups=snapshot.members, invalid=invalid, slots=slots, distance=distance, limit=limit,
-                     now=now, locked=locked, tried=tried)
+    picked = shortlist(candidates, include=lambda c: c.category == category, group_of=lambda c: c.owner,
+                       groups=snapshot.members, invalid=invalid, slots=slots, distance=distance, limit=limit,
+                       now=now, locked=locked, tried=tried)
+    if earlier is None:
+        return picked
+    return Shortlist(candidates=picked.candidates, groups=earlier.groups + picked.groups,
+                     empty_groups=tuple(dict.fromkeys(earlier.empty_groups + picked.empty_groups)),
+                     lock_conflicts=tuple(sorted(set(earlier.lock_conflicts + picked.lock_conflicts))))

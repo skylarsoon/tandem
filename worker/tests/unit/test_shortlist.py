@@ -3,7 +3,8 @@ flights per traveller, deterministic, never altering or inventing candidates."""
 import random
 
 from tandem_worker.contracts import Brief, Candidate, Preferences, Snapshot
-from tandem_worker.shortlist import closest_window, shortlist_flights
+from tandem_worker.optimizer_bridge import room_rules_from
+from tandem_worker.shortlist import closest_window, shortlist_choices
 from tandem_worker.solver import TripSolver
 
 HOUR = 3600
@@ -28,7 +29,8 @@ def many(owner, count=20):
 
 def run(owners, candidates, briefs=None, limit=5, **kw):
     snapshot = Snapshot(room_id="r", members=tuple(owners))
-    return shortlist_flights(candidates, snapshot, briefs or [brief(o) for o in owners], limit=limit, now=NOW, **kw)
+    rules = room_rules_from(briefs or [brief(o) for o in owners])
+    return shortlist_choices(candidates, snapshot, rules, limit=limit, now=NOW, **kw)
 
 
 def per_owner(result):
@@ -59,7 +61,7 @@ def test_fewer_valid_flights_than_the_limit_are_all_kept():
 def test_a_traveller_without_any_valid_flight_is_reported_not_hidden():
     result = run("ab", many("a") + many("b"), briefs=[brief("a"), brief("b", cap=10_000)])
     assert result.empty_groups == ("b",)
-    assert result.groups[1].excluded == {"OVER_FLIGHT_LIMIT": 20}
+    assert result.groups[1].excluded == {"RULE:total_cents": 20}
     # The solver's own explanation still sees why (from the full pool).
     conflict = TripSolver.owner_conflict("b", brief("b", cap=10_000), many("b"))
     assert (conflict.code, conflict.cheapest_cents) == ("HARD_LIMIT", 20_000)
@@ -75,7 +77,7 @@ def test_a_cheapest_fare_that_breaks_a_hard_limit_is_excluded():
                                           arrival_window={"earliest": "07:00", "latest": "22:00"})])
     kept = {c.id for c in result.candidates}
     assert not kept & {no_bag.id, connecting.id, late.id}
-    assert result.groups[0].excluded == {"ARRIVAL_TIME": 1, "NO_BAG": 1, "TOO_MANY_STOPS": 1}
+    assert result.groups[0].excluded == {"RULE:arrival_local": 1, "RULE:baggage_included": 1, "RULE:stops": 1}
     assert "a-0" in kept, "the cheapest valid fare takes the cheapest slot"
 
 

@@ -122,6 +122,15 @@ class LocalBackend:
                 raise ContractError("NOT_AUTHORIZED")
             return Brief.model_validate(state["briefs"][owner])
 
+    def read_rules(self, claim):
+        from .briefs import rules_from_brief
+        from .rules import Need, RoomRules, Rule, SearchFact
+        with self._tx() as state:
+            self._checked(state, claim)
+            items = [x for o in state["snapshot"]["members"] for x in rules_from_brief(Brief.model_validate(state["briefs"][o]))]
+        return RoomRules(rules=tuple(x for x in items if isinstance(x, Rule)), needs=tuple(x for x in items if isinstance(x, Need)),
+                         facts=tuple(x for x in items if isinstance(x, SearchFact)))
+
     def renew_lease(self, claim):
         with self._tx() as state:
             self._checked(state, claim)["expiry"] = self.clock.now() + self.limits.lease_seconds

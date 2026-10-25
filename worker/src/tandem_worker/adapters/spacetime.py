@@ -259,6 +259,20 @@ class SpacetimeBackend:
             ask_me_first=prefs["ask_me_first"], give_me_time=prefs["give_me_time"], confirmed=prefs["confirmed"],
             revision=prefs["revision"]), prefs["reminders_opted_in"])
 
+    def read_rules(self, claim):
+        """Everyone's rules, needs and search facts, keyed by owner name."""
+        from ..rules import Need, RoomRules, Rule, SearchFact
+        ctx = self._context(claim)
+        owners = {m["member_id"]: name for name, m in self._members(ctx).items()}
+        rules = tuple(Rule.model_validate({**r["rule"], "owner": owners[r["member_id"]], "state": r["state"],
+                                           "source_quote": r["source_quote"]})
+                      for r in ctx.get("rules", []) if r["member_id"] in owners)
+        needs = tuple(Need(owner=owners[n["member_id"]], category=n["category"], attribute=n["attribute"], needs=n["needs"])
+                      for n in ctx.get("needs", []) if n["member_id"] in owners)
+        facts = tuple(SearchFact(owner=owners[f["member_id"]], fact=f["fact"], value=f["value"])
+                      for f in ctx.get("search_facts", []) if f["member_id"] in owners)
+        return RoomRules(rules=rules, needs=needs, facts=facts)
+
     # ---------- receipt-backed operations ----------
 
     def operation(self, claim, key, request, kind, function):

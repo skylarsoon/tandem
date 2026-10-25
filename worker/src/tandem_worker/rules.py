@@ -61,6 +61,19 @@ class SearchFact(Record):
     value: Any
 
 
+class RoomRules(Record):
+    """Everyone's rules, needs and search facts in a room, as the planner reads them.
+    Private: never checkpointed or shown to the room."""
+    rules: tuple[Rule, ...] = ()
+    needs: tuple[Need, ...] = ()
+    facts: tuple[SearchFact, ...] = ()
+
+    def binding(self, owner: str | None = None, category: str | None = None) -> list[Rule]:
+        """Hard, active rules (optionally one owner's, on one category's candidates)."""
+        return [r for r in self.rules if r.kind == "hard" and r.state == "active"
+                and (owner is None or r.owner == owner) and (category is None or r.category == category)]
+
+
 class RuleError(ContractError):
     def __init__(self, detail: str):
         super().__init__("INVALID_RULE")
@@ -70,6 +83,11 @@ class RuleError(ContractError):
 @lru_cache(maxsize=1)
 def attributes() -> dict:
     return json.loads(Path(__file__).with_name("attributes.json").read_text())
+
+
+@lru_cache(maxsize=1)
+def decisions() -> dict:
+    return json.loads(Path(__file__).with_name("decisions.json").read_text())
 
 
 @lru_cache(maxsize=1)

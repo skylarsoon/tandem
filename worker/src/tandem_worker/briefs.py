@@ -34,6 +34,23 @@ def brief_from_constraints(owner: str, rows: dict[str, dict], preferences: Prefe
         answered=tuple(sorted(rows)))
 
 
+def rules_from_brief(brief: Brief):
+    """A Brief's limits as rules, through the same old-key conversion the database
+    mirrors confirmed limits with (for backends that hold Briefs, like the local
+    test harness)."""
+    from .rules import from_legacy
+    rows = {"flight_budget_total": None if brief.hard_cap_cents >= NO_CONFIRMED_CAP else brief.hard_cap_cents,
+            "trip_budget_total": brief.trip_cap_cents, "baggage_required": brief.baggage_required or None,
+            "arrival_window": brief.arrival_window, "max_stops": brief.max_stops, "own_bedroom": brief.own_bedroom or None,
+            "stay_min_rating": brief.stay_min_rating, "origin_airport": brief.origin_airport}
+    out = []
+    for key, value in rows.items():
+        if value is not None:
+            out += from_legacy(brief.owner, key, {"value": value, "hardness": "HARD",
+                                                  "private_rationale": brief.private_reason})
+    return out
+
+
 FIELDS = {"own_bedroom": bool, "baggage_required": bool, "no_budget_limit": bool, "stay_min_rating": None,
           "origin_airport": None, "arrival_window": None, "max_stops": None}
 

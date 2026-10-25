@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from typing import TypedDict
 from zoneinfo import ZoneInfo
@@ -10,7 +11,7 @@ from langgraph.types import interrupt
 from ..contracts import Act, Candidate, ContractError, Decision, Payload, Snapshot, SolverResult, ValidationReport, digest
 from ..explain import explanation, owner_conflict_note, relax_prompt, requirement_holders, requirement_note, room_conflict_event
 from ..progress import activity, report as progress
-from ..shortlist import dedupe, shortlist_flights
+from ..shortlist import dedupe, shortlist_choices
 from ..solver import POLICY, RELAXABLE, TripSolver, relax_nudge
 from .personal import build_personal, nudges, question_for, send_message
 
@@ -160,6 +161,9 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         by_owner = {b.owner: b for b in briefs}
         relaxations = digest([b.model_dump(mode="json") for b in briefs])[:12]
         locked = sorted({ref for c in snapshot.commitments if c.decision_id != DECISION for ref in c.refs})
+        # Everyone's rules (private: read here, never kept in the graph's state).
+        room_rules = backend.read_rules(claim)
+        takes_rules = "rules" in inspect.signature(solver.solve).parameters
 
         def shortlisted(excluded):
             """One solve, over a shortlist: a few distinct flights per traveller from
@@ -176,7 +180,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                 base += ":before-transfer"
             tried: set[str] = set()
             for attempt in range(limits.shortlist_passes):
-                pick = shortlist_flights(candidates, plan_for, briefs, limit=limits.shortlist_size, now=now,
+                pick = shortlist_choices(candidates, plan_for, room_rules, limit=limits.shortlist_size, now=now,
                                          locked=locked, tried=tried)
                 if pick.lock_conflicts:
                     return None
@@ -188,6 +192,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                         # Someone has no usable flight at all: say why, never solve as if they did.
                         return SolverResult(status="INFEASIBLE", policy_version=POLICY, conflicts=tuple(
                             TripSolver.owner_conflict(o, by_owner[o], candidates) for o in pick.empty_groups))
+                    if takes_rules:
+                        return solver.solve(plan_for, briefs, list(pick.candidates), rules=room_rules)
                     return solver.solve(plan_for, briefs, list(pick.candidates))
                 result = SolverResult.model_validate(backend.operation(claim, key, request, "local", run))
                 if result.status != "INFEASIBLE" or pick.empty_groups or not any(g.untried_valid for g in pick.groups):
