@@ -10,3 +10,5 @@ next-env.d.ts
 
 # Copied from the installed, versioned MediaPipe package by postinstall.
 /public/vision/wasm/
+
+.vercel/

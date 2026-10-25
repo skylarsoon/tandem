@@ -31,7 +31,7 @@ export default function ProfilePage() {
           <h1>Let your agent get to know you.</h1>
           <p>Skip anything. Change it anytime. Private unless a plan needs it.</p>
         </div>
-        <a className="badge" href="/">Your rooms →</a>
+        <a className="badge" href="/app">Your rooms →</a>
       </header>
       {error ? <p role="alert" className="notice">{error}</p> : client ? <ProfileOnboarding client={client} /> : <p>Connecting…</p>}
     </main>

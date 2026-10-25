@@ -6,7 +6,7 @@ test.skip(!process.env.TANDEM_STDB_WORKER_TOKEN || !process.env.TANDEM_STDB_URL?
   "Run scripts/web-integration.sh against a disposable local database");
 
 async function openRoom(page: Page, name: string, goal?: string, invite?: string) {
-  await page.goto("/");
+  await page.goto("/app");
   await expect(page.locator(".connection")).toContainText("Connected");
   await page.getByText("Create or join a trip", { exact: true }).click();
   await page.getByLabel("Your display name").fill(name);
