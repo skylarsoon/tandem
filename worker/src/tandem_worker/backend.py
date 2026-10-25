@@ -127,6 +127,20 @@ class LocalBackend:
             self._checked(state, claim)
             return self._room_rules(state)
 
+    def read_profile(self, claim, owner):
+        with self._tx() as state:
+            self._checked(state, claim)
+            if owner not in state["snapshot"]["members"]:
+                raise ContractError("NOT_AUTHORIZED")
+            answers = state.get("profiles", {}).get(owner, {})
+            return {"summary": state.get("profile_summaries", {}).get(owner),
+                    "answers": [{"question_id": q, "status": "ANSWERED", "value": v} for q, v in answers.items()]}
+
+    def set_profile_summary(self, owner: str, summary: str) -> None:
+        """The owner confirmed this summary of their profile ("Does this sound like you?")."""
+        with self._tx() as state:
+            state.setdefault("profile_summaries", {})[owner] = summary
+
     def _room_rules(self, state):
         """As the database keeps them: confirmed named limits through the shared conversion
         (hard and soft), plus rules confirmed as rules. Rooms seeded with Briefs directly

@@ -110,7 +110,9 @@ def make_room(tmp_path, variant=None):
     backend = LocalBackend(tmp_path / "backend.sqlite", clock)
     backend.seed_trip(NAMES, organizer=PERSONAS["organizer"])
     for user in PROFILES["users"]:
-        backend.set_profile(user["answers"]["display_name"], by_question_id(user["answers"]))
+        name = user["answers"]["display_name"]
+        backend.set_profile(name, by_question_id(user["answers"]))
+        backend.set_profile_summary(name, traveller(name)["summary"])
     research = QAResearch(variant)
     return backend, Worker(backend, QAModel(), research, tmp_path / "checkpoints.sqlite", clock=clock), research
 
@@ -353,3 +355,18 @@ def test_qa_04_bellas_nonstop_is_weighed_as_a_preference_and_she_is_asked_first(
     bella_asked = [a for a in asked if a[0] == "Bella" and a[1] == "CONSULTATION"]
     assert bella_asked, asked
     assert not any(a[0] != "Bella" and "Bella" in a[2] for a in asked), "nobody else hears about her choice"
+
+
+def test_each_agent_decides_as_its_own_person_and_nobody_else_sees_it(tmp_path):
+    backend, worker, _ = make_room(tmp_path)
+    onboard(backend, worker)
+    plan(backend, worker)
+    decided = worker.model.decisions
+    bella = [c for c in decided if c["owner"] == "Bella"]
+    assert bella and all(c["persona"].startswith("In their own confirmed words: Comfort comes first") for c in bella)
+    assert any("Comfort, Experience quality" in c["persona"] for c in bella), "her ranking, in her order"
+    assert any("I strongly prefer nonstop flights" in r for c in bella for r in c["their_rules"])
+    others = [c for c in decided if c["owner"] != "Bella"]
+    assert others and not any("Comfort comes first" in json.dumps(c) for c in others), "no agent sees another's profile"
+    room = json.dumps(backend.shared_report())
+    assert "Comfort comes first" not in room and "vegetarian meals are a must" not in room

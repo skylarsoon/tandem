@@ -136,7 +136,10 @@ class ClaudeModel:
             "owner's equal share. `set_aside_by_owner` lists requirements your owner already agreed to drop for this trip: treat "
             "them as satisfied and don't ask again. Object, clarify or counterpropose only for HARD_LIMIT or BAGGAGE_UNKNOWN, "
             "which a search can fix. For any other concern, or if you truly need your owner's input, use NEEDS_OWNER_INPUT and put one "
-            "short, specific question for them in owner_question (only they see it).", "decision")
+            "short, specific question for them in owner_question (only they see it). `persona` is who your owner is, from "
+            "their own profile and the summary they confirmed, and `their_rules` what they told you for this trip in their own "
+            "words: judge the plan as they would (what they care about, how they like to be involved), within their limits. "
+            "Both are private: never repeat them to anyone but your owner.", "decision")
 
     def voice(self, context):
         return self._structured(context, VoiceDraft,

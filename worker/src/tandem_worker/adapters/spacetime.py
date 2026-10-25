@@ -277,6 +277,14 @@ class SpacetimeBackend:
             ask_me_first=prefs["ask_me_first"], give_me_time=prefs["give_me_time"], confirmed=prefs["confirmed"],
             revision=prefs["revision"]), prefs["reminders_opted_in"])
 
+    def read_profile(self, claim, owner):
+        ctx = self._context(claim)
+        member = self._members(ctx).get(owner)
+        if member is None:
+            raise ContractError("NOT_AUTHORIZED")
+        profile = member.get("profile") or {}
+        return {"summary": profile.get("summary"), "answers": profile.get("answers") or []}
+
     def read_rules(self, claim):
         """Everyone's rules, needs and search facts, keyed by owner name."""
         from ..rules import Need, RoomRules, Rule, SearchFact, legacy

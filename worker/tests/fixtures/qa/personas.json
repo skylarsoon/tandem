@@ -1,5 +1,5 @@
 {
-  "about": "The flight-stage QA brief's four personas, as data: each message verbatim, and the extraction the QA expects from it (the ground truth a live run's Claude extraction is compared against). Follow-up replies answer the onboarding agent's fixed questions. Quotes are exact substrings of the message.",
+  "about": "The flight-stage QA brief's four personas, as data: each message verbatim, and the extraction the QA expects from it (the ground truth a live run's Claude extraction is compared against). Follow-up replies answer the onboarding agent's fixed questions. Quotes are exact substrings of the message. summary: the profile summary each persona confirmed (offline stand-in for the live calibration step).",
   "organizer": "Alex",
   "trip": {
     "description": "We're four friends — Alex, Bella, Chris, and Dana — planning a trip to Honolulu, Hawaii, from November 20–24, 2026.\n\nWe need help planning our flights, accommodation, and activities. Let's handle flights first, then accommodation, then activities.\n\nWe want to have memorable experiences together, but everyone has different budgets, schedules, and preferences. We're happy to arrive on different flights if necessary.",
@@ -80,7 +80,8 @@
             "source_quote": "you can tell the group if a plan breaks one of my limits"
           }
         }
-      ]
+      ],
+      "summary": "You keep costs as low as you reasonably can, love nature, hikes and local food, and like full, active days spent mostly together. Suggest compromises within what you said, then let you review."
     },
     {
       "name": "Bella",
@@ -144,7 +145,8 @@
             "source_quote": "tell the group when a plan doesn't work for me"
           }
         }
-      ]
+      ],
+      "summary": "Comfort comes first for you, then the quality of the experience. You like slow days with plenty of downtime, beaches and good food, and you want to be asked before any compromise is made for you."
     },
     {
       "name": "Chris",
@@ -248,7 +250,8 @@
             }
           ]
         }
-      }
+      },
+      "summary": "Your time matters most: efficient travel and a detailed plan. You love outdoor adventures and sports, save on basics and splurge on what matters."
     },
     {
       "name": "Dana",
@@ -302,7 +305,8 @@
             "source_quote": "Just tell me privately, and check with me first"
           }
         }
-      ]
+      ],
+      "summary": "Being together matters most to you, then the quality of the experience. You love art, history and local culture, and vegetarian meals are a must. Ask you about each plan."
     }
   ],
   "changes": {

@@ -7,6 +7,8 @@ from pydantic import ValidationError
 
 from ..contracts import Act, ContractError, Decision, Impact, Message, Payload, Question, ValidationMetadata, VoiceDraft, digest
 from ..explain import consultation_prompt
+from ..intake_policy import describe_rule
+from ..persona import persona
 from ..progress import activity
 from ..solver import RELAXABLE
 from ..policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
@@ -97,7 +99,13 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         activity(backend, claim, task["owner"], "THINKING")
         # Requirements the owner set aside are their own recorded answers, already in the brief.
         original = brief = backend.read_brief(claim, task["owner"])
+        # Who they are and what they said, for their own agent only (never kept in graph state).
+        rules = backend.read_rules(claim)
+        own_words = [f"{describe_rule(r)} (“{r.source_quote}”)" if r.source_quote else describe_rule(r)
+                     for r in [*rules.binding(brief.owner), *rules.soft(brief.owner)] if r.owner == brief.owner]
         context = {"owner": brief.owner, "hard_cap_cents": brief.hard_cap_cents,
+            "persona": persona(backend.read_profile(claim, brief.owner)), "their_rules": own_words, "notes": list(brief.notes),
+            "arrival_window": brief.arrival_window, "max_stops": brief.max_stops,
             "private_reason": brief.private_reason, "preferences": brief.preferences.model_dump(mode="json"),
             "baggage_required": brief.baggage_required, "candidate": task["candidate"],
             "trip_cap_cents": brief.trip_cap_cents, "own_bedroom": brief.own_bedroom, "stay_min_rating": brief.stay_min_rating,
