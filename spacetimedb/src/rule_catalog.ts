@@ -223,5 +223,10 @@ export const DECISIONS = {
       "value_setting": "arrival_overlap_seconds",
       "default": 7200
     }
-  ]
+  ],
+  "fairness": {
+    "burden": "extra_over_cheapest",
+    "full_at": 2.0,
+    "about": "Each person's compromise in a plan is how much more they pay than the cheapest plan available to them, as a share of that cheapest cost: 0 when they pay their cheapest, 1 at full_at times it or more. The optimizer weighs the worst (with each person's history), the total, then cost."
+  }
 } as const;
