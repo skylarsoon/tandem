@@ -8,6 +8,8 @@ at a shared database: they create many identities and rooms.
 from __future__ import annotations
 
 import json
+import hashlib
+import secrets
 import os
 import subprocess
 import uuid
@@ -41,7 +43,16 @@ def register_worker(identity: Identity, label: str) -> None:
 
 @pytest.fixture(scope="session")
 def client() -> Client:
-    return Client(STDB_URL, STDB_DB)
+    class InvitedTestClient(Client):
+        def mint_identity(self):
+            who = super().mint_identity()
+            token = secrets.token_urlsafe(32)
+            subprocess.run([SPACETIME, "call", "--server", STDB_SERVER, "--no-config", "-y", STDB_DB,
+                            "create_app_invitation", json.dumps(hashlib.sha256(token.encode()).hexdigest()),
+                            json.dumps("contract-test"), "600"], check=True, capture_output=True)
+            self.call(who, "redeem_app_invitation", token=token)
+            return who
+    return InvitedTestClient(STDB_URL, STDB_DB)
 
 
 @pytest.fixture(scope="session")

@@ -1,3 +1,4 @@
+import { hasAppAccess } from './access';
 import { RULE_ATTRIBUTES } from './rule_catalog';
 import { SenderError, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
@@ -199,6 +200,7 @@ export function requireWorker(ctx: Ctx): void {
 
 export function requireHuman(ctx: Ctx): void {
   if (isWorker(ctx)) fail('NOT_AUTHORIZED', 'worker identities cannot perform human actions');
+  if (!hasAppAccess(ctx.db, ctx.sender)) fail('INVITATION_REQUIRED', 'an app invitation is required');
 }
 
 export function requireRoom(ctx: Ctx, roomId: bigint): RoomRow {

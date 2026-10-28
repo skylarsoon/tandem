@@ -9,6 +9,25 @@ export async function POST(request: Request) {
   try { const source = new URL(origin || ''); sameOrigin = ['http:', 'https:'].includes(source.protocol) && source.host === (request.headers.get('host') || url.host); } catch {}
   if (!sameOrigin || request.headers.get('sec-fetch-site') === 'cross-site') return Response.json({ error: 'Open voice from this app.' }, { status: 403, headers });
   if (Number(request.headers.get('content-length') || 0) > 4096) return Response.json({ error: 'Request too large.' }, { status: 413, headers });
+  const authorization = request.headers.get('authorization');
+  if (!authorization?.startsWith('Bearer ') || authorization.length > 8192)
+    return Response.json({ error: 'Accept your Tandem invitation before enabling voice.' }, { status: 401, headers });
+  try {
+    const base = process.env.NEXT_PUBLIC_STDB_URL;
+    const database = process.env.NEXT_PUBLIC_STDB_DB;
+    if (!base || !database) throw new Error('Access service is not configured');
+    const endpoint = new URL(`/v1/database/${encodeURIComponent(database)}/sql`, base.replace(/^ws/, 'http'));
+    const access = await fetch(endpoint, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'text/plain' },
+      body: 'SELECT allowed FROM my_app_access', cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    if (access.status === 401 || access.status === 403)
+      return Response.json({ error: 'Accept your Tandem invitation before enabling voice.' }, { status: 403, headers });
+    if (!access.ok) throw new Error('Access service unavailable');
+    const result = await access.json();
+    if (!Array.isArray(result) || result[0]?.rows?.[0]?.[0] !== true)
+      return Response.json({ error: 'Accept your Tandem invitation before enabling voice.' }, { status: 403, headers });
+  } catch {
+    return Response.json({ error: 'We could not verify your access. Please try again.' }, { status: 503, headers });
+  }
   try {
     const raw = await request.text();
     if (raw.length > 4096) return Response.json({ error: 'Request too large.' }, { status: 413, headers });

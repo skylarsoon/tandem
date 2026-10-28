@@ -4,6 +4,7 @@ export default defineConfig({
   workers: 1,
   timeout: 90000,
   use: {
+    channel: process.env.PLAYWRIGHT_CHANNEL,
     baseURL: process.env.TANDEM_WEB_URL || "http://127.0.0.1:3400",
     trace: "retain-on-failure",
   },

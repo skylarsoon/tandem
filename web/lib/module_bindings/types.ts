@@ -98,6 +98,29 @@ export const AgentStatus = __t.object("AgentStatus", {
 });
 export type AgentStatus = __Infer<typeof AgentStatus>;
 
+export const AppAccess = __t.object("AppAccess", {
+  identity: __t.identity(),
+  invitationHash: __t.string(),
+  grantedAt: __t.timestamp(),
+  revoked: __t.bool(),
+});
+export type AppAccess = __Infer<typeof AppAccess>;
+
+export const AppAccessStatus = __t.object("AppAccessStatus", {
+  allowed: __t.bool(),
+});
+export type AppAccessStatus = __Infer<typeof AppAccessStatus>;
+
+export const AppInvitation = __t.object("AppInvitation", {
+  tokenHash: __t.string(),
+  label: __t.string(),
+  expiresAt: __t.timestamp(),
+  redeemedBy: __t.option(__t.identity()),
+  redeemedAt: __t.option(__t.timestamp()),
+  revoked: __t.bool(),
+});
+export type AppInvitation = __Infer<typeof AppInvitation>;
+
 export const BurdenInput = __t.object("BurdenInput", {
   memberId: __t.u64(),
   burdenMicros: __t.u32(),
@@ -387,6 +410,9 @@ export type MyAgentAppearance = __Infer<typeof MyAgentAppearance>;
 
 export const MyAgentMessages = __t.object("MyAgentMessages", {});
 export type MyAgentMessages = __Infer<typeof MyAgentMessages>;
+
+export const MyAppAccess = __t.object("MyAppAccess", {});
+export type MyAppAccess = __Infer<typeof MyAppAccess>;
 
 export const MyCompromises = __t.object("MyCompromises", {});
 export type MyCompromises = __Infer<typeof MyCompromises>;

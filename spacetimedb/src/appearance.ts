@@ -1,3 +1,4 @@
+import { hasAppAccess } from './access';
 import { t } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
 import spacetimedb, { agentAppearance } from './schema';
@@ -19,5 +20,5 @@ export const setAgentAppearance = spacetimedb.reducer({ variant: t.string() }, (
 
 export const myAgentAppearance = spacetimedb.view(
   { name: 'my_agent_appearance', public: true }, t.option(agentAppearance.rowType),
-  ctx => ctx.db.agentAppearance.owner.find(ctx.sender) ?? { owner: ctx.sender, variant: defaultAgentVariant(ctx.sender) }
+  ctx => !hasAppAccess(ctx.db, ctx.sender) ? undefined : ctx.db.agentAppearance.owner.find(ctx.sender) ?? { owner: ctx.sender, variant: defaultAgentVariant(ctx.sender) }
 );

@@ -76,8 +76,8 @@ export function LandingPage() {
       </section>
       <section id="demo" className={styles.demo} data-reveal>
         <div className={styles.sectionHead}><div><div className={styles.eyebrow}>REAL PEOPLE’S NEEDS. A REAL WORKFLOW.</div><h2>Watch a little<br />common ground happen.</h2></div><p>From the first hello to everyone’s yes.<br />A complete walkthrough of Tandem.</p></div>
-        <video controls playsInline preload="none" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><source src="/media/tandem-demo.mp4" type="video/mp4" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>
-        <div className={styles.demoCaption}><span>05:10 / PRODUCT WALKTHROUGH</span><span>Demo travellers · Live backend · Actual agent voices</span></div>
+        <video controls playsInline preload="none" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><source src="/media/tandem-demo.mp4" type="video/mp4" /><track kind="captions" src="/media/tandem-demo-narration.vtt" srcLang="en" label="English narration" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>
+        <div className={styles.demoCaption}><span>05:10 / NARRATED WALKTHROUGH</span><span>Explanation + original agent voices · <a href="/media/tandem-demo-transcript.txt">Narration transcript ↗</a></span></div>
       </section>
       <section className={styles.finalCta} data-reveal><div className={styles.eyebrow}>YOUR NEXT CHAPTER STARTS HERE</div><h2>A little less planning.<br /><span>A lot more together.</span></h2><a href="/profile" className={styles.primary}>Let’s go somewhere <Arrow /></a><div className={styles.finalSprout}>✳</div></section>
     </main>

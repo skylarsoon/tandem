@@ -1,3 +1,4 @@
+import { hasAppAccess } from './access';
 import { t } from 'spacetimedb/server';
 import spacetimedb, { reviewReminder } from './schema';
 import { type Ctx, AGENT_ACTIVITIES, emitEvent, fail, isWorker, oneOf, requireLease } from './guards';
@@ -7,7 +8,7 @@ import { type Ctx, AGENT_ACTIVITIES, emitEvent, fail, isWorker, oneOf, requireLe
 // Counts open connections per human so several tabs don't flicker offline.
 // Service identities (worker, dispatcher) are not people and are skipped.
 function trackPresence(ctx: Ctx, delta: 1 | -1): void {
-  if (isWorker(ctx)) return;
+  if (isWorker(ctx) || !hasAppAccess(ctx.db, ctx.sender)) return;
   const row = ctx.db.presence.identity.find(ctx.sender);
   const connections = Math.max(0, (row?.connections ?? 0) + delta);
   const fields = { connections, online: connections > 0, lastSeen: ctx.timestamp };

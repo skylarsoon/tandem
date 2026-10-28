@@ -48,6 +48,7 @@ import ConfirmParticipationPreferencesReducer from "./confirm_participation_pref
 import ConfirmProfileSummaryReducer from "./confirm_profile_summary_reducer";
 import ConfirmTripBriefReducer from "./confirm_trip_brief_reducer";
 import CorrectProfileSummaryReducer from "./correct_profile_summary_reducer";
+import CreateAppInvitationReducer from "./create_app_invitation_reducer";
 import CreateRoomReducer from "./create_room_reducer";
 import EmitEventReducer from "./emit_event_reducer";
 import FailJobReducer from "./fail_job_reducer";
@@ -60,12 +61,14 @@ import ProposeProfileSummaryReducer from "./propose_profile_summary_reducer";
 import ProposeTripBriefReducer from "./propose_trip_brief_reducer";
 import RecordCandidatesReducer from "./record_candidates_reducer";
 import RecordMessageProcessedReducer from "./record_message_processed_reducer";
+import RedeemAppInvitationReducer from "./redeem_app_invitation_reducer";
 import RejectConstraintPatchReducer from "./reject_constraint_patch_reducer";
 import RemoveRuleReducer from "./remove_rule_reducer";
 import RenewLeaseReducer from "./renew_lease_reducer";
 import ReplyToOwnerReducer from "./reply_to_owner_reducer";
 import RequestProfileSummaryReducer from "./request_profile_summary_reducer";
 import RespondToProposalReducer from "./respond_to_proposal_reducer";
+import RevokeAppInvitationReducer from "./revoke_app_invitation_reducer";
 import SaveProfileAnswerReducer from "./save_profile_answer_reducer";
 import SetAgentActivityReducer from "./set_agent_activity_reducer";
 import SetAgentAppearanceReducer from "./set_agent_appearance_reducer";
@@ -93,6 +96,7 @@ import * as PublishProposalProcedure from "./publish_proposal_procedure";
 // Import all table schema definitions
 import MyAgentAppearanceRow from "./my_agent_appearance_table";
 import MyAgentMessagesRow from "./my_agent_messages_table";
+import MyAppAccessRow from "./my_app_access_table";
 import MyCompromisesRow from "./my_compromises_table";
 import MyConsentsRow from "./my_consents_table";
 import MyConstraintPatchesRow from "./my_constraint_patches_table";
@@ -141,6 +145,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyAgentMessagesRow),
+  myAppAccess: __table({
+    name: 'my_app_access',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyAppAccessRow),
   myCompromises: __table({
     name: 'my_compromises',
     indexes: [
@@ -362,6 +373,7 @@ const reducersSchema = __reducers(
   __reducerSchema("confirm_profile_summary", ConfirmProfileSummaryReducer),
   __reducerSchema("confirm_trip_brief", ConfirmTripBriefReducer),
   __reducerSchema("correct_profile_summary", CorrectProfileSummaryReducer),
+  __reducerSchema("create_app_invitation", CreateAppInvitationReducer),
   __reducerSchema("create_room", CreateRoomReducer),
   __reducerSchema("emit_event", EmitEventReducer),
   __reducerSchema("fail_job", FailJobReducer),
@@ -374,12 +386,14 @@ const reducersSchema = __reducers(
   __reducerSchema("propose_trip_brief", ProposeTripBriefReducer),
   __reducerSchema("record_candidates", RecordCandidatesReducer),
   __reducerSchema("record_message_processed", RecordMessageProcessedReducer),
+  __reducerSchema("redeem_app_invitation", RedeemAppInvitationReducer),
   __reducerSchema("reject_constraint_patch", RejectConstraintPatchReducer),
   __reducerSchema("remove_rule", RemoveRuleReducer),
   __reducerSchema("renew_lease", RenewLeaseReducer),
   __reducerSchema("reply_to_owner", ReplyToOwnerReducer),
   __reducerSchema("request_profile_summary", RequestProfileSummaryReducer),
   __reducerSchema("respond_to_proposal", RespondToProposalReducer),
+  __reducerSchema("revoke_app_invitation", RevokeAppInvitationReducer),
   __reducerSchema("save_profile_answer", SaveProfileAnswerReducer),
   __reducerSchema("set_agent_activity", SetAgentActivityReducer),
   __reducerSchema("set_agent_appearance", SetAgentAppearanceReducer),

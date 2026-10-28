@@ -1,11 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { admitTestBrowser } from "./invitation-admin";
 
 test.skip(!process.env.TANDEM_STDB_WORKER_TOKEN || !process.env.TANDEM_STDB_URL?.startsWith("http://127.0.0.1:"),
   "Run scripts/web-integration.sh against a disposable local database");
 
 async function openRoom(page: Page, name: string, goal?: string, invite?: string) {
+  await admitTestBrowser(page);
   await page.goto("/app");
   await expect(page.locator(".connection")).toContainText("Connected");
   await page.getByText("Create or join a trip", { exact: true }).click();

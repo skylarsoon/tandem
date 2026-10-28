@@ -1,4 +1,5 @@
 "use client";
+import { InvitationGate } from "../../components/invitation-gate";
 import { useEffect, useState } from "react";
 import { ProfileOnboarding } from "../../components/profile";
 import { connect } from "../../lib/client";
@@ -33,7 +34,7 @@ export default function ProfilePage() {
         </div>
         <a className="badge" href="/app">Your rooms →</a>
       </header>
-      {error ? <p role="alert" className="notice">{error}</p> : client ? <ProfileOnboarding client={client} /> : <p>Connecting…</p>}
+      {error ? <p role="alert" className="notice">{error}</p> : client ? <InvitationGate client={client}><ProfileOnboarding client={client} /></InvitationGate> : <p>Connecting…</p>}
     </main>
   );
 }

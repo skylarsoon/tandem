@@ -1,4 +1,5 @@
 "use client";
+import { InvitationGate } from "../../components/invitation-gate";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { connect } from "../../lib/client";
@@ -22,7 +23,7 @@ export default function Page() {
   }, []);
   return <main className="planning-app">
     <header className="app-header"><a className="wordmark" href="/">tandem<span aria-hidden="true">↗</span></a><a className="profile-link" href="/profile">Your agent profile ↗</a></header>
-    {error ? <p role="alert" className="notice">{error}</p> : client ? <Dashboard client={client} /> : <p role="status">Connecting to your trips…</p>}
+    {error ? <p role="alert" className="notice">{error}</p> : client ? <InvitationGate client={client}><Dashboard client={client} /></InvitationGate> : <p role="status">Connecting to your trips…</p>}
   </main>;
 }
 

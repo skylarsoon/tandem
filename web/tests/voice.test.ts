@@ -5,7 +5,7 @@ import { outgoingMessage, type TimelineItem } from '../lib/planning';
 import { recoveryAction, questionAction } from '../lib/state';
 import { POST } from '../app/api/voice/session/route';
 function item(patch: Partial<TimelineItem>): TimelineItem { return { key: 'agent:1:', kind: 'message', audience: 'private', speaker: 'Agent', row: {}, text: 'Your budget is noted.', time: 1n, ...patch }; }
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 describe('voice privacy and timing', () => {
   it('uses distinct voices for four companions and the mediator', () => {
     expect(new Set([...Object.values(voices), mediatorVoice]).size).toBe(5);
@@ -47,9 +47,33 @@ describe('voice privacy and timing', () => {
   });
 });
 describe('scoped Cartesia session', () => {
+  function admitted() {
+    vi.stubEnv('NEXT_PUBLIC_STDB_URL', 'https://database.test');
+    vi.stubEnv('NEXT_PUBLIC_STDB_DB', 'tandem-test');
+    return vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json([{ rows: [[true]] }]));
+  }
+  it('rejects a missing identity before contacting any provider', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const response = await POST(new Request('https://tandem.test/api/voice/session', { method: 'POST', headers: { origin: 'https://tandem.test' }, body: '{}' }));
+    expect(response.status).toBe(401); expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([false, null])('rejects denied or malformed access (%s) without contacting Cartesia', async allowed => {
+    vi.stubEnv('NEXT_PUBLIC_STDB_URL', 'https://database.test'); vi.stubEnv('NEXT_PUBLIC_STDB_DB', 'tandem-test');
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json([{ rows: [[allowed]] }]));
+    const response = await POST(new Request('https://tandem.test/api/voice/session', { method: 'POST', headers: { origin: 'https://tandem.test', authorization: 'Bearer test-identity' }, body: '{"key":"fake-key"}' }));
+    expect(response.status).toBe(403); expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0][0])).toBe('https://database.test/v1/database/tandem-test/sql');
+    expect(fetch.mock.calls[0][1]?.body).not.toContain('fake-key');
+  });
+  it('fails closed when the access service is unavailable', async () => {
+    vi.stubEnv('NEXT_PUBLIC_STDB_URL', 'https://database.test'); vi.stubEnv('NEXT_PUBLIC_STDB_DB', 'tandem-test');
+    const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+    const response = await POST(new Request('https://tandem.test/api/voice/session', { method: 'POST', headers: { origin: 'https://tandem.test', authorization: 'Bearer test-identity' }, body: '{}' }));
+    expect(response.status).toBe(503); expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('accepts the real request Host when Next has normalized the internal URL', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ token: 'test-scoped' }));
-    const response = await POST(new Request('http://localhost:3003/api/voice/session', { method: 'POST', headers: { host: '127.0.0.1:3003', origin: 'http://127.0.0.1:3003' }, body: JSON.stringify({ key: 'fake-test-key' }) }));
+    admitted().mockResolvedValueOnce(Response.json({ token: 'test-scoped' }));
+    const response = await POST(new Request('http://localhost:3003/api/voice/session', { method: 'POST', headers: { authorization: 'Bearer test-identity', host: '127.0.0.1:3003', origin: 'http://127.0.0.1:3003' }, body: JSON.stringify({ key: 'fake-test-key' }) }));
     expect(response.status).toBe(200);
   });
 
@@ -59,10 +83,10 @@ describe('scoped Cartesia session', () => {
     expect(response.status).toBe(403); expect(fetch).not.toHaveBeenCalled();
   });
   it('returns only a short-lived token with TTS and STT permissions', async () => {
-    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ token: 'scoped-test-token' }));
-    const response = await POST(new Request('http://127.0.0.1:3003/api/voice/session', { method: 'POST', headers: { origin: 'http://127.0.0.1:3003' }, body: JSON.stringify({ key: 'fake-test-key' }) }));
+    const fetch = admitted().mockResolvedValueOnce(Response.json({ token: 'scoped-test-token' }));
+    const response = await POST(new Request('http://127.0.0.1:3003/api/voice/session', { method: 'POST', headers: { authorization: 'Bearer test-identity', origin: 'http://127.0.0.1:3003' }, body: JSON.stringify({ key: 'fake-test-key' }) }));
     const data = await response.json(); expect(data.token).toBe('scoped-test-token'); expect(JSON.stringify(data)).not.toContain('fake-test-key');
-    expect(JSON.parse(fetch.mock.calls[0][1]!.body as string)).toEqual({ grants: { tts: true, stt: true }, expires_in: 600 });
+    expect(JSON.parse(fetch.mock.calls[1][1]!.body as string)).toEqual({ grants: { tts: true, stt: true }, expires_in: 600 });
     expect(response.headers.get('cache-control')).toBe('no-store');
   });
 });

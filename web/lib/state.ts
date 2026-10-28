@@ -1,6 +1,7 @@
 export type Row = Record<string, any>;
 // Yours, whatever room is open: the room list and your persistent profile.
 export const baseTables = [
+  "my_app_access",
   "my_rooms",
   "my_profile",
   "my_profile_answers",

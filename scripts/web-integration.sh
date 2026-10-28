@@ -30,6 +30,7 @@ IDENTITY_JSON="$(curl -sf -X POST "$URL/v1/identity")"
 WORKER_ID="$(printf '%s' "$IDENTITY_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["identity"])')"
 WORKER_TOKEN="$(printf '%s' "$IDENTITY_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')"
 "$SPACETIME" --root-dir="$STATE/stdb" call --server "$URL" --no-config -y "$DB" add_worker "{\"__identity__\":\"0x$WORKER_ID\"}" '"browser-test-worker"' >"$STATE/worker.log" 2>&1
+export TANDEM_STDB_CLI_ROOT="$STATE/stdb"
 export TANDEM_STDB_URL="$URL" TANDEM_STDB_DB="$DB" TANDEM_STDB_WORKER_TOKEN="$WORKER_TOKEN"
 export STDB_URL="$URL" STDB_DB="$DB" STDB_WORKER_TOKEN="$WORKER_TOKEN"
 export ANTHROPIC_API_KEY=test-key CLAUDE_MODEL=claude-test APIFY_TOKEN=test-key WORKER_WAKE_TOKEN=browser-test-wake-secret

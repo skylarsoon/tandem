@@ -1,3 +1,4 @@
+import { hasAppAccess } from './access';
 import { t } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
 import spacetimedb, { profileCalibration } from './schema';
@@ -232,6 +233,7 @@ const ProfileAnswerRow = t.row('ProfileAnswerRow', {
 
 // Your own answers only.
 export const myProfileAnswers = spacetimedb.view({ name: 'my_profile_answers', public: true }, t.array(ProfileAnswerRow), ctx =>
+  !hasAppAccess(ctx.db, ctx.sender) ? [] :
   [...ctx.db.profileAnswer.byOwner.filter(ctx.sender)].map(a => ({
     id: a.id,
     questionId: a.questionId,
@@ -247,6 +249,7 @@ export const myProfileCalibration = spacetimedb.view(
   { name: 'my_profile_calibration', public: true },
   t.option(profileCalibration.rowType),
   ctx => {
+    if (!hasAppAccess(ctx.db, ctx.sender)) return undefined;
     const row = ctx.db.profileCalibration.owner.find(ctx.sender);
     if (!row || row.state !== 'PENDING') return row ?? undefined;
     const profile = ctx.db.profile.owner.find(ctx.sender);

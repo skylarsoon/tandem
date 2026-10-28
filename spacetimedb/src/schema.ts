@@ -27,6 +27,22 @@ const worker = table(
   }
 );
 
+// Single-use app invitations are separate from room join codes. Never public.
+const appInvitation = table({ name: 'app_invitation' }, {
+  tokenHash: t.string().primaryKey(),
+  label: t.string(),
+  expiresAt: t.timestamp(),
+  redeemedBy: t.option(t.identity()),
+  redeemedAt: t.option(t.timestamp()),
+  revoked: t.bool(),
+});
+const appAccess = table({ name: 'app_access' }, {
+  identity: t.identity().primaryKey(),
+  invitationHash: t.string(),
+  grantedAt: t.timestamp(),
+  revoked: t.bool(),
+});
+
 // ---------- Rooms and people ----------
 
 const room = table(
@@ -764,6 +780,8 @@ const milestone = table(
 const spacetimedb = schema({
   config,
   worker,
+  appInvitation,
+  appAccess,
   room,
   membership,
   agent,

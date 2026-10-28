@@ -18,7 +18,8 @@ export class CartesiaSession {
   async unlock() { this.context ??= new AudioContext(); await this.context.resume(); }
   async authorize() {
     if (this.token && this.token.expiresAt > Date.now()) return this.token.token;
-    const response = await fetch('/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: this.key() }) });
+    const identity = localStorage.getItem(`tandem:participant:${process.env.NEXT_PUBLIC_STDB_URL}:${process.env.NEXT_PUBLIC_STDB_DB}`);
+    const response = await fetch('/api/voice/session', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(identity ? { Authorization: `Bearer ${identity}` } : {}) }, body: JSON.stringify({ key: this.key() }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Voice could not connect.');
     this.token = data; return data.token as string;
