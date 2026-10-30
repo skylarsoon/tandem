@@ -2,8 +2,6 @@
 including a rehearsed worker crash followed by a takeover."""
 
 import json
-import hashlib
-import secrets
 import tempfile
 import os
 import re
@@ -11,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from conftest import STDB_DB, STDB_URL, STDB_SERVER, SPACETIME
+from conftest import STDB_DB, STDB_URL
 
 SIMULATE = Path(__file__).resolve().parents[1] / "scripts" / "simulate.py"
 
