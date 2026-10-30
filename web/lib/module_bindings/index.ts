@@ -41,6 +41,8 @@ import AskOwnerReducer from "./ask_owner_reducer";
 import ClearProfileAnswerReducer from "./clear_profile_answer_reducer";
 import CloseThreadsReducer from "./close_threads_reducer";
 import CompleteOperationReducer from "./complete_operation_reducer";
+import ConfigureAdminAccountReducer from "./configure_admin_account_reducer";
+import ConfigureAdminGatewayReducer from "./configure_admin_gateway_reducer";
 import ConfirmConstraintPatchReducer from "./confirm_constraint_patch_reducer";
 import ConfirmIntakeReducer from "./confirm_intake_reducer";
 import ConfirmOriginReducer from "./confirm_origin_reducer";
@@ -86,9 +88,15 @@ import WithdrawConsentReducer from "./withdraw_consent_reducer";
 import WithdrawConstraintPatchesReducer from "./withdraw_constraint_patches_reducer";
 
 // Import all procedure arg schemas
+import * as AdminActionProcedure from "./admin_action_procedure";
+import * as AdminLoginCredentialProcedure from "./admin_login_credential_procedure";
+import * as AdminOverviewProcedure from "./admin_overview_procedure";
+import * as AdminPasswordCredentialProcedure from "./admin_password_credential_procedure";
 import * as BeginOperationProcedure from "./begin_operation_procedure";
+import * as ChangeAdminPasswordProcedure from "./change_admin_password_procedure";
 import * as CheckLeaseProcedure from "./check_lease_procedure";
 import * as ClaimJobProcedure from "./claim_job_procedure";
+import * as CreateAdminSessionProcedure from "./create_admin_session_procedure";
 import * as LoadExecutionContextProcedure from "./load_execution_context_procedure";
 import * as LoadProfileContextProcedure from "./load_profile_context_procedure";
 import * as PublishProposalProcedure from "./publish_proposal_procedure";
@@ -366,6 +374,8 @@ const reducersSchema = __reducers(
   __reducerSchema("clear_profile_answer", ClearProfileAnswerReducer),
   __reducerSchema("close_threads", CloseThreadsReducer),
   __reducerSchema("complete_operation", CompleteOperationReducer),
+  __reducerSchema("configure_admin_account", ConfigureAdminAccountReducer),
+  __reducerSchema("configure_admin_gateway", ConfigureAdminGatewayReducer),
   __reducerSchema("confirm_constraint_patch", ConfirmConstraintPatchReducer),
   __reducerSchema("confirm_intake", ConfirmIntakeReducer),
   __reducerSchema("confirm_origin", ConfirmOriginReducer),
@@ -413,9 +423,15 @@ const reducersSchema = __reducers(
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */
 const proceduresSchema = __procedures(
+  __procedureSchema("admin_action", AdminActionProcedure.params, AdminActionProcedure.returnType),
+  __procedureSchema("admin_login_credential", AdminLoginCredentialProcedure.params, AdminLoginCredentialProcedure.returnType),
+  __procedureSchema("admin_overview", AdminOverviewProcedure.params, AdminOverviewProcedure.returnType),
+  __procedureSchema("admin_password_credential", AdminPasswordCredentialProcedure.params, AdminPasswordCredentialProcedure.returnType),
   __procedureSchema("begin_operation", BeginOperationProcedure.params, BeginOperationProcedure.returnType),
+  __procedureSchema("change_admin_password", ChangeAdminPasswordProcedure.params, ChangeAdminPasswordProcedure.returnType),
   __procedureSchema("check_lease", CheckLeaseProcedure.params, CheckLeaseProcedure.returnType),
   __procedureSchema("claim_job", ClaimJobProcedure.params, ClaimJobProcedure.returnType),
+  __procedureSchema("create_admin_session", CreateAdminSessionProcedure.params, CreateAdminSessionProcedure.returnType),
   __procedureSchema("load_execution_context", LoadExecutionContextProcedure.params, LoadExecutionContextProcedure.returnType),
   __procedureSchema("load_profile_context", LoadProfileContextProcedure.params, LoadProfileContextProcedure.returnType),
   __procedureSchema("publish_proposal", PublishProposalProcedure.params, PublishProposalProcedure.returnType),

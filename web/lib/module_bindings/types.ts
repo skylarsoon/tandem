@@ -34,6 +34,48 @@ export const ActivityRow = __t.object("ActivityRow", {
 });
 export type ActivityRow = __Infer<typeof ActivityRow>;
 
+export const AdminAccount = __t.object("AdminAccount", {
+  email: __t.string(),
+  enabled: __t.bool(),
+  version: __t.u32(),
+  createdAt: __t.timestamp(),
+  passwordHash: __t.string(),
+  passwordSalt: __t.string(),
+  mustChangePassword: __t.bool(),
+});
+export type AdminAccount = __Infer<typeof AdminAccount>;
+
+export const AdminAudit = __t.object("AdminAudit", {
+  id: __t.u64(),
+  email: __t.string(),
+  action: __t.string(),
+  subject: __t.string(),
+  at: __t.timestamp(),
+});
+export type AdminAudit = __Infer<typeof AdminAudit>;
+
+export const AdminGateway = __t.object("AdminGateway", {
+  identity: __t.identity(),
+  enabled: __t.bool(),
+});
+export type AdminGateway = __Infer<typeof AdminGateway>;
+
+export const AdminLoginLimit = __t.object("AdminLoginLimit", {
+  key: __t.string(),
+  windowStart: __t.timestamp(),
+  count: __t.u32(),
+});
+export type AdminLoginLimit = __Infer<typeof AdminLoginLimit>;
+
+export const AdminSession = __t.object("AdminSession", {
+  tokenHash: __t.string(),
+  email: __t.string(),
+  version: __t.u32(),
+  expiresAt: __t.timestamp(),
+  revoked: __t.bool(),
+});
+export type AdminSession = __Infer<typeof AdminSession>;
+
 export const Agent = __t.object("Agent", {
   id: __t.u64(),
   roomId: __t.u64(),

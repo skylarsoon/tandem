@@ -43,6 +43,26 @@ const appAccess = table({ name: 'app_access' }, {
   revoked: t.bool(),
 });
 
+// Admin password sign-in is separate from browser participant identities.
+// Only the narrowly scoped server gateway can access these private records.
+const adminAccount = table({ name: 'admin_account' }, {
+  email: t.string().primaryKey(), enabled: t.bool(), version: t.u32(), createdAt: t.timestamp(),
+  passwordHash: t.string(), passwordSalt: t.string(), mustChangePassword: t.bool(),
+});
+const adminGateway = table({ name: 'admin_gateway' }, {
+  identity: t.identity().primaryKey(), enabled: t.bool(),
+});
+const adminSession = table({ name: 'admin_session' }, {
+  tokenHash: t.string().primaryKey(), email: t.string(), version: t.u32(),
+  expiresAt: t.timestamp(), revoked: t.bool(),
+});
+const adminLoginLimit = table({ name: 'admin_login_limit' }, {
+  key: t.string().primaryKey(), windowStart: t.timestamp(), count: t.u32(),
+});
+const adminAudit = table({ name: 'admin_audit' }, {
+  id: t.u64().primaryKey().autoInc(), email: t.string(), action: t.string(), subject: t.string(), at: t.timestamp(),
+});
+
 // ---------- Rooms and people ----------
 
 const room = table(
@@ -782,6 +802,11 @@ const spacetimedb = schema({
   worker,
   appInvitation,
   appAccess,
+  adminAccount,
+  adminGateway,
+  adminSession,
+  adminLoginLimit,
+  adminAudit,
   room,
   membership,
   agent,

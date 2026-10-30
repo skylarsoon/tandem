@@ -6,19 +6,37 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all procedure arg schemas
+import * as AdminActionProcedure from "../admin_action_procedure";
+import * as AdminLoginCredentialProcedure from "../admin_login_credential_procedure";
+import * as AdminOverviewProcedure from "../admin_overview_procedure";
+import * as AdminPasswordCredentialProcedure from "../admin_password_credential_procedure";
 import * as BeginOperationProcedure from "../begin_operation_procedure";
+import * as ChangeAdminPasswordProcedure from "../change_admin_password_procedure";
 import * as CheckLeaseProcedure from "../check_lease_procedure";
 import * as ClaimJobProcedure from "../claim_job_procedure";
+import * as CreateAdminSessionProcedure from "../create_admin_session_procedure";
 import * as LoadExecutionContextProcedure from "../load_execution_context_procedure";
 import * as LoadProfileContextProcedure from "../load_profile_context_procedure";
 import * as PublishProposalProcedure from "../publish_proposal_procedure";
 
+export type AdminActionArgs = __Infer<typeof AdminActionProcedure.params>;
+export type AdminActionResult = __Infer<typeof AdminActionProcedure.returnType>;
+export type AdminLoginCredentialArgs = __Infer<typeof AdminLoginCredentialProcedure.params>;
+export type AdminLoginCredentialResult = __Infer<typeof AdminLoginCredentialProcedure.returnType>;
+export type AdminOverviewArgs = __Infer<typeof AdminOverviewProcedure.params>;
+export type AdminOverviewResult = __Infer<typeof AdminOverviewProcedure.returnType>;
+export type AdminPasswordCredentialArgs = __Infer<typeof AdminPasswordCredentialProcedure.params>;
+export type AdminPasswordCredentialResult = __Infer<typeof AdminPasswordCredentialProcedure.returnType>;
 export type BeginOperationArgs = __Infer<typeof BeginOperationProcedure.params>;
 export type BeginOperationResult = __Infer<typeof BeginOperationProcedure.returnType>;
+export type ChangeAdminPasswordArgs = __Infer<typeof ChangeAdminPasswordProcedure.params>;
+export type ChangeAdminPasswordResult = __Infer<typeof ChangeAdminPasswordProcedure.returnType>;
 export type CheckLeaseArgs = __Infer<typeof CheckLeaseProcedure.params>;
 export type CheckLeaseResult = __Infer<typeof CheckLeaseProcedure.returnType>;
 export type ClaimJobArgs = __Infer<typeof ClaimJobProcedure.params>;
 export type ClaimJobResult = __Infer<typeof ClaimJobProcedure.returnType>;
+export type CreateAdminSessionArgs = __Infer<typeof CreateAdminSessionProcedure.params>;
+export type CreateAdminSessionResult = __Infer<typeof CreateAdminSessionProcedure.returnType>;
 export type LoadExecutionContextArgs = __Infer<typeof LoadExecutionContextProcedure.params>;
 export type LoadExecutionContextResult = __Infer<typeof LoadExecutionContextProcedure.returnType>;
 export type LoadProfileContextArgs = __Infer<typeof LoadProfileContextProcedure.params>;
