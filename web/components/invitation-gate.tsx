@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { connect } from "../lib/client";
 import styles from "./invitation-gate.module.css";
 
 export function InvitationGate({ client, children }: { client: ReturnType<typeof connect>; children: ReactNode }) {
   const state = useSyncExternalStore(client.session.subscribe, client.session.getSnapshot, client.session.getSnapshot);
+  const attemptedAdminAccess = useRef(false);
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -19,6 +20,15 @@ export function InvitationGate({ client, children }: { client: ReturnType<typeof
     }
   }, []);
   useEffect(() => { if (allowed) setToken(""); }, [allowed]);
+  useEffect(() => {
+    if (allowed || state.status !== 'ready' || attemptedAdminAccess.current) return;
+    attemptedAdminAccess.current = true;
+    let active = true;
+    void import('../lib/admin-app').then(({ grantAdminAppAccess }) => grantAdminAppAccess(client)).catch(e => {
+      if (active) setError(e instanceof Error ? e.message : 'Could not check admin access.');
+    });
+    return () => { active = false; };
+  }, [allowed, state.status, client]);
   if (allowed) return <>{children}</>;
   const connected = state.status === "ready";
   return <section className={styles.gate} aria-labelledby="invite-title">

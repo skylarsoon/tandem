@@ -1,7 +1,8 @@
 import { Identity, Timestamp } from 'spacetimedb';
 import { t } from 'spacetimedb/server';
 import spacetimedb from './schema';
-import { type Ctx, fail, runProcedure } from './guards';
+import { hasAppAccess } from './access';
+import { type Ctx, digest, isWorker, fail, runProcedure } from './guards';
 
 const minute = 60_000_000n;
 const hour = 60n * minute;
@@ -17,13 +18,18 @@ function hash(value: string) {
 function audit(ctx: Ctx, email: string, action: string, subject: string) {
   ctx.db.adminAudit.insert({ id: 0n, email, action, subject, at: ctx.timestamp });
 }
-function session(ctx: Ctx, tokenHash: string) {
-  gateway(ctx); hash(tokenHash);
+function validSession(ctx: Ctx, tokenHash: string) {
+  hash(tokenHash);
   const row = ctx.db.adminSession.tokenHash.find(tokenHash);
   const account = row && ctx.db.adminAccount.email.find(row.email);
   if (!row || row.revoked || row.expiresAt.microsSinceUnixEpoch <= ctx.timestamp.microsSinceUnixEpoch ||
       !account?.enabled || account.version !== row.version) fail('NOT_AUTHORIZED', 'sign in again');
   return account;
+}
+
+function session(ctx: Ctx, tokenHash: string) {
+  gateway(ctx);
+  return validSession(ctx, tokenHash);
 }
 
 // Provisioning remains exclusively with the database owner. Admins cannot add admins.
@@ -141,6 +147,16 @@ export const adminAction = spacetimedb.procedure(
     if (args.payloadJson.length > 2048) fail('INVALID_ARGUMENT', 'request too large');
     const payload = JSON.parse(args.payloadJson);
     switch (args.action) {
+      case 'open_app': {
+        hash(payload.tokenHash);
+        for (const old of tx.db.adminAppHandoff.iter()) {
+          if (old.sessionHash === args.sessionHash || old.expiresAt.microsSinceUnixEpoch <= tx.timestamp.microsSinceUnixEpoch)
+            tx.db.adminAppHandoff.tokenHash.delete(old.tokenHash);
+        }
+        tx.db.adminAppHandoff.insert({ tokenHash: payload.tokenHash, sessionHash: args.sessionHash,
+          expiresAt: new Timestamp(tx.timestamp.microsSinceUnixEpoch + minute) });
+        break;
+      }
       case 'create_invitation': {
         hash(payload.tokenHash);
         if (typeof payload.label !== 'string' || !payload.label.trim() || payload.label.length > 100 ||
@@ -180,3 +196,21 @@ export const adminAction = spacetimedb.procedure(
     return {};
   }))
 );
+
+// The browser redeems a one-minute handoff as its existing signed participant
+// identity. No client-supplied identity or email can claim another user's data.
+export const redeemAdminAppAccess = spacetimedb.reducer({ token: t.string() }, (ctx, { token }) => {
+  if (isWorker(ctx) || ctx.db.adminGateway.identity.find(ctx.sender)) fail('NOT_AUTHORIZED', 'participant identity required');
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) fail('INVALID_HANDOFF', 'open the app again from admin');
+  const tokenHash = digest(token), handoff = ctx.db.adminAppHandoff.tokenHash.find(tokenHash);
+  if (!handoff || handoff.expiresAt.microsSinceUnixEpoch <= ctx.timestamp.microsSinceUnixEpoch)
+    fail('INVALID_HANDOFF', 'open the app again from admin');
+  const account = validSession(ctx, handoff.sessionHash);
+  if (account.mustChangePassword) fail('PASSWORD_CHANGE_REQUIRED', 'change your temporary password first');
+  ctx.db.adminAppHandoff.tokenHash.delete(tokenHash);
+  if (hasAppAccess(ctx.db, ctx.sender)) return; // Preserve an existing invitation grant.
+  const row = { identity: ctx.sender, invitationHash: `admin:${account.email}`, grantedAt: ctx.timestamp, revoked: false };
+  if (ctx.db.appAccess.identity.find(ctx.sender)) ctx.db.appAccess.identity.update(row);
+  else ctx.db.appAccess.insert(row);
+  audit(ctx, account.email, 'APP_ACCESS_GRANTED', ctx.sender.toHexString());
+});

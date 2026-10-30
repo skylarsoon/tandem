@@ -59,6 +59,11 @@ export async function POST(request: Request, context: Context) {
       catch (error) { if (!(error instanceof AdminError) || error.status !== 401) throw error; }
       return withSession({ ok: true }, '', 0);
     }
+    if (action === 'open-app') {
+      const token = secret();
+      await callAdmin('admin_action', { sessionHash: hash, action: 'open_app', payloadJson: JSON.stringify({ tokenHash: digest(token) }) });
+      return NextResponse.json({ token }, { headers });
+    }
     if (action === 'invitations') {
       const token = secret();
       await callAdmin('admin_action', { sessionHash: hash, action: 'create_invitation', payloadJson: JSON.stringify({ tokenHash: digest(token), label: body.label, hours: body.hours }) });

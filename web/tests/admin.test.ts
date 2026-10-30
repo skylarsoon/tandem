@@ -46,6 +46,20 @@ describe('admin password and API boundaries',()=>{
     const r=await POST(request('login',{email:'unknown@example.test',password:'test-password'}),context('login'));
     expect(r.status).toBe(401);expect((await r.json()).error).toBe('Email or password is incorrect.');
   });
+  it('requires an admin session before issuing app access',async()=>{
+    configured();const fetch=vi.spyOn(globalThis,'fetch');
+    const r=await POST(request('open-app',{}),context('open-app'));
+    expect(r.status).toBe(401);expect(fetch).not.toHaveBeenCalled();
+  });
+  it('returns only a short-lived handoff, never the admin cookie or gateway token',async()=>{
+    configured();const fetch=vi.spyOn(globalThis,'fetch').mockResolvedValue(Response.json(JSON.stringify({ok:true})));
+    const cookie='a'.repeat(43);
+    const r=await POST(request('open-app',{}, {cookie:`tandem-admin=${cookie}`}),context('open-app'));
+    expect(r.status).toBe(200);const data=await r.json();expect(data.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(data.token).not.toBe(cookie);expect(JSON.stringify(data)).not.toContain('test-gateway');
+    const forwarded=JSON.parse(String(fetch.mock.calls[0][1]?.body));expect(forwarded.action).toBe('open_app');
+    expect(forwarded.sessionHash).toMatch(/^[a-f0-9]{64}$/);expect(JSON.parse(forwarded.payloadJson).tokenHash).not.toBe(data.token);
+  });
   it('fails closed if the admin gateway is not configured',async()=>{
     configured();vi.stubEnv('TANDEM_ADMIN_GATEWAY_TOKEN','');const fetch=vi.spyOn(globalThis,'fetch');
     const r=await POST(request('login',{email:'test@example.test',password:'test-password'}),context('login'));

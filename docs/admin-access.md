@@ -9,6 +9,14 @@ Permissions:
 
 There is no access to private conversations, profile answers, trip constraints, job payloads, provider keys, or worker controls. Job state is a database snapshot, not a worker uptime monitor. Lists show the latest 100 invitations and access grants, and 30 jobs/audit events.
 
+## Open the app
+
+After the mandatory password change, **Open app** takes an admin directly to `/app`. Visiting `/app` or `/profile` while signed in also automatically grants participant access. No invitation is created or consumed.
+
+A same-origin, cookie-authenticated request creates a one-use, one-minute handoff. The existing signed SpacetimeDB browser identity redeems it, preserving that browser’s profile and trips. The handoff checks that the admin session is still valid and the initial password has been changed. Only ordinary participant access is granted; admin permissions remain behind the admin session.
+
+Like accepted invitations, participant access is remembered in that browser independently of admin sign-out. New admin-derived grants require the admin account to remain enabled and out of password-reset state. Existing invitation-based access is preserved. A different browser has a different participant identity; this does not merge or migrate trips between browsers.
+
 ## Provisioning
 
 Build and publish the additive database module with data deletion disabled first. Authenticate the CLI as the database owner. These commands save sensitive files with mode 0600 outside the repository; do not commit or log them.

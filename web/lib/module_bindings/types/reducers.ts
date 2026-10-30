@@ -35,6 +35,7 @@ import ProposeProfileSummaryReducer from "../propose_profile_summary_reducer";
 import ProposeTripBriefReducer from "../propose_trip_brief_reducer";
 import RecordCandidatesReducer from "../record_candidates_reducer";
 import RecordMessageProcessedReducer from "../record_message_processed_reducer";
+import RedeemAdminAppAccessReducer from "../redeem_admin_app_access_reducer";
 import RedeemAppInvitationReducer from "../redeem_app_invitation_reducer";
 import RejectConstraintPatchReducer from "../reject_constraint_patch_reducer";
 import RemoveRuleReducer from "../remove_rule_reducer";
@@ -88,6 +89,7 @@ export type ProposeProfileSummaryParams = __Infer<typeof ProposeProfileSummaryRe
 export type ProposeTripBriefParams = __Infer<typeof ProposeTripBriefReducer>;
 export type RecordCandidatesParams = __Infer<typeof RecordCandidatesReducer>;
 export type RecordMessageProcessedParams = __Infer<typeof RecordMessageProcessedReducer>;
+export type RedeemAdminAppAccessParams = __Infer<typeof RedeemAdminAppAccessReducer>;
 export type RedeemAppInvitationParams = __Infer<typeof RedeemAppInvitationReducer>;
 export type RejectConstraintPatchParams = __Infer<typeof RejectConstraintPatchReducer>;
 export type RemoveRuleParams = __Infer<typeof RemoveRuleReducer>;

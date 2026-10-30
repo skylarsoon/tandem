@@ -45,6 +45,13 @@ export const AdminAccount = __t.object("AdminAccount", {
 });
 export type AdminAccount = __Infer<typeof AdminAccount>;
 
+export const AdminAppHandoff = __t.object("AdminAppHandoff", {
+  tokenHash: __t.string(),
+  sessionHash: __t.string(),
+  expiresAt: __t.timestamp(),
+});
+export type AdminAppHandoff = __Infer<typeof AdminAppHandoff>;
+
 export const AdminAudit = __t.object("AdminAudit", {
   id: __t.u64(),
   email: __t.string(),

@@ -56,6 +56,9 @@ const adminSession = table({ name: 'admin_session' }, {
   tokenHash: t.string().primaryKey(), email: t.string(), version: t.u32(),
   expiresAt: t.timestamp(), revoked: t.bool(),
 });
+const adminAppHandoff = table({ name: 'admin_app_handoff' }, {
+  tokenHash: t.string().primaryKey(), sessionHash: t.string(), expiresAt: t.timestamp(),
+});
 const adminLoginLimit = table({ name: 'admin_login_limit' }, {
   key: t.string().primaryKey(), windowStart: t.timestamp(), count: t.u32(),
 });
@@ -805,6 +808,7 @@ const spacetimedb = schema({
   adminAccount,
   adminGateway,
   adminSession,
+  adminAppHandoff,
   adminLoginLimit,
   adminAudit,
   room,

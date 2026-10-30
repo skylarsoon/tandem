@@ -97,3 +97,34 @@ def test_persistent_login_limit_and_disabled_gateway(admin):
     assert c.procedure(g,'admin_login_credential',email=email,client_hash=digest())['limited']
     owner('configure_admin_gateway',g.arg,False)
     expect_error('NOT_AUTHORIZED',c.procedure,g,'admin_login_credential',email=email,client_hash=digest())
+
+
+def test_admin_can_open_app_without_invite_and_cannot_transfer_handoff(admin):
+    c,g,email=admin; session_hash=login(c,g,email)
+    person=c.mint_identity(); other=c.mint_identity()
+    token=secrets.token_urlsafe(32)
+    action(c,g,session_hash,'open_app',tokenHash=hashlib.sha256(token.encode()).hexdigest())
+    c.call(person,'redeem_admin_app_access',token=token)
+    assert c.view(person,'my_app_access') == [{'allowed':True}]
+    c.call(person,'save_profile_answer',question_id='C01',value_json='"Existing admin traveller"')
+    expect_error('INVALID_HANDOFF',c.call,other,'redeem_admin_app_access',token=token)
+    expect_error('INVALID_HANDOFF',c.call,other,'redeem_admin_app_access',token=secrets.token_urlsafe(32))
+    # Reopening uses the same identity and retains its data.
+    token2=secrets.token_urlsafe(32)
+    action(c,g,session_hash,'open_app',tokenHash=hashlib.sha256(token2.encode()).hexdigest())
+    c.call(person,'redeem_admin_app_access',token=token2)
+    assert c.view(person,'my_profile')[0]['display_name']=='Existing admin traveller'
+    # Disabling the admin account closes admin-derived app access too.
+    owner('configure_admin_account',email,False,'a'*128,'b'*64)
+    assert c.view(person,'my_app_access') == [{'allowed':False}]
+    assert c.view(person,'my_profile') == []
+
+
+def test_app_handoff_requires_password_change_and_current_session(admin):
+    c,g,email=admin; session_hash=login(c,g,email,False)
+    token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
+    expect_error('PASSWORD_CHANGE_REQUIRED',action,c,g,session_hash,'open_app',tokenHash=token_hash)
+    c.procedure(g,'change_admin_password',session_hash=session_hash,password_hash='c'*128,password_salt='d'*64)
+    action(c,g,session_hash,'open_app',tokenHash=token_hash)
+    action(c,g,session_hash,'logout')
+    expect_error('NOT_AUTHORIZED',c.call,c.mint_identity(),'redeem_admin_app_access',token=token)

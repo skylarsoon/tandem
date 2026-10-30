@@ -63,6 +63,7 @@ import ProposeProfileSummaryReducer from "./propose_profile_summary_reducer";
 import ProposeTripBriefReducer from "./propose_trip_brief_reducer";
 import RecordCandidatesReducer from "./record_candidates_reducer";
 import RecordMessageProcessedReducer from "./record_message_processed_reducer";
+import RedeemAdminAppAccessReducer from "./redeem_admin_app_access_reducer";
 import RedeemAppInvitationReducer from "./redeem_app_invitation_reducer";
 import RejectConstraintPatchReducer from "./reject_constraint_patch_reducer";
 import RemoveRuleReducer from "./remove_rule_reducer";
@@ -396,6 +397,7 @@ const reducersSchema = __reducers(
   __reducerSchema("propose_trip_brief", ProposeTripBriefReducer),
   __reducerSchema("record_candidates", RecordCandidatesReducer),
   __reducerSchema("record_message_processed", RecordMessageProcessedReducer),
+  __reducerSchema("redeem_admin_app_access", RedeemAdminAppAccessReducer),
   __reducerSchema("redeem_app_invitation", RedeemAppInvitationReducer),
   __reducerSchema("reject_constraint_patch", RejectConstraintPatchReducer),
   __reducerSchema("remove_rule", RemoveRuleReducer),
