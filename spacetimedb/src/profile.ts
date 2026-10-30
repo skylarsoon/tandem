@@ -1,4 +1,4 @@
-import { hasAppAccess } from './access';
+import { hasAppAccess, participantIdentity } from './access';
 import { t } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
 import spacetimedb, { profileCalibration } from './schema';
@@ -23,10 +23,10 @@ const SUMMARY_MAX = 1200;
 const CORRECTION_MAX = 1000;
 
 function ensureProfile(ctx: Ctx) {
-  const existing = ctx.db.profile.owner.find(ctx.sender);
+  const existing = ctx.db.profile.owner.find(participantIdentity(ctx.db, ctx.sender));
   if (existing) return existing;
   return ctx.db.profile.insert({
-    owner: ctx.sender,
+    owner: participantIdentity(ctx.db, ctx.sender),
     displayName: '',
     avatarRef: '',
     selfDescription: '',
@@ -53,14 +53,14 @@ function syncProfile(ctx: Ctx, questionId: string, value: unknown) {
   if (questionId === 'F03') fields.selfDescription = typeof v === 'string' ? v.trim() : '';
   ctx.db.profile.owner.update({ ...p, ...fields, revision: p.revision + 1n, updatedAt: ctx.timestamp });
   // Keep an already-requested summary aligned with edits made while it waits.
-  const calibration = ctx.db.profileCalibration.owner.find(ctx.sender);
+  const calibration = ctx.db.profileCalibration.owner.find(participantIdentity(ctx.db, ctx.sender));
   if (calibration?.state === 'PENDING') queueSummary(ctx, undefined);
 }
 
 function store(ctx: Ctx, questionId: string, status: string, value: unknown) {
   const q = profileQuestion(questionId);
-  const row = { owner: ctx.sender, questionId, key: q.key, status, valueJson: JSON.stringify(value), catalogVersion: CATALOG_VERSION, updatedAt: ctx.timestamp };
-  const existing = findAnswer(ctx, ctx.sender, questionId);
+  const row = { owner: participantIdentity(ctx.db, ctx.sender), questionId, key: q.key, status, valueJson: JSON.stringify(value), catalogVersion: CATALOG_VERSION, updatedAt: ctx.timestamp };
+  const existing = findAnswer(ctx, participantIdentity(ctx.db, ctx.sender), questionId);
   if (existing) ctx.db.profileAnswer.id.update({ ...existing, ...row });
   else ctx.db.profileAnswer.insert({ id: 0n, ...row });
   syncProfile(ctx, questionId, value);
@@ -86,17 +86,17 @@ export const skipProfileQuestion = spacetimedb.reducer({ questionId: t.string() 
 export const clearProfileAnswer = spacetimedb.reducer({ questionId: t.string() }, (ctx, { questionId }) => {
   requireHuman(ctx);
   if (profileQuestion(questionId).required) fail('INVALID_STATE', 'this question is needed to finish');
-  const existing = findAnswer(ctx, ctx.sender, questionId);
+  const existing = findAnswer(ctx, participantIdentity(ctx.db, ctx.sender), questionId);
   if (!existing) return;
   ctx.db.profileAnswer.id.delete(existing.id);
   syncProfile(ctx, questionId, null);
 });
 
 function queueSummary(ctx: Ctx, correction: string | undefined) {
-  const p = ctx.db.profile.owner.find(ctx.sender);
-  const name = findAnswer(ctx, ctx.sender, 'C01');
+  const p = ctx.db.profile.owner.find(participantIdentity(ctx.db, ctx.sender));
+  const name = findAnswer(ctx, participantIdentity(ctx.db, ctx.sender), 'C01');
   if (!p || !name || name.status !== 'ANSWERED') fail('INVALID_STATE', 'tell us what to call you first');
-  const previous = ctx.db.profileCalibration.owner.find(ctx.sender);
+  const previous = ctx.db.profileCalibration.owner.find(participantIdentity(ctx.db, ctx.sender));
   // Only the newest summary request runs; an older pending one is cancelled.
   if (previous?.jobId !== undefined) {
     const old = ctx.db.job.id.find(previous.jobId);
@@ -123,9 +123,9 @@ function queueSummary(ctx: Ctx, correction: string | undefined) {
     createdAt: ctx.timestamp,
     updatedAt: ctx.timestamp,
   });
-  ctx.db.profileJob.insert({ jobId: job.id, owner: ctx.sender });
+  ctx.db.profileJob.insert({ jobId: job.id, owner: participantIdentity(ctx.db, ctx.sender) });
   const row = {
-    owner: ctx.sender,
+    owner: participantIdentity(ctx.db, ctx.sender),
     state: 'PENDING',
     summary: previous?.summary,
     correction: correction ?? previous?.correction,
@@ -146,9 +146,9 @@ export const requestProfileSummary = spacetimedb.reducer({}, ctx => {
 // "Yes, that's me" for the exact summary shown (the profile must not have changed since).
 export const confirmProfileSummary = spacetimedb.reducer({ profileRevision: t.u64() }, (ctx, { profileRevision }) => {
   requireHuman(ctx);
-  const c = ctx.db.profileCalibration.owner.find(ctx.sender);
+  const c = ctx.db.profileCalibration.owner.find(participantIdentity(ctx.db, ctx.sender));
   if (!c || c.state !== 'PROPOSED') fail('INVALID_STATE', 'there is no summary waiting for you');
-  const p = ctx.db.profile.owner.find(ctx.sender)!;
+  const p = ctx.db.profile.owner.find(participantIdentity(ctx.db, ctx.sender))!;
   if (c.profileRevision !== profileRevision || p.revision !== profileRevision) {
     fail('STALE_SNAPSHOT', 'your answers changed since this summary; ask for a fresh one');
   }
@@ -161,7 +161,7 @@ export const correctProfileSummary = spacetimedb.reducer({ correction: t.string(
   requireHuman(ctx);
   const text = correction.trim();
   if (text.length === 0 || text.length > CORRECTION_MAX) fail('INVALID_ARGUMENT', `a correction is 1-${CORRECTION_MAX} characters`);
-  const c = ctx.db.profileCalibration.owner.find(ctx.sender);
+  const c = ctx.db.profileCalibration.owner.find(participantIdentity(ctx.db, ctx.sender));
   if (!c || (c.state !== 'PROPOSED' && c.state !== 'CONFIRMED')) fail('INVALID_STATE', 'there is no summary to correct');
   queueSummary(ctx, text);
 });
@@ -234,7 +234,7 @@ const ProfileAnswerRow = t.row('ProfileAnswerRow', {
 // Your own answers only.
 export const myProfileAnswers = spacetimedb.view({ name: 'my_profile_answers', public: true }, t.array(ProfileAnswerRow), ctx =>
   !hasAppAccess(ctx.db, ctx.sender) ? [] :
-  [...ctx.db.profileAnswer.byOwner.filter(ctx.sender)].map(a => ({
+  [...ctx.db.profileAnswer.byOwner.filter(participantIdentity(ctx.db, ctx.sender))].map(a => ({
     id: a.id,
     questionId: a.questionId,
     key: a.key,
@@ -250,9 +250,9 @@ export const myProfileCalibration = spacetimedb.view(
   t.option(profileCalibration.rowType),
   ctx => {
     if (!hasAppAccess(ctx.db, ctx.sender)) return undefined;
-    const row = ctx.db.profileCalibration.owner.find(ctx.sender);
+    const row = ctx.db.profileCalibration.owner.find(participantIdentity(ctx.db, ctx.sender));
     if (!row || row.state !== 'PENDING') return row ?? undefined;
-    const profile = ctx.db.profile.owner.find(ctx.sender);
+    const profile = ctx.db.profile.owner.find(participantIdentity(ctx.db, ctx.sender));
     if (profile && profile.revision !== row.profileRevision) return { ...row, state: 'STALE' };
     const job = row.jobId === undefined ? undefined : ctx.db.job.id.find(row.jobId);
     if (!job || ['FINISHED', 'FAILED', 'CANCELLED'].includes(job.status)) return { ...row, state: 'FAILED' };

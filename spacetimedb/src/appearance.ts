@@ -1,4 +1,4 @@
-import { hasAppAccess } from './access';
+import { hasAppAccess, participantIdentity } from './access';
 import { t } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
 import spacetimedb, { agentAppearance } from './schema';
@@ -13,12 +13,12 @@ export function defaultAgentVariant(owner: Identity): string {
 export const setAgentAppearance = spacetimedb.reducer({ variant: t.string() }, (ctx, { variant }) => {
   requireHuman(ctx);
   oneOf(variant, CHARACTER_VARIANTS, 'variant');
-  const row = { owner: ctx.sender, variant };
-  if (ctx.db.agentAppearance.owner.find(ctx.sender)) ctx.db.agentAppearance.owner.update(row);
+  const row = { owner: participantIdentity(ctx.db, ctx.sender), variant };
+  if (ctx.db.agentAppearance.owner.find(participantIdentity(ctx.db, ctx.sender))) ctx.db.agentAppearance.owner.update(row);
   else ctx.db.agentAppearance.insert(row);
 });
 
 export const myAgentAppearance = spacetimedb.view(
   { name: 'my_agent_appearance', public: true }, t.option(agentAppearance.rowType),
-  ctx => !hasAppAccess(ctx.db, ctx.sender) ? undefined : ctx.db.agentAppearance.owner.find(ctx.sender) ?? { owner: ctx.sender, variant: defaultAgentVariant(ctx.sender) }
+  ctx => !hasAppAccess(ctx.db, ctx.sender) ? undefined : ctx.db.agentAppearance.owner.find(participantIdentity(ctx.db, ctx.sender)) ?? { owner: participantIdentity(ctx.db, ctx.sender), variant: defaultAgentVariant(participantIdentity(ctx.db, ctx.sender)) }
 );

@@ -128,3 +128,68 @@ def test_app_handoff_requires_password_change_and_current_session(admin):
     action(c,g,session_hash,'open_app',tokenHash=token_hash)
     action(c,g,session_hash,'logout')
     expect_error('NOT_AUTHORIZED',c.call,c.mint_identity(),'redeem_admin_app_access',token=token)
+
+
+def open_app(c, gateway, session_hash, device):
+    token=secrets.token_urlsafe(32)
+    action(c,gateway,session_hash,'open_app',tokenHash=hashlib.sha256(token.encode()).hexdigest())
+    c.call(device,'redeem_admin_app_access',token=token)
+
+
+def test_account_profile_trips_and_private_messages_follow_two_devices(admin):
+    c,g,email=admin; first=login(c,g,email)
+    a=c.mint_identity(); b=c.mint_identity(); stranger=c.mint_identity()
+    open_app(c,g,first,a)
+    c.call(a,'save_profile_answer',question_id='C01',value_json='"Cross-device traveller"')
+    c.call(a,'set_agent_appearance',variant='mint')
+    c.call(a,'create_room',goal='Cross-device trip',display_name='Traveller')
+    room=c.view(a,'my_rooms')[0]; room_id=room['id']
+    second=login(c,g,email,False)
+    open_app(c,g,second,b)
+    assert c.view(b,'my_profile')==c.view(a,'my_profile')
+    assert c.view(b,'my_profile_answers')==c.view(a,'my_profile_answers')
+    assert c.view(b,'my_agent_appearance')==c.view(a,'my_agent_appearance')
+    assert c.view(b,'my_rooms')==c.view(a,'my_rooms')
+    assert sum(m['is_me'] for m in c.view(b,'room_members'))==1
+    c.call(b,'save_profile_answer',question_id='C01',value_json='"Edited from phone"')
+    assert c.view(a,'my_profile')[0]['display_name']=='Edited from phone'
+    c.call(b,'submit_private_message',room_id=room_id,body='Private message from second device')
+    assert c.view(a,'my_private_messages')==c.view(b,'my_private_messages')
+    assert c.view(a,'my_private_messages')[-1]['body']=='Private message from second device'
+    c.call(b,'set_trip_description',room_id=room_id,description='An organiser can edit from either device.')
+    assert c.view(a,'room_trip_brief')==c.view(b,'room_trip_brief')
+    for view in ['my_rooms','my_profile','my_profile_answers','my_private_messages']:
+        assert c.view(stranger,view)==[]
+    expect_error('INVITATION_REQUIRED',c.call,stranger,'submit_private_message',room_id=room_id,body='Intrusion')
+    for table in ['participant_account','participant_device']:
+        with pytest.raises(StdbError): c.sql(b,f'SELECT * FROM {table}')
+    # Sign-out retracts all private access for that device, but preserves the
+    # other device and stored data. A fresh login recovers the same records.
+    action(c,g,second,'logout')
+    assert c.view(b,'my_app_access')==[{'allowed':False}]
+    assert c.view(b,'my_profile')==[] and c.view(b,'my_rooms')==[]
+    assert c.view(a,'my_profile')[0]['display_name']=='Edited from phone'
+    expect_error('INVITATION_REQUIRED',c.call,b,'save_profile_answer',question_id='C01',value_json='"Blocked"')
+    third=login(c,g,email,False);open_app(c,g,third,b)
+    assert c.view(a,'my_profile')==c.view(b,'my_profile')
+    c.procedure(g,'change_admin_password',session_hash=third,password_hash='e'*128,password_salt='f'*64)
+    assert c.view(a,'my_app_access')==[{'allowed':False}]
+    assert c.view(b,'my_app_access')==[{'allowed':True}]
+
+
+def test_different_accounts_on_same_device_never_inherit_each_others_data(admin):
+    c,g,email=admin; first=login(c,g,email)
+    a=c.mint_identity(); open_app(c,g,first,a)
+    c.call(a,'save_profile_answer',question_id='C01',value_json='"Account one private profile"')
+    second_email=f'{secrets.token_hex(8)}@example.test'
+    owner('configure_admin_account',second_email,True,'a'*128,'b'*64)
+    try:
+        other=login(c,g,second_email)
+        open_app(c,g,other,a)
+        assert c.view(a,'my_profile')==[]
+        c.call(a,'save_profile_answer',question_id='C01',value_json='"Account two private profile"')
+        open_app(c,g,first,a)
+        assert c.view(a,'my_profile')[0]['display_name']=='Account one private profile'
+        b=c.mint_identity();open_app(c,g,other,b)
+        assert c.view(b,'my_profile')[0]['display_name']=='Account two private profile'
+    finally: owner('configure_admin_account',second_email,False,'a'*128,'b'*64)

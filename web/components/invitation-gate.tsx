@@ -6,6 +6,9 @@ import styles from "./invitation-gate.module.css";
 export function InvitationGate({ client, children }: { client: ReturnType<typeof connect>; children: ReactNode }) {
   const state = useSyncExternalStore(client.session.subscribe, client.session.getSnapshot, client.session.getSnapshot);
   const attemptedAdminAccess = useRef(false);
+  const admitted = useRef(false);
+  const owner = useRef<string | undefined>(undefined);
+  const accountEpoch = useRef(0);
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -29,13 +32,28 @@ export function InvitationGate({ client, children }: { client: ReturnType<typeof
     });
     return () => { active = false; };
   }, [allowed, state.status, client]);
-  if (allowed) return <>{children}</>;
+  // Selecting a room resubscribes and briefly enters synchronizing. Keep the
+  // dashboard mounted (but hidden) so its selected trip/setup state survives.
+  // An authoritative denial unmounts it and clears private component drafts.
+  if (state.status === 'ready') {
+    admitted.current = allowed;
+    if (allowed) {
+      const nextOwner = state.tables.my_profile?.[0]?.owner?.toHexString?.();
+      if (owner.current !== undefined && nextOwner !== owner.current) accountEpoch.current++;
+      owner.current = nextOwner;
+    }
+  }
+  if (admitted.current) return <>
+    {!allowed && <p role="status">Synchronizing your trip…</p>}
+    <div key={accountEpoch.current} style={{ display: allowed ? 'contents' : 'none' }}>{children}</div>
+  </>;
   const connected = state.status === "ready";
   return <section className={styles.gate} aria-labelledby="invite-title">
     <div className={styles.icon} aria-hidden="true">✳</div>
     <p className={styles.eyebrow}>A LITTLE COMMON GROUND / PRIVATE PREVIEW</p>
     <h2 id="invite-title">Good company.<br />By invitation.</h2>
     <p>Tandem is opening a few places at a time. Use your personal invitation to meet your companion and start planning together.</p>
+    <p>Already have an account? <a href="/admin">Sign in to restore your profile and trips →</a></p>
     <form onSubmit={async event => {
       event.preventDefault(); setError(""); setPending(true); setSubmitted(false);
       try { await client.connection.reducers.redeemAppInvitation({ token: token.trim() }); setSubmitted(true); }
@@ -49,7 +67,7 @@ export function InvitationGate({ client, children }: { client: ReturnType<typeof
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {submitted && <p role="status">Invitation accepted. Opening your space…</p>}
     {!connected && <p role="status">{state.error ? "We couldn’t connect. Refresh to try again." : "Connecting securely…"}</p>}
-    <p className={styles.fine}>Each link can be used once. Access stays in this browser. For another device or a cleared browser, ask the team for a new invitation.</p>
+    <p className={styles.fine}>Each invitation can be used once. Invited guest access stays in this browser. Signed-in accounts can restore their profile and trips on another device.</p>
     <a href="/#demo">Watch the public demo ↗</a>
   </section>;
 }

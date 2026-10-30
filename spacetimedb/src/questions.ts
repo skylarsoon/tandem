@@ -1,3 +1,4 @@
+import { participantIdentity } from './access';
 import { t } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import {
@@ -120,7 +121,7 @@ export const answerQuestion = spacetimedb.reducer(
   (ctx, { questionId, version, answerJson }) => {
     requireHuman(ctx);
     const q = ctx.db.question.id.find(questionId);
-    if (!q || !q.owner.isEqual(ctx.sender)) fail('NOT_FOUND', `question ${questionId}`);
+    if (!q || !q.owner.isEqual(participantIdentity(ctx.db, ctx.sender))) fail('NOT_FOUND', `question ${questionId}`);
     if (q.state !== 'OPEN' || q.version !== version) {
       fail('QUESTION_SUPERSEDED', `question ${questionId} v${version} is no longer open`);
     }

@@ -1,3 +1,4 @@
+import { participantIdentity } from './access';
 import { t } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import { emitEvent, fail, invalidateRoom, nonEmpty, parseJson, requireHuman, requireMember } from './guards';
@@ -25,7 +26,7 @@ export const setConstraint = spacetimedb.reducer(
 export const confirmConstraintPatch = spacetimedb.reducer({ patchId: t.u64() }, (ctx, { patchId }) => {
   requireHuman(ctx);
   const patch = ctx.db.constraintPatch.id.find(patchId);
-  if (!patch || !patch.owner.isEqual(ctx.sender)) fail('NOT_FOUND', `patch ${patchId}`);
+  if (!patch || !patch.owner.isEqual(participantIdentity(ctx.db, ctx.sender))) fail('NOT_FOUND', `patch ${patchId}`);
   if (patch.state !== 'PENDING') fail('INVALID_STATE', `patch ${patchId} is ${patch.state}`);
   requireMember(ctx, patch.roomId);
   ctx.db.constraintPatch.id.update({ ...patch, state: 'CONFIRMED' });
@@ -35,7 +36,7 @@ export const confirmConstraintPatch = spacetimedb.reducer({ patchId: t.u64() }, 
 export const rejectConstraintPatch = spacetimedb.reducer({ patchId: t.u64() }, (ctx, { patchId }) => {
   requireHuman(ctx);
   const patch = ctx.db.constraintPatch.id.find(patchId);
-  if (!patch || !patch.owner.isEqual(ctx.sender)) fail('NOT_FOUND', `patch ${patchId}`);
+  if (!patch || !patch.owner.isEqual(participantIdentity(ctx.db, ctx.sender))) fail('NOT_FOUND', `patch ${patchId}`);
   if (patch.state !== 'PENDING') fail('INVALID_STATE', `patch ${patchId} is ${patch.state}`);
   ctx.db.constraintPatch.id.update({ ...patch, state: 'REJECTED' });
 });
@@ -67,7 +68,7 @@ export const addRule = spacetimedb.reducer(
 export const removeRule = spacetimedb.reducer({ ruleId: t.u64() }, (ctx, { ruleId }) => {
   requireHuman(ctx);
   const rule = ctx.db.participantRule.id.find(ruleId);
-  if (!rule || !rule.owner.isEqual(ctx.sender)) fail('NOT_FOUND', `rule ${ruleId}`);
+  if (!rule || !rule.owner.isEqual(participantIdentity(ctx.db, ctx.sender))) fail('NOT_FOUND', `rule ${ruleId}`);
   if (rule.legacyKey !== undefined) fail('INVALID_STATE', 'change this one through the limit it came from');
   ctx.db.participantRule.id.delete(rule.id);
   invalidateRoom(ctx, rule.roomId, { input: true }, 'rule removed');
@@ -80,7 +81,7 @@ export const setRuleState = spacetimedb.reducer({ ruleId: t.u64(), state: t.stri
   requireHuman(ctx);
   if (!['active', 'set_aside', 'kept'].includes(state)) fail('INVALID_ARGUMENT', 'state is active, set_aside or kept');
   const rule = ctx.db.participantRule.id.find(ruleId);
-  if (!rule || !rule.owner.isEqual(ctx.sender)) fail('NOT_FOUND', `rule ${ruleId}`);
+  if (!rule || !rule.owner.isEqual(participantIdentity(ctx.db, ctx.sender))) fail('NOT_FOUND', `rule ${ruleId}`);
   if (rule.legacyKey !== undefined) fail('INVALID_STATE', 'change this one through the limit it came from');
   if (rule.state === state) return;
   ctx.db.participantRule.id.update({ ...rule, state, updatedAt: ctx.timestamp });

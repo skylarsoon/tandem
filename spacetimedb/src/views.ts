@@ -1,4 +1,4 @@
-import { hasAppAccess } from './access';
+import { hasAppAccess, participantIdentity } from './access';
 import { t, type InferSchema, type ViewCtx } from 'spacetimedb/server';
 import type { Identity, Timestamp } from 'spacetimedb';
 import { defaultAgentVariant } from './appearance';
@@ -20,7 +20,7 @@ import spacetimedb, {
   room,
 } from './schema';
 
-// Every view is computed per caller (ctx.sender) and reads only through
+// Every view is computed per authenticated participant and reads only through
 // indexes. Shared views never include payload JSON, private constraints,
 // validation details or other members' identities.
 
@@ -28,7 +28,7 @@ type ViewDb = ViewCtx<InferSchema<typeof spacetimedb>>['db'];
 
 function myRoomIds(db: ViewDb, sender: Identity): bigint[] {
   if (!hasAppAccess(db, sender)) return [];
-  return [...db.membership.byMember.filter(sender)].filter(m => m.active).map(m => m.roomId);
+  return [...db.membership.byMember.filter(participantIdentity(db, sender))].filter(m => m.active).map(m => m.roomId);
 }
 
 const MemberRow = t.row('MemberRow', {
@@ -146,7 +146,7 @@ export const roomMembers = spacetimedb.view({ name: 'room_members', public: true
       displayName: m.displayName,
       role: m.role,
       active: m.active,
-      isMe: m.member.isEqual(ctx.sender),
+      isMe: m.member.isEqual(participantIdentity(ctx.db, ctx.sender)),
       agentId: agents.find(a => a.membershipId === m.id)?.id,
     }));
   })
@@ -171,35 +171,35 @@ export const roomAgentAppearances = spacetimedb.view(
 );
 
 export const myProfile = spacetimedb.view({ name: 'my_profile', public: true }, t.option(profile.rowType), ctx =>
-  hasAppAccess(ctx.db, ctx.sender) ? ctx.db.profile.owner.find(ctx.sender) ?? undefined : undefined
+  hasAppAccess(ctx.db, ctx.sender) ? ctx.db.profile.owner.find(participantIdentity(ctx.db, ctx.sender)) ?? undefined : undefined
 );
 
 export const myParticipationPreferences = spacetimedb.view(
   { name: 'my_participation_preferences', public: true },
   t.option(participationPreferences.rowType),
-  ctx => hasAppAccess(ctx.db, ctx.sender) ? ctx.db.participationPreferences.owner.find(ctx.sender) ?? undefined : undefined
+  ctx => hasAppAccess(ctx.db, ctx.sender) ? ctx.db.participationPreferences.owner.find(participantIdentity(ctx.db, ctx.sender)) ?? undefined : undefined
 );
 
 export const myConstraints = spacetimedb.view(
   { name: 'my_constraints', public: true },
   t.array(participantConstraint.rowType),
-  ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.participantConstraint.byOwner.filter(ctx.sender)]) : []
+  ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.participantConstraint.byOwner.filter(participantIdentity(ctx.db, ctx.sender))]) : []
 );
 
 export const myConstraintPatches = spacetimedb.view(
   { name: 'my_constraint_patches', public: true },
   t.array(constraintPatch.rowType),
-  ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.constraintPatch.byOwner.filter(ctx.sender)]) : []
+  ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.constraintPatch.byOwner.filter(participantIdentity(ctx.db, ctx.sender))]) : []
 );
 
 export const myPrivateMessages = spacetimedb.view(
   { name: 'my_private_messages', public: true },
   t.array(privateMessage.rowType),
-  ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.privateMessage.byOwner.filter(ctx.sender)]) : []
+  ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.privateMessage.byOwner.filter(participantIdentity(ctx.db, ctx.sender))]) : []
 );
 
 export const myQuestions = spacetimedb.view({ name: 'my_questions', public: true }, t.array(question.rowType), ctx => hasAppAccess(ctx.db, ctx.sender) ? ([
-  ...ctx.db.question.byOwner.filter(ctx.sender),
+  ...ctx.db.question.byOwner.filter(participantIdentity(ctx.db, ctx.sender)),
 ]) : []
 );
 
@@ -250,7 +250,7 @@ export const roomMessages = spacetimedb.view({ name: 'room_messages', public: tr
 export const myAgentMessages = spacetimedb.view({ name: 'my_agent_messages', public: true }, t.array(ChatRow), ctx =>
   myRoomIds(ctx.db, ctx.sender).flatMap(roomId =>
     [...ctx.db.agentMessage.byRoom.filter(roomId)]
-      .filter(m => m.effectiveAudience === 'OWNER_PRIVATE' && m.audienceOwner?.isEqual(ctx.sender))
+      .filter(m => m.effectiveAudience === 'OWNER_PRIVATE' && m.audienceOwner?.isEqual(participantIdentity(ctx.db, ctx.sender)))
       .map(toChat)
   )
 );
@@ -264,7 +264,7 @@ export const roomThreads = spacetimedb.view(
 export const roomEvents = spacetimedb.view({ name: 'room_events', public: true }, t.array(decisionEvent.rowType), ctx =>
   myRoomIds(ctx.db, ctx.sender).flatMap(roomId =>
     [...ctx.db.decisionEvent.byRoom.filter(roomId)].filter(
-      e => e.audience === 'ROOM' || (e.owner !== undefined && e.owner.isEqual(ctx.sender))
+      e => e.audience === 'ROOM' || (e.owner !== undefined && e.owner.isEqual(participantIdentity(ctx.db, ctx.sender)))
     )
   )
 );
@@ -285,13 +285,13 @@ export const roomProposals = spacetimedb.view({ name: 'room_proposals', public: 
       evidenceRefs: p.evidenceRefs,
       state: p.state,
       reviewerCount: p.affectedMembers.length,
-      isReviewer: p.affectedMembers.some(m => m.isEqual(ctx.sender)),
+      isReviewer: p.affectedMembers.some(m => m.isEqual(participantIdentity(ctx.db, ctx.sender))),
       createdAt: p.createdAt,
     }))
   )
 );
 
-export const myProposalImpacts = spacetimedb.view({ name: 'my_proposal_impacts', public: true }, t.array(ImpactRow), ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.participantImpact.byOwner.filter(ctx.sender)].map(i => ({
+export const myProposalImpacts = spacetimedb.view({ name: 'my_proposal_impacts', public: true }, t.array(ImpactRow), ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.participantImpact.byOwner.filter(participantIdentity(ctx.db, ctx.sender))].map(i => ({
     id: i.id,
     proposalId: i.proposalId,
     roomId: i.roomId,
@@ -311,7 +311,7 @@ const RuleRow = t.row('RuleRow', {
 });
 
 // Your own rules in every room, in the generic language.
-export const myRules = spacetimedb.view({ name: 'my_rules', public: true }, t.array(RuleRow), ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.participantRule.byOwner.filter(ctx.sender)].map(r => ({
+export const myRules = spacetimedb.view({ name: 'my_rules', public: true }, t.array(RuleRow), ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.participantRule.byOwner.filter(participantIdentity(ctx.db, ctx.sender))].map(r => ({
     id: r.id,
     roomId: r.roomId,
     ruleJson: r.ruleJson,
@@ -325,7 +325,7 @@ export const myRules = spacetimedb.view({ name: 'my_rules', public: true }, t.ar
 
 // Your own approved compromises, never anyone else's: burdens come from
 // private limits, so the ledger has no room-wide view.
-export const myCompromises = spacetimedb.view({ name: 'my_compromises', public: true }, t.array(CompromiseRow), ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.compromiseEntry.byOwner.filter(ctx.sender)].map(e => ({
+export const myCompromises = spacetimedb.view({ name: 'my_compromises', public: true }, t.array(CompromiseRow), ctx => hasAppAccess(ctx.db, ctx.sender) ? ([...ctx.db.compromiseEntry.byOwner.filter(participantIdentity(ctx.db, ctx.sender))].map(e => ({
     id: e.id,
     roomId: e.roomId,
     decisionId: e.decisionId,
@@ -341,7 +341,7 @@ export const myCompromises = spacetimedb.view({ name: 'my_compromises', public: 
 // Deciding later is always allowed; pending never turns into consent.
 export const myConsents = spacetimedb.view({ name: 'my_consents', public: true }, t.array(ConsentRow), ctx => {
   if (!hasAppAccess(ctx.db, ctx.sender)) return [];
-  return [...ctx.db.consent.byMember.filter(ctx.sender)].map(c => ({
+  return [...ctx.db.consent.byMember.filter(participantIdentity(ctx.db, ctx.sender))].map(c => ({
     id: c.id,
     proposalId: c.proposalId,
     roomId: c.roomId,
@@ -391,8 +391,12 @@ export const roomPresence = spacetimedb.view({ name: 'room_presence', public: tr
     [...ctx.db.membership.byRoomMember.filter(roomId)]
       .filter(m => m.active)
       .map(m => {
-        const p = ctx.db.presence.identity.find(m.member);
-        return { membershipId: m.id, roomId, online: p?.online ?? false, lastSeen: p?.lastSeen };
+        const devices = ctx.db.participantAccount.owner.find(m.member)
+          ? [...ctx.db.participantDevice.byOwner.filter(m.member)].filter(d => hasAppAccess(ctx.db, d.identity)).map(d => d.identity)
+          : [m.member];
+        const presence = devices.flatMap(identity => { const p = ctx.db.presence.identity.find(identity); return p ? [p] : []; });
+        const latest = presence.sort((a,b) => Number(b.lastSeen.microsSinceUnixEpoch - a.lastSeen.microsSinceUnixEpoch))[0];
+        return { membershipId: m.id, roomId, online: presence.some(p => p.online), lastSeen: latest?.lastSeen };
       })
   )
 );
@@ -432,7 +436,7 @@ export const roomTripBrief = spacetimedb.view({ name: 'room_trip_brief', public:
 );
 
 export const myIntake = spacetimedb.view({ name: 'my_intake', public: true }, t.array(intake.rowType), ctx => hasAppAccess(ctx.db, ctx.sender) ? ([
-  ...ctx.db.intake.byOwner.filter(ctx.sender),
+  ...ctx.db.intake.byOwner.filter(participantIdentity(ctx.db, ctx.sender)),
 ]) : []
 );
 

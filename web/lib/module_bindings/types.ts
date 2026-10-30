@@ -83,6 +83,13 @@ export const AdminSession = __t.object("AdminSession", {
 });
 export type AdminSession = __Infer<typeof AdminSession>;
 
+export const AdminSessionExpiry = __t.object("AdminSessionExpiry", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  sessionHash: __t.string(),
+});
+export type AdminSessionExpiry = __Infer<typeof AdminSessionExpiry>;
+
 export const Agent = __t.object("Agent", {
   id: __t.u64(),
   roomId: __t.u64(),
@@ -526,6 +533,12 @@ export const OperationRecord = __t.object("OperationRecord", {
 });
 export type OperationRecord = __Infer<typeof OperationRecord>;
 
+export const ParticipantAccount = __t.object("ParticipantAccount", {
+  email: __t.string(),
+  owner: __t.identity(),
+});
+export type ParticipantAccount = __Infer<typeof ParticipantAccount>;
+
 export const ParticipantConstraint = __t.object("ParticipantConstraint", {
   id: __t.u64(),
   roomId: __t.u64(),
@@ -540,6 +553,14 @@ export const ParticipantConstraint = __t.object("ParticipantConstraint", {
   revision: __t.u64(),
 });
 export type ParticipantConstraint = __Infer<typeof ParticipantConstraint>;
+
+export const ParticipantDevice = __t.object("ParticipantDevice", {
+  identity: __t.identity(),
+  email: __t.string(),
+  owner: __t.identity(),
+  sessionHash: __t.string(),
+});
+export type ParticipantDevice = __Infer<typeof ParticipantDevice>;
 
 export const ParticipantImpact = __t.object("ParticipantImpact", {
   id: __t.u64(),

@@ -1,4 +1,4 @@
-import { hasAppAccess } from './access';
+import { hasAppAccess, participantIdentity } from './access';
 import { RULE_ATTRIBUTES } from './rule_catalog';
 import { SenderError, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
@@ -200,7 +200,7 @@ export function requireWorker(ctx: Ctx): void {
 
 export function requireHuman(ctx: Ctx): void {
   if (isWorker(ctx)) fail('NOT_AUTHORIZED', 'worker identities cannot perform human actions');
-  if (!hasAppAccess(ctx.db, ctx.sender)) fail('INVITATION_REQUIRED', 'an app invitation is required');
+  if (!hasAppAccess(ctx.db, ctx.sender, ctx.timestamp.microsSinceUnixEpoch)) fail('INVITATION_REQUIRED', 'an app invitation is required');
 }
 
 export function requireRoom(ctx: Ctx, roomId: bigint): RoomRow {
@@ -214,7 +214,7 @@ export function findMembership(ctx: Ctx, roomId: bigint, member: Identity): Memb
   return undefined;
 }
 
-export function requireMember(ctx: Ctx, roomId: bigint, member: Identity = ctx.sender): MembershipRow {
+export function requireMember(ctx: Ctx, roomId: bigint, member: Identity = participantIdentity(ctx.db, ctx.sender)): MembershipRow {
   const m = findMembership(ctx, roomId, member);
   if (!m || !m.active) fail('NOT_A_MEMBER', `not an active member of room ${roomId}`);
   return m;

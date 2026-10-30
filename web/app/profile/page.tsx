@@ -5,7 +5,7 @@ import { ProfileOnboarding } from "../../components/profile";
 import { connect } from "../../lib/client";
 
 /** Persistent profile onboarding: "Let your agent get to know you". The same
- *  browser identity as the rooms page, so rooms can suggest from it. */
+ *  authenticated traveller as the rooms page, including linked devices. */
 export default function ProfilePage() {
   const [client, setClient] = useState<ReturnType<typeof connect>>();
   const [error, setError] = useState("");

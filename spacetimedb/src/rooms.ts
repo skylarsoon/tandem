@@ -1,3 +1,4 @@
+import { participantIdentity } from './access';
 import { t } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import {
@@ -34,9 +35,9 @@ function newInviteCode(ctx: Ctx): string {
 }
 
 function ensureProfile(ctx: Ctx, displayName: string): void {
-  if (!ctx.db.profile.owner.find(ctx.sender)) {
+  if (!ctx.db.profile.owner.find(participantIdentity(ctx.db, ctx.sender))) {
     ctx.db.profile.insert({
-      owner: ctx.sender,
+      owner: participantIdentity(ctx.db, ctx.sender),
       displayName,
       avatarRef: '',
       selfDescription: '',
@@ -46,9 +47,9 @@ function ensureProfile(ctx: Ctx, displayName: string): void {
     });
   }
   // Preselected defaults grant nothing until the owner confirms them.
-  if (!ctx.db.participationPreferences.owner.find(ctx.sender)) {
+  if (!ctx.db.participationPreferences.owner.find(participantIdentity(ctx.db, ctx.sender))) {
     ctx.db.participationPreferences.insert({
-      owner: ctx.sender,
+      owner: participantIdentity(ctx.db, ctx.sender),
       speakUpForMe: false,
       askMeFirst: true,
       giveMeTime: true,
@@ -65,7 +66,7 @@ function addMember(ctx: Ctx, roomId: bigint, displayName: string, role: string):
   const m = ctx.db.membership.insert({
     id: 0n,
     roomId,
-    member: ctx.sender,
+    member: participantIdentity(ctx.db, ctx.sender),
     displayName,
     role,
     active: true,
@@ -99,7 +100,7 @@ export const createRoom = spacetimedb.reducer(
     const r = ctx.db.room.insert({
       id: 0n,
       goal,
-      organizer: ctx.sender,
+      organizer: participantIdentity(ctx.db, ctx.sender),
       status: 'COLLECTING',
       inputRevision: 1n,
       membershipRevision: 1n,
@@ -132,7 +133,7 @@ export const joinRoom = spacetimedb.reducer(
     let roomId: bigint | undefined;
     for (const r of ctx.db.room.byInviteCode.filter(inviteCode.trim().toUpperCase())) roomId = r.id;
     if (roomId === undefined) fail('NOT_FOUND', 'invalid invite code');
-    const existing = findMembership(ctx, roomId, ctx.sender);
+    const existing = findMembership(ctx, roomId, participantIdentity(ctx.db, ctx.sender));
     if (existing?.active) fail('INVALID_STATE', 'already a member of this room');
     ensureProfile(ctx, displayName);
     if (existing) {
@@ -143,7 +144,7 @@ export const joinRoom = spacetimedb.reducer(
     const r = invalidateRoom(ctx, roomId, { membership: true }, 'member joined');
     emitEvent(ctx, roomId, 'MEMBER_JOINED', { display_name: displayName });
     // Joining a trip whose brief is confirmed starts this traveller's onboarding.
-    startIntake(ctx, r, findMembership(ctx, roomId, ctx.sender)!);
+    startIntake(ctx, r, findMembership(ctx, roomId, participantIdentity(ctx.db, ctx.sender))!);
   }
 );
 
@@ -158,7 +159,7 @@ export const upsertProfile = spacetimedb.reducer(
     requireHuman(ctx);
     nonEmpty(displayName, 'displayName');
     ensureProfile(ctx, displayName);
-    const p = ctx.db.profile.owner.find(ctx.sender)!;
+    const p = ctx.db.profile.owner.find(participantIdentity(ctx.db, ctx.sender))!;
     ctx.db.profile.owner.update({
       ...p,
       displayName,
@@ -187,7 +188,7 @@ export const setRoomSettings = spacetimedb.reducer(
   (ctx, { roomId, settingsJson }) => {
     requireHuman(ctx);
     const r = requireRoom(ctx, roomId);
-    if (!r.organizer.isEqual(ctx.sender)) fail('NOT_AUTHORIZED', 'only the organizer can change room settings');
+    if (!r.organizer.isEqual(participantIdentity(ctx.db, ctx.sender))) fail('NOT_AUTHORIZED', 'only the organizer can change room settings');
     const settings = validateRoomSettings(parseJson(settingsJson, 'settingsJson'));
     ctx.db.room.id.update({ ...r, settingsJson });
     reopenBroken(ctx, roomId);  // new dates can leave an agreed pick outside the trip

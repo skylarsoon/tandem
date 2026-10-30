@@ -1,3 +1,4 @@
+import { participantIdentity } from './access';
 import { ScheduleAt } from 'spacetimedb';
 import type { Identity } from 'spacetimedb';
 import { addOwnedRule, brokenCommitments, mirrorLegacy } from './room_rules';
@@ -29,7 +30,7 @@ export function applyParticipationPreferences(
   giveMeTime: boolean,
   remindersOptedIn: boolean
 ): void {
-  const prefs = ctx.db.participationPreferences.owner.find(ctx.sender);
+  const prefs = ctx.db.participationPreferences.owner.find(participantIdentity(ctx.db, ctx.sender));
   if (!prefs) fail('NOT_FOUND', 'create or join a room first');
   ctx.db.participationPreferences.owner.update({
     ...prefs,
@@ -42,10 +43,10 @@ export function applyParticipationPreferences(
     proposedBy: 'OWNER',
     revision: prefs.revision + 1n,
   });
-  for (const m of [...ctx.db.membership.byMember.filter(ctx.sender)]) {
+  for (const m of [...ctx.db.membership.byMember.filter(participantIdentity(ctx.db, ctx.sender))]) {
     if (!m.active) continue;
     invalidateRoom(ctx, m.roomId, { permission: true }, 'participation preferences changed');
-    emitEvent(ctx, m.roomId, 'PARTICIPATION_PREFERENCES_CONFIRMED', {}, ctx.sender);
+    emitEvent(ctx, m.roomId, 'PARTICIPATION_PREFERENCES_CONFIRMED', {}, participantIdentity(ctx.db, ctx.sender));
   }
 }
 
@@ -99,7 +100,7 @@ export function upsertConstraint(ctx: Ctx, roomId: bigint, input: ConstraintInpu
   if (input.authorizedRangeJson !== undefined) parseJson(input.authorizedRangeJson, 'authorizedRangeJson');
 
   let existing;
-  for (const c of ctx.db.participantConstraint.byRoomOwnerKey.filter([roomId, ctx.sender, input.key])) existing = c;
+  for (const c of ctx.db.participantConstraint.byRoomOwnerKey.filter([roomId, participantIdentity(ctx.db, ctx.sender), input.key])) existing = c;
   const fields = {
     valueJson: input.valueJson,
     unit: input.unit,
@@ -111,15 +112,15 @@ export function upsertConstraint(ctx: Ctx, roomId: bigint, input: ConstraintInpu
   if (existing) {
     ctx.db.participantConstraint.id.update({ ...existing, ...fields, revision: existing.revision + 1n });
   } else {
-    ctx.db.participantConstraint.insert({ id: 0n, roomId, owner: ctx.sender, key: input.key, ...fields, revision: 1n });
+    ctx.db.participantConstraint.insert({ id: 0n, roomId, owner: participantIdentity(ctx.db, ctx.sender), key: input.key, ...fields, revision: 1n });
   }
   // The same limit in the generic rule language, which is what planning reads.
-  mirrorLegacy(ctx, roomId, ctx.sender, input.key, input);
+  mirrorLegacy(ctx, roomId, participantIdentity(ctx.db, ctx.sender), input.key, input);
   reopenBroken(ctx, roomId);
   // A batch of confirmations (an onboarding summary) replans once, at the end.
   if (replan) invalidateRoom(ctx, roomId, { input: true }, 'constraint confirmed');
   emitEvent(ctx, roomId, 'REQUIREMENTS_UPDATED', { message: 'A participant updated their requirements' });
-  emitEvent(ctx, roomId, 'MY_CONSTRAINT_SAVED', { key: input.key }, ctx.sender);
+  emitEvent(ctx, roomId, 'MY_CONSTRAINT_SAVED', { key: input.key }, participantIdentity(ctx.db, ctx.sender));
 }
 
 // A waiting job becomes claimable again once every question it waits on is answered.
@@ -140,7 +141,7 @@ export function messageOwnAgent(ctx: Ctx, roomId: bigint, body: string): void {
   ctx.db.privateMessage.insert({
     id: 0n,
     roomId,
-    owner: ctx.sender,
+    owner: participantIdentity(ctx.db, ctx.sender),
     sender: 'HUMAN',
     body,
     jobId: j.id,

@@ -1,3 +1,4 @@
+import { participantIdentity } from './access';
 import { t } from 'spacetimedb/server';
 import type { Identity } from 'spacetimedb';
 import spacetimedb from './schema';
@@ -472,7 +473,7 @@ export const respondToProposal = spacetimedb.reducer(
     const p = ctx.db.proposal.id.find(args.proposalId);
     if (!p) fail('NOT_FOUND', `proposal ${args.proposalId}`);
     requireMember(ctx, p.roomId);
-    if (!p.affectedMembers.some(m => m.isEqual(ctx.sender))) fail('NOT_AUTHORIZED', 'you are not asked to review this proposal');
+    if (!p.affectedMembers.some(m => m.isEqual(participantIdentity(ctx.db, ctx.sender)))) fail('NOT_AUTHORIZED', 'you are not asked to review this proposal');
     if (p.state === 'SUPERSEDED') fail('STALE_SNAPSHOT', `proposal ${p.id} was superseded`);
     if (p.state !== 'AWAITING_REVIEW') fail('INVALID_STATE', `proposal ${p.id} is ${p.state}; use withdraw_consent`);
     if (p.version !== args.version || p.termsDigest !== args.termsDigest) {
@@ -488,7 +489,7 @@ export const respondToProposal = spacetimedb.reducer(
     }
     oneOf(args.response, RESPONSES, 'response');
 
-    for (const c of ctx.db.consent.byProposalMember.filter([p.id, ctx.sender])) {
+    for (const c of ctx.db.consent.byProposalMember.filter([p.id, participantIdentity(ctx.db, ctx.sender)])) {
       ctx.db.consent.id.update({
         ...c,
         response: RESPONSE_TO_CONSENT[args.response],
@@ -512,7 +513,7 @@ export const withdrawConsent = spacetimedb.reducer(
     requireMember(ctx, p.roomId);
     if (p.state !== 'AWAITING_REVIEW' && p.state !== 'AGREED') fail('INVALID_STATE', `proposal ${p.id} is ${p.state}`);
     let withdrew = false;
-    for (const c of ctx.db.consent.byProposalMember.filter([p.id, ctx.sender])) {
+    for (const c of ctx.db.consent.byProposalMember.filter([p.id, participantIdentity(ctx.db, ctx.sender)])) {
       if (c.response !== 'ACCEPTED') fail('INVALID_STATE', 'there is no acceptance to withdraw');
       ctx.db.consent.id.update({ ...c, response: 'WITHDRAWN', note, updatedAt: ctx.timestamp });
       withdrew = true;

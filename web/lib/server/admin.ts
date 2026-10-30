@@ -36,6 +36,8 @@ export async function callAdmin(name: string, args: object): Promise<any> {
   if (!result?.ok) {
     if (result?.code === 'NOT_AUTHORIZED') throw new AdminError(401, 'Your session has ended. Please sign in again.');
     if (result?.code === 'PASSWORD_CHANGE_REQUIRED') throw new AdminError(403, 'Change your temporary password first.');
+    if (result?.code === 'ACCOUNT_LINK_REQUIRED') throw new AdminError(409, 'This account has multiple older profiles. Contact the project owner to connect them safely.');
+    if (result?.code === 'ACCESS_SUSPENDED') throw new AdminError(403, 'Your app access is suspended. Restore it in People before opening the app.');
     throw new AdminError(400, 'This change could not be completed. Refresh and try again.');
   }
   return result;

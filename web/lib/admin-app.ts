@@ -33,7 +33,7 @@ export function grantAdminAppAccess(client: Client): Promise<boolean> {
 export async function openAdminApp() {
   const url = process.env.NEXT_PUBLIC_STDB_URL, database = process.env.NEXT_PUBLIC_STDB_DB;
   if (!url || !database) throw new Error('The app connection is not configured.');
-  const client = connect(url, database); // Reuses this browser's existing participant token and trips.
+  const client = connect(url, database); // The authenticated handoff binds this device to the account's traveller.
   try {
     await waitFor(client, state => state.status === 'ready');
     if (!await grantAdminAppAccess(client)) throw new Error('Please sign in to admin again.');

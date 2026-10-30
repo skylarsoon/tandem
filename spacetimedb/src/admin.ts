@@ -1,7 +1,6 @@
-import { Identity, Timestamp } from 'spacetimedb';
+import { Identity, Timestamp, ScheduleAt } from 'spacetimedb';
 import { t } from 'spacetimedb/server';
-import spacetimedb from './schema';
-import { hasAppAccess } from './access';
+import spacetimedb, { adminSessionExpiry } from './schema';
 import { type Ctx, digest, isWorker, fail, runProcedure } from './guards';
 
 const minute = 60_000_000n;
@@ -197,20 +196,52 @@ export const adminAction = spacetimedb.procedure(
   }))
 );
 
-// The browser redeems a one-minute handoff as its existing signed participant
-// identity. No client-supplied identity or email can claim another user's data.
+// Devices redeem a one-minute handoff for the signed-in account. No client-
+// supplied identity or email can claim another traveller’s data.
 export const redeemAdminAppAccess = spacetimedb.reducer({ token: t.string() }, (ctx, { token }) => {
-  if (isWorker(ctx) || ctx.db.adminGateway.identity.find(ctx.sender)) fail('NOT_AUTHORIZED', 'participant identity required');
+  if (isWorker(ctx) || ctx.db.adminGateway.identity.find(ctx.sender) || ctx.db.config.id.find(0)?.owner.isEqual(ctx.sender)) fail('NOT_AUTHORIZED', 'participant identity required');
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) fail('INVALID_HANDOFF', 'open the app again from admin');
   const tokenHash = digest(token), handoff = ctx.db.adminAppHandoff.tokenHash.find(tokenHash);
   if (!handoff || handoff.expiresAt.microsSinceUnixEpoch <= ctx.timestamp.microsSinceUnixEpoch)
     fail('INVALID_HANDOFF', 'open the app again from admin');
   const account = validSession(ctx, handoff.sessionHash);
   if (account.mustChangePassword) fail('PASSWORD_CHANGE_REQUIRED', 'change your temporary password first');
+  // Resolve an account to its existing traveller without moving or copying data.
+  let participant = ctx.db.participantAccount.email.find(account.email);
+  if (!participant) {
+    const prior = [...ctx.db.appAccess.iter()].filter(a => a.invitationHash === `admin:${account.email}` &&
+      !ctx.db.participantAccount.owner.find(a.identity));
+    const populated = prior.filter(a => ctx.db.profile.owner.find(a.identity) || [...ctx.db.membership.byMember.filter(a.identity)].length);
+    if (populated.length > 1) fail('ACCOUNT_LINK_REQUIRED', 'multiple existing profiles need owner-assisted reconciliation');
+    const claimed = ctx.db.participantAccount.owner.find(ctx.sender) || ctx.db.participantDevice.identity.find(ctx.sender);
+    const identity = populated[0]?.identity ?? prior[0]?.identity ?? (claimed
+      ? Identity.fromString(digest(`tandem-participant:${account.email}:${tokenHash}`)) : ctx.sender);
+    participant = ctx.db.participantAccount.insert({ email: account.email, owner: identity });
+  }
+  const current = ctx.db.appAccess.identity.find(participant.owner);
+  if (current?.revoked) fail('ACCESS_SUSPENDED', 'restore this traveller in People before opening the app');
+  if (!current) ctx.db.appAccess.insert({ identity: participant.owner, invitationHash: `admin:${account.email}`, grantedAt: ctx.timestamp, revoked: false });
+  const previous = ctx.db.participantDevice.identity.find(ctx.sender);
+  const device = { identity: ctx.sender, email: account.email, owner: participant.owner, sessionHash: handoff.sessionHash };
+  if (previous) ctx.db.participantDevice.identity.update(device); else ctx.db.participantDevice.insert(device);
   ctx.db.adminAppHandoff.tokenHash.delete(tokenHash);
-  if (hasAppAccess(ctx.db, ctx.sender)) return; // Preserve an existing invitation grant.
-  const row = { identity: ctx.sender, invitationHash: `admin:${account.email}`, grantedAt: ctx.timestamp, revoked: false };
-  if (ctx.db.appAccess.identity.find(ctx.sender)) ctx.db.appAccess.identity.update(row);
-  else ctx.db.appAccess.insert(row);
-  audit(ctx, account.email, 'APP_ACCESS_GRANTED', ctx.sender.toHexString());
+  const session = ctx.db.adminSession.tokenHash.find(handoff.sessionHash)!;
+  // Schedule revocation so even idle subscriptions lose access when login expires.
+  ctx.db.adminSessionExpiry.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(session.expiresAt.microsSinceUnixEpoch), sessionHash: handoff.sessionHash });
+  // A newly authenticated WebSocket was not admitted at connect time.
+  if (ctx.connectionId) {
+    const presence = ctx.db.presence.identity.find(ctx.sender);
+    const row = { identity: ctx.sender, connections: Math.max(1, presence?.connections ?? 0), online: true, lastSeen: ctx.timestamp };
+    if (presence) ctx.db.presence.identity.update(row); else ctx.db.presence.insert(row);
+  }
+  audit(ctx, account.email, 'APP_ACCOUNT_LINKED', ctx.sender.toHexString());
 });
+
+export const expireAdminAppSession = spacetimedb.reducer(
+  { onSchedule: adminSessionExpiry }, { arg: adminSessionExpiry.rowType }, (ctx, { arg }) => {
+    if (!ctx.sender.isEqual(ctx.identity)) fail('NOT_AUTHORIZED', 'scheduler required');
+    const row = ctx.db.adminSession.tokenHash.find(arg.sessionHash);
+    if (row && row.expiresAt.microsSinceUnixEpoch <= ctx.timestamp.microsSinceUnixEpoch)
+      ctx.db.adminSession.tokenHash.update({ ...row, revoked: true });
+  }
+);

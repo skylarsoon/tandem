@@ -13,9 +13,13 @@ There is no access to private conversations, profile answers, trip constraints, 
 
 After the mandatory password change, **Open app** takes an admin directly to `/app`. Visiting `/app` or `/profile` while signed in also automatically grants participant access. No invitation is created or consumed.
 
-A same-origin, cookie-authenticated request creates a one-use, one-minute handoff. The existing signed SpacetimeDB browser identity redeems it, preserving that browser’s profile and trips. The handoff checks that the admin session is still valid and the initial password has been changed. Only ordinary participant access is granted; admin permissions remain behind the admin session.
+A same-origin, cookie-authenticated request creates a single-use, one-minute handoff. Redeeming it binds the signed browser transport identity to the account's stable traveller identity. The first link preserves the existing profile and trips in place. A later login on another device resolves to that same traveller; answers, companion appearance, room memberships, private conversations, and approvals share the same owner.
 
-Like accepted invitations, participant access is remembered in that browser independently of admin sign-out. New admin-derived grants require the admin account to remain enabled and out of password-reset state. Existing invitation-based access is preserved. A different browser has a different participant identity; this does not merge or migrate trips between browsers.
+Existing admin-derived grants are reused when unambiguous. Multiple populated older profiles cause an explicit reconciliation error rather than an automatic merge. An older invitation-only browser identity without an account association must first be linked by signing in from that browser; an email address alone cannot prove ownership of anonymous data.
+
+Each device link is bound to the admin session, not just an email. Sign-out revokes that session's participant access; password changes revoke other sessions; resets and disabled accounts revoke all sessions. Eight-hour expiry is scheduled in the database to retract idle subscriptions. Human writes additionally check the expiry timestamp. Admin roles remain separate from traveller permissions. Switching accounts in one browser never attaches the previous account's profile to the next account.
+
+This version provides cross-device login for provisioned admin accounts. Invitation-only guests still have browser-based access; they do not yet have email/password registration or account recovery.
 
 ## Provisioning
 

@@ -1,3 +1,4 @@
+import { participantIdentity } from './access';
 import { t } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import {
@@ -35,7 +36,7 @@ import { MONEY_KEYS, findIntake, ownerConstraintKeys, queueAgent, startIntake } 
 
 function requireOrganizer(ctx: Ctx, roomId: bigint): RoomRow {
   const r = requireRoom(ctx, roomId);
-  if (!r.organizer.isEqual(ctx.sender)) fail('NOT_AUTHORIZED', 'only the organizer can describe the trip');
+  if (!r.organizer.isEqual(participantIdentity(ctx.db, ctx.sender))) fail('NOT_AUTHORIZED', 'only the organizer can describe the trip');
   return r;
 }
 
@@ -111,12 +112,12 @@ export const confirmOrigin = spacetimedb.reducer({ roomId: t.u64(), patchId: t.u
   requireHuman(ctx);
   requireMember(ctx, args.roomId);
   const patch = ctx.db.constraintPatch.id.find(args.patchId);
-  if (!patch || patch.roomId !== args.roomId || !patch.owner.isEqual(ctx.sender)) fail('NOT_FOUND', 'patch');
+  if (!patch || patch.roomId !== args.roomId || !patch.owner.isEqual(participantIdentity(ctx.db, ctx.sender))) fail('NOT_FOUND', 'patch');
   if (patch.state !== 'PENDING') fail('INVALID_STATE', 'patch is not pending');
   const input = constraintFromPatch(patch.patchJson);
   if (input.key !== 'origin_airport') fail('INVALID_ARGUMENT', 'only the origin is confirmed on its own');
   ctx.db.constraintPatch.id.update({ ...patch, state: 'CONFIRMED' });
-  const intake = findIntake(ctx, args.roomId, ctx.sender);
+  const intake = findIntake(ctx, args.roomId, participantIdentity(ctx.db, ctx.sender));
   if (intake) {
     const coverage = { ...(JSON.parse(intake.coverageJson) as Record<string, string>), origin: 'ANSWERED' };
     ctx.db.intake.id.update({ ...intake, coverageJson: JSON.stringify(coverage), updatedAt: ctx.timestamp });
@@ -138,11 +139,11 @@ export const confirmIntake = spacetimedb.reducer(
   (ctx, args) => {
     requireHuman(ctx);
     requireMember(ctx, args.roomId);
-    const intake = findIntake(ctx, args.roomId, ctx.sender);
+    const intake = findIntake(ctx, args.roomId, participantIdentity(ctx.db, ctx.sender));
     if (!intake || intake.state !== 'SUMMARY') fail('INVALID_STATE', 'no onboarding summary to confirm');
     const accepted = new Set(args.acceptedPatchIds.map(id => id.toString()));
     const seen = new Set<string>();
-    for (const patch of [...ctx.db.constraintPatch.byOwner.filter(ctx.sender)]) {
+    for (const patch of [...ctx.db.constraintPatch.byOwner.filter(participantIdentity(ctx.db, ctx.sender))]) {
       if (patch.roomId !== args.roomId || patch.state !== 'PENDING') continue;
       if (accepted.has(patch.id.toString())) {
         applyPatch(ctx, args.roomId, patch.patchJson, false);
@@ -159,11 +160,11 @@ export const confirmIntake = spacetimedb.reducer(
       if (settings.some(v => v === undefined)) fail('INVALID_ARGUMENT', 'confirm all three agent settings together');
       applyParticipationPreferences(ctx, args.speakUpForMe!, args.askMeFirst!, args.giveMeTime!, args.remindersOptedIn ?? false);
     }
-    if (!ctx.db.participationPreferences.owner.find(ctx.sender)?.confirmed) {
+    if (!ctx.db.participationPreferences.owner.find(participantIdentity(ctx.db, ctx.sender))?.confirmed) {
       fail('PREFERENCES_UNCONFIRMED', 'confirm how your agent should act for you');
     }
-    const keys = ownerConstraintKeys(ctx, args.roomId, ctx.sender);
-    if (!MONEY_KEYS.some(k => keys.has(k)) && !hasMoneyRule(ctx, args.roomId, ctx.sender)) {
+    const keys = ownerConstraintKeys(ctx, args.roomId, participantIdentity(ctx.db, ctx.sender));
+    if (!MONEY_KEYS.some(k => keys.has(k)) && !hasMoneyRule(ctx, args.roomId, participantIdentity(ctx.db, ctx.sender))) {
       fail('INTAKE_INCOMPLETE', 'a budget or an explicit "no limit" is needed');
     }
     if (!keys.has('origin_airport')) fail('INTAKE_INCOMPLETE', 'confirm where you fly from');

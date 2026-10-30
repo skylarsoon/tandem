@@ -59,6 +59,16 @@ const adminSession = table({ name: 'admin_session' }, {
 const adminAppHandoff = table({ name: 'admin_app_handoff' }, {
   tokenHash: t.string().primaryKey(), sessionHash: t.string(), expiresAt: t.timestamp(),
 });
+// Account ownership stays stable; devices carry revocable session-bound links.
+const participantAccount = table({ name: 'participant_account' }, {
+  email: t.string().primaryKey(), owner: t.identity().unique(),
+});
+const participantDevice = table({ name: 'participant_device', indexes: [{ accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] }] }, {
+  identity: t.identity().primaryKey(), email: t.string(), owner: t.identity(), sessionHash: t.string(),
+});
+export const adminSessionExpiry = table({ name: 'admin_session_expiry' }, {
+  scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt(), sessionHash: t.string(),
+});
 const adminLoginLimit = table({ name: 'admin_login_limit' }, {
   key: t.string().primaryKey(), windowStart: t.timestamp(), count: t.u32(),
 });
@@ -809,6 +819,9 @@ const spacetimedb = schema({
   adminGateway,
   adminSession,
   adminAppHandoff,
+  participantAccount,
+  participantDevice,
+  adminSessionExpiry,
   adminLoginLimit,
   adminAudit,
   room,

@@ -1,3 +1,4 @@
+import { participantIdentity } from './access';
 import type { Identity } from 'spacetimedb';
 import { type Ctx, fail } from './guards';
 import { LEGACY_KEYS, RULE_ATTRIBUTES } from './rule_catalog';
@@ -98,11 +99,11 @@ function checkRelation(ctx: Ctx, roomId: bigint, owner: Identity, rule: Rule): v
 export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: string): bigint {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('INVALID_RULE', 'a rule is an object');
   const rule = raw as Rule;
-  checkRule(rule, ctx, roomId, ctx.sender);
+  checkRule(rule, ctx, roomId, participantIdentity(ctx.db, ctx.sender));
   const kind = rule.kind ?? 'hard';
   // A later statement about the same thing (same attribute or total, same comparison, must or wish) replaces it.
   for (const r of [...ctx.db.participantRule.byRoom.filter(roomId)]) {
-    if (!r.owner.isEqual(ctx.sender) || r.legacyKey !== undefined) continue;
+    if (!r.owner.isEqual(participantIdentity(ctx.db, ctx.sender)) || r.legacyKey !== undefined) continue;
     const before = JSON.parse(r.ruleJson) as Rule;
     if (before.category === rule.category && before.attribute === rule.attribute && before.aggregate === rule.aggregate &&
         before.operator === rule.operator && (before.kind ?? 'hard') === kind) {
@@ -112,7 +113,7 @@ export function addOwnedRule(ctx: Ctx, roomId: bigint, raw: unknown, quote: stri
   return ctx.db.participantRule.insert({
     id: 0n,
     roomId,
-    owner: ctx.sender,
+    owner: participantIdentity(ctx.db, ctx.sender),
     ruleJson: JSON.stringify({ category: rule.category, attribute: rule.attribute, aggregate: rule.aggregate,
       operator: rule.operator, value: rule.value, kind, importance: rule.importance, tolerance: rule.tolerance }),
     kind,
