@@ -30,11 +30,7 @@ export const redeemAppInvitation = spacetimedb.reducer({ token: t.string() }, (c
   if (invitation.redeemedBy?.isEqual(ctx.sender) && hasAppAccess(ctx.db, ctx.sender)) return;
   if (invitation.redeemedBy || invitation.expiresAt.microsSinceUnixEpoch <= ctx.timestamp.microsSinceUnixEpoch)
     fail('INVITATION_INVALID', 'this invitation is invalid, expired, or already used');
-  if (hasAppAccess(ctx.db, ctx.sender)) return; // Do not consume an invitation for someone already admitted.
-  const row = { identity: ctx.sender, invitationHash: invitation.tokenHash, grantedAt: ctx.timestamp, revoked: false };
-  if (ctx.db.appAccess.identity.find(ctx.sender)) ctx.db.appAccess.identity.update(row);
-  else ctx.db.appAccess.insert(row);
-  ctx.db.appInvitation.tokenHash.update({ ...invitation, redeemedBy: ctx.sender, redeemedAt: ctx.timestamp });
+  fail('ACCOUNT_REQUIRED', 'create an email and password account to accept this invitation');
 });
 
 // Revoking a redeemed invitation also removes its recipient's current access.

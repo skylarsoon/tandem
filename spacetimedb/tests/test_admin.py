@@ -4,7 +4,7 @@ import json
 import secrets
 import subprocess
 import pytest
-from conftest import STDB_URL, STDB_DB, STDB_SERVER, SPACETIME, expect_error
+from conftest import STDB_URL, STDB_DB, STDB_SERVER, SPACETIME, expect_error, register_test_identity
 from stdb_client import Client, StdbError
 
 
@@ -71,7 +71,7 @@ def test_invitation_user_access_health_and_logout(admin):
     c,g,email=admin; session_hash=login(c,g,email)
     token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
     action(c,g,session_hash,'create_invitation',tokenHash=token_hash,label='Access test',hours=24)
-    person=c.mint_identity(); c.call(person,'redeem_app_invitation',token=token)
+    person=c.mint_identity(); register_test_identity(c,person,token)
     assert c.view(person,'my_app_access') == [{'allowed': True}]
     action(c,g,session_hash,'set_user_access',identity=person.hex,revoked=True)
     assert c.view(person,'my_app_access') == [{'allowed': False}]

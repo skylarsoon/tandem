@@ -19,7 +19,7 @@ Existing admin-derived grants are reused when unambiguous. Multiple populated ol
 
 Each device link is bound to the admin session, not just an email. Sign-out revokes that session's participant access; password changes revoke other sessions; resets and disabled accounts revoke all sessions. Eight-hour expiry is scheduled in the database to retract idle subscriptions. Human writes additionally check the expiry timestamp. Admin roles remain separate from traveller permissions. Switching accounts in one browser never attaches the previous account's profile to the next account.
 
-This version provides cross-device login for provisioned admin accounts. Invitation-only guests still have browser-based access; they do not yet have email/password registration or account recovery.
+Invited travellers also create email/password accounts at `/invite` and sign in at `/account`. Admin roles and cookies remain separate; traveller accounts cannot manage invitations or view system health. See [invitation access](invitation-access.md) for registration, migration, and recovery.
 
 ## Provisioning
 

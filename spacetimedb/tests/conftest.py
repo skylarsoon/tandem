@@ -41,6 +41,23 @@ def register_worker(identity: Identity, label: str) -> None:
     )
 
 
+_registration_gateway = None
+
+
+def register_test_identity(c, who, token):
+    global _registration_gateway
+    if _registration_gateway is None:
+        _registration_gateway = Client(STDB_URL, STDB_DB).mint_identity()
+        subprocess.run([SPACETIME, 'call', '--server', STDB_SERVER, '--no-config', '-y', STDB_DB,
+                        'configure_admin_gateway', json.dumps(_registration_gateway.arg), 'true'], check=True, capture_output=True)
+    handoff = secrets.token_urlsafe(32)
+    c.procedure(_registration_gateway, 'prepare_traveller_registration',
+                email=f'{secrets.token_hex(10)}@example.test', password_hash='a'*128, password_salt='b'*64,
+                invitation_hash=hashlib.sha256(token.encode()).hexdigest(),
+                token_hash=hashlib.sha256(handoff.encode()).hexdigest(), session_hash=hashlib.sha256(secrets.token_bytes(32)).hexdigest())
+    c.call(who, 'complete_traveller_registration', token=handoff)
+
+
 @pytest.fixture(scope="session")
 def client() -> Client:
     class InvitedTestClient(Client):
@@ -50,7 +67,7 @@ def client() -> Client:
             subprocess.run([SPACETIME, "call", "--server", STDB_SERVER, "--no-config", "-y", STDB_DB,
                             "create_app_invitation", json.dumps(hashlib.sha256(token.encode()).hexdigest()),
                             json.dumps("contract-test"), "600"], check=True, capture_output=True)
-            self.call(who, "redeem_app_invitation", token=token)
+            register_test_identity(self, who, token)
             return who
     return InvitedTestClient(STDB_URL, STDB_DB)
 

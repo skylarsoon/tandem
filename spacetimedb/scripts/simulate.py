@@ -3,7 +3,7 @@ before the real LangGraph worker exists. Uses FIXTURE flights and scripted
 utterances; every write goes through the same backend rules as the real worker.
 
   # create a room with simulated people; join it from the app with the invite code
-  python simulate.py seed --people 3 --invitations-file /private/tmp/test-invitations.json
+  python simulate.py seed --people 3 --participants-file /private/tmp/test-participants.json
 
   # act as the worker for a room: agents talk, activity changes, a plan is published
   STDB_WORKER_TOKEN=... python simulate.py negotiate --room 1
@@ -37,14 +37,17 @@ def key(step: str) -> str:
     return f"sim:{step}:{uuid.uuid4().hex[:10]}"
 
 
-def seed(client: Client, people: int, invitations_file: Path) -> None:
-    # Simulated travellers obey the same invitation boundary as real people.
-    tokens = json.loads(invitations_file.read_text())
-    if not isinstance(tokens, list) or len(tokens) != people or not all(isinstance(t, str) for t in tokens):
-        raise SystemExit("invitations file must contain a JSON array with one unused invitation code per person")
-    sims = [client.mint_identity() for _ in range(people)]
-    for sim, token in zip(sims, tokens):
-        client.call(sim, "redeem_app_invitation", token=token)
+def seed(client: Client, people: int, participants_file: Path) -> None:
+    # Use already authenticated, invited test accounts. Seeding never bypasses
+    # registration or grants access, and the file must be kept private.
+    tokens = json.loads(participants_file.read_text())
+    if not isinstance(tokens, list) or len(tokens) != people or not all(isinstance(t, str) and t for t in tokens):
+        raise SystemExit("participants file must contain one authenticated test participant token per person")
+    sims = [Identity(hex="", token=token) for token in tokens]
+    for sim in sims:
+        access = client.view(sim, "my_app_access")
+        if not access or not access[0]["allowed"]:
+            raise SystemExit("test participant must have an active invited account session")
     client.call(sims[0], "create_room", goal="Hawaii trip (simulated)", display_name=f"{SIM_NAMES[0]} (sim)")
     room = max(client.view(sims[0], "my_rooms"), key=lambda r: r["id"])
     for i, sim in enumerate(sims[1:], start=1):
@@ -182,7 +185,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     s = sub.add_parser("seed")
     s.add_argument("--people", type=int, default=3, choices=range(1, 6))
-    s.add_argument("--invitations-file", type=Path, required=True, help="private JSON array of owner-issued invitation codes")
+    s.add_argument("--participants-file", type=Path, required=True, help="private JSON array of authenticated invited test participant tokens")
     n = sub.add_parser("negotiate")
     n.add_argument("--room", type=int, required=True)
     n.add_argument("--pace", type=float, default=1.5, help="seconds between steps")
@@ -192,7 +195,7 @@ def main() -> None:
     client = Client(args.url, args.db)
     try:
         if args.command == "seed":
-            seed(client, args.people, args.invitations_file)
+            seed(client, args.people, args.participants_file)
         else:
             token = os.environ.get("STDB_WORKER_TOKEN")
             if not token:

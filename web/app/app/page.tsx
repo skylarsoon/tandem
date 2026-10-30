@@ -22,7 +22,7 @@ export default function Page() {
     } catch { setError("Could not initialize the database connection."); }
   }, []);
   return <main className="planning-app">
-    <header className="app-header"><a className="wordmark" href="/">tandem<span aria-hidden="true">↗</span></a><a className="profile-link" href="/profile">Your agent profile ↗</a></header>
+    <header className="app-header"><a className="wordmark" href="/">tandem<span aria-hidden="true">↗</span></a><nav style={{ display: "flex", gap: 20, flexWrap: "wrap" }}><a className="profile-link" href="/profile">Your agent profile ↗</a><a className="profile-link" href="/account">Account</a></nav></header>
     {error ? <p role="alert" className="notice">{error}</p> : client ? <InvitationGate client={client}><Dashboard client={client} /></InvitationGate> : <p role="status">Connecting to your trips…</p>}
   </main>;
 }

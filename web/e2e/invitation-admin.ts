@@ -17,10 +17,18 @@ export function createTestInvitation() {
   invitationAdmin('create_app_invitation', [hash, 'browser-contract-test', 600]);
   return { token, hash };
 }
+export const testPassword = 'A test-only passphrase 42!';
+export async function registerTestBrowser(page: Page, token: string, email: string) {
+  await page.goto(`/invite#invite=${token}`);
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(testPassword);
+  await page.getByLabel('Confirm password', { exact: true }).fill(testPassword);
+  await page.getByRole('button', { name: 'Create account →' }).click();
+}
 export async function admitTestBrowser(page: Page) {
   const { token } = createTestInvitation();
-  await page.goto(`/invite#invite=${token}`);
-  await expect(page.getByRole('button', { name: 'Accept invitation' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Accept invitation' }).click();
-  await expect(page.getByRole('heading', { name: 'You’re in good company.' })).toBeVisible();
+  const email = `browser-${randomBytes(8).toString('hex')}@example.test`;
+  await registerTestBrowser(page, token, email);
+  await expect(page.getByRole('heading', { name: 'Let your agent get to know you.' })).toBeVisible();
+  return { email, password: testPassword };
 }

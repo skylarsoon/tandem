@@ -2,7 +2,7 @@ import { connect } from './client';
 import type { ClientSnapshot } from './state';
 type Client = ReturnType<typeof connect>;
 const attempts = new WeakMap<Client, Promise<boolean>>();
-function waitFor(client: Client, predicate: (state: ClientSnapshot) => boolean) {
+export function waitFor(client: Client, predicate: (state: ClientSnapshot) => boolean) {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { unsubscribe(); reject(new Error('The app took too long to connect. Please try again.')); }, 15000);
     let unsubscribe = () => {};

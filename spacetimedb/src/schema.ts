@@ -76,6 +76,26 @@ const adminAudit = table({ name: 'admin_audit' }, {
   id: t.u64().primaryKey().autoInc(), email: t.string(), action: t.string(), subject: t.string(), at: t.timestamp(),
 });
 
+// Traveller credentials are separate from administrator permissions.
+const travellerCredential = table({ name: 'traveller_credential' }, {
+  email: t.string().primaryKey(), enabled: t.bool(), version: t.u32(), createdAt: t.timestamp(),
+  passwordHash: t.string(), passwordSalt: t.string(), mustChangePassword: t.bool(),
+});
+const travellerSession = table({ name: 'traveller_session' }, {
+  tokenHash: t.string().primaryKey(), email: t.string(), version: t.u32(),
+  expiresAt: t.timestamp(), revoked: t.bool(),
+});
+const travellerHandoff = table({ name: 'traveller_handoff' }, {
+  tokenHash: t.string().primaryKey(), sessionHash: t.string(), expiresAt: t.timestamp(),
+});
+const travellerRegistration = table({ name: 'traveller_registration' }, {
+  tokenHash: t.string().primaryKey(), email: t.string(), passwordHash: t.string(), passwordSalt: t.string(),
+  invitationHash: t.string(), sessionHash: t.string(), expiresAt: t.timestamp(), completedBy: t.option(t.identity()),
+});
+export const travellerSessionExpiry = table({ name: 'traveller_session_expiry' }, {
+  scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt(), sessionHash: t.string(),
+});
+
 // ---------- Rooms and people ----------
 
 const room = table(
@@ -824,6 +844,11 @@ const spacetimedb = schema({
   adminSessionExpiry,
   adminLoginLimit,
   adminAudit,
+  travellerCredential,
+  travellerSession,
+  travellerHandoff,
+  travellerRegistration,
+  travellerSessionExpiry,
   room,
   membership,
   agent,

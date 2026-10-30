@@ -34,26 +34,21 @@ def test_closed_by_default_and_owner_only_issuance():
 
 
 def test_single_use_atomic_redemption_and_revocation():
-    c = Client(STDB_URL, STDB_DB); people = [c.mint_identity(), c.mint_identity()]; token=invite()
-    def redeem(person):
-        try: c.call(person, "redeem_app_invitation", token=token); return person
-        except StdbError as e: assert e.code == "INVITATION_INVALID"; return None
-    winners=[w for w in ThreadPoolExecutor(2).map(redeem, people) if w]
-    assert len(winners)==1
-    person=winners[0]
-    c.call(person,"redeem_app_invitation",token=token) # lost response retry
-    c.call(person,"save_profile_answer",question_id="C01",value_json='"Invited traveller"')
-    c.call(person,"create_room",goal="Private trip",display_name="Invited traveller")
-    assert c.view(person,"my_profile") and c.view(person,"my_rooms")
-    admin("revoke_app_invitation", hashlib.sha256(token.encode()).hexdigest())
-    assert c.view(person,"my_app_access")==[{"allowed":False}]
-    for view in ["my_rooms","my_profile","my_profile_answers","room_members","room_agents","my_agent_appearance"]:
-        assert c.view(person,view)==[]
-    expect_error("INVITATION_REQUIRED",c.call,person,"save_profile_answer",question_id="C01",value_json='"Changed"')
-    expect_error("INVITATION_INVALID",c.call,person,"redeem_app_invitation",token=token)
-    # Restoring access does not destroy or replace the original profile/rooms.
-    c.call(person,"redeem_app_invitation",token=invite())
-    assert c.view(person,"my_profile")[0]["display_name"]=="Invited traveller"
+    from conftest import register_test_identity
+    c = Client(STDB_URL, STDB_DB); person = c.mint_identity(); token = invite()
+    register_test_identity(c, person, token)
+    other = c.mint_identity()
+    expect_error('INVITATION_INVALID', register_test_identity, c, other, token)
+    c.call(person, 'save_profile_answer', question_id='C01', value_json='"Invited traveller"')
+    c.call(person, 'create_room', goal='Private trip', display_name='Invited traveller')
+    assert c.view(person, 'my_profile') and c.view(person, 'my_rooms')
+    admin('revoke_app_invitation', hashlib.sha256(token.encode()).hexdigest())
+    assert c.view(person, 'my_app_access') == [{'allowed': False}]
+    for view in ['my_rooms','my_profile','my_profile_answers','room_members','room_agents','my_agent_appearance']:
+        assert c.view(person, view) == []
+    expect_error('INVITATION_REQUIRED', c.call, person, 'save_profile_answer', question_id='C01', value_json='"Changed"')
+    # A new invitation cannot silently bypass suspension of this account.
+    expect_error('ACCOUNT_REQUIRED', c.call, person, 'redeem_app_invitation', token=invite())
 
 
 def test_revoked_unused_invitation_and_lifetime_bounds():

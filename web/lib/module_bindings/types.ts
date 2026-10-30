@@ -859,6 +859,52 @@ export const ThreadOpen = __t.object("ThreadOpen", {
 });
 export type ThreadOpen = __Infer<typeof ThreadOpen>;
 
+export const TravellerCredential = __t.object("TravellerCredential", {
+  email: __t.string(),
+  enabled: __t.bool(),
+  version: __t.u32(),
+  createdAt: __t.timestamp(),
+  passwordHash: __t.string(),
+  passwordSalt: __t.string(),
+  mustChangePassword: __t.bool(),
+});
+export type TravellerCredential = __Infer<typeof TravellerCredential>;
+
+export const TravellerHandoff = __t.object("TravellerHandoff", {
+  tokenHash: __t.string(),
+  sessionHash: __t.string(),
+  expiresAt: __t.timestamp(),
+});
+export type TravellerHandoff = __Infer<typeof TravellerHandoff>;
+
+export const TravellerRegistration = __t.object("TravellerRegistration", {
+  tokenHash: __t.string(),
+  email: __t.string(),
+  passwordHash: __t.string(),
+  passwordSalt: __t.string(),
+  invitationHash: __t.string(),
+  sessionHash: __t.string(),
+  expiresAt: __t.timestamp(),
+  completedBy: __t.option(__t.identity()),
+});
+export type TravellerRegistration = __Infer<typeof TravellerRegistration>;
+
+export const TravellerSession = __t.object("TravellerSession", {
+  tokenHash: __t.string(),
+  email: __t.string(),
+  version: __t.u32(),
+  expiresAt: __t.timestamp(),
+  revoked: __t.bool(),
+});
+export type TravellerSession = __Infer<typeof TravellerSession>;
+
+export const TravellerSessionExpiry = __t.object("TravellerSessionExpiry", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  sessionHash: __t.string(),
+});
+export type TravellerSessionExpiry = __Infer<typeof TravellerSessionExpiry>;
+
 export const TripBrief = __t.object("TripBrief", {
   roomId: __t.u64(),
   description: __t.string(),

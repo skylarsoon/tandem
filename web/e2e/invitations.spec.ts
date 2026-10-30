@@ -1,36 +1,71 @@
-import { test, expect } from '@playwright/test';
-import { createTestInvitation, invitationAdmin } from './invitation-admin';
+import { test, expect, type Page } from '@playwright/test';
+import { createTestInvitation, invitationAdmin, registerTestBrowser, testPassword } from './invitation-admin';
 test.skip(!process.env.TANDEM_STDB_URL?.startsWith('http://127.0.0.1:'), 'Requires an isolated local invitation-enabled database');
-test('one invitation admits one browser; revocation updates the open profile and voice access', async ({ browser, page }) => {
+test('invited account restores profile and trips on another device, isolates sessions, and respects revocation', async ({ browser, page, baseURL }) => {
+  const email = `traveller-${Date.now()}@example.test`, trip = `Together ${Date.now()}`;
   await page.goto('/app');
   await expect(page.getByRole('heading', { name: /Good company.*By invitation/ })).toBeVisible();
   const { token, hash } = createTestInvitation();
-  await page.goto(`/invite#invite=${token}`);
-  await expect(page.getByRole('button', { name: 'Accept invitation' })).toBeEnabled();
-  expect(page.url()).not.toContain('#');
-  await expect(page.getByLabel('Your invitation code')).toHaveAttribute('type', 'password');
-  await page.getByRole('button', { name: 'Accept invitation' }).click();
-  await expect(page.getByRole('heading', { name: 'You’re in good company.' })).toBeVisible();
-  await page.goto('/profile');
-  await expect(page.getByRole('heading', { name: /Good company.*By invitation/ })).toHaveCount(0);
-  await page.reload();
+  await registerTestBrowser(page, token, email);
   await expect(page.getByRole('heading', { name: 'Let your agent get to know you.' })).toBeVisible();
-  const second = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  expect(page.url()).not.toContain('#');
+  await page.locator('.profile form input').first().fill('Shared traveller');
+  await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
+  await page.goto('/app');
+  await page.getByText('Create or join a trip', { exact: true }).click();
+  await page.getByLabel('Your display name', { exact: true }).fill('Shared traveller');
+  await page.getByLabel('Trip name', { exact: true }).fill(trip);
+  await page.getByRole('button', { name: 'Create trip', exact: true }).click();
+  await page.getByRole('button', { name: 'Enter the group room →' }).click();
+  await expect(page.getByRole('heading', { name: 'Your trip, in conversation' })).toBeVisible();
+  const second = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 } });
+  const third = await browser.newContext({ baseURL });
+  async function login(p: Page, password = testPassword) {
+    await p.goto('/account');
+    await p.getByLabel('Email', { exact: true }).fill(email);
+    await p.getByLabel('Password', { exact: true }).fill(password);
+    await p.getByRole('button', { name: 'Sign in →' }).click();
+    await p.waitForURL('**/app');
+  }
   try {
-    const other = await second.newPage();
-    await other.goto(new URL(`/invite#invite=${token}`, page.url()).href);
-    await expect(other.getByRole('button', { name: 'Accept invitation' })).toBeEnabled();
-    await other.getByRole('button', { name: 'Accept invitation' }).click();
-    await expect(other.locator('p[role=alert]')).toContainText('could not be accepted');
+    const other = await second.newPage(), outsider = await third.newPage();
+    await registerTestBrowser(outsider, token, `other-${email}`);
+    await expect(outsider.locator('p[role=alert]')).toContainText(/invitation/i);
+    await login(other);
+    await expect(other.locator('#trip-select option').filter({ hasText: trip })).toHaveCount(1);
+    await other.goto('/profile');
+    await other.getByRole('button', { name: 'Back', exact: false }).click();
+    await expect(other.locator('.profile form input').first()).toHaveValue('Shared traveller');
+    await other.locator('.profile form input').first().fill('Updated on mobile');
+    await other.getByRole('button', { name: 'Save and continue', exact: true }).click();
+    await page.goto('/profile');
+    await page.getByRole('button', { name: 'Back', exact: false }).click();
+    await expect(page.locator('.profile form input').first()).toHaveValue('Updated on mobile');
     expect(await other.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await other.screenshot({ path: '/private/tmp/tandem-traveller-mobile.png', fullPage: true });
+    const settings = await second.newPage();
+    await settings.goto('/account');
+    await settings.getByRole('button', { name: 'Sign out', exact: true }).click();
+    await expect(other.getByRole('link', { name: 'Sign in to restore your profile and trips →' })).toBeVisible();
+    await expect(page.locator('.profile form input').first()).toHaveValue('Updated on mobile');
+    await login(settings);
+    await page.goto('/account');
+    await page.getByRole('button', { name: 'Change password', exact: true }).click();
+    await page.getByLabel('Current password', { exact: true }).fill(testPassword);
+    await page.getByLabel('New password', { exact: true }).fill(testPassword + ' updated');
+    await page.getByLabel('Confirm new password', { exact: true }).fill(testPassword + ' updated');
+    await page.getByRole('button', { name: 'Save password →' }).click();
+    await expect(page.locator('p[role=status]')).toContainText('Password updated');
+    await expect(settings.getByRole('link', { name: 'Sign in to restore your profile and trips →' })).toBeVisible();
+    await login(settings, testPassword + ' updated');
+    await expect(settings.locator('#trip-select option').filter({ hasText: trip })).toHaveCount(1);
+    expect((await settings.request.get('/api/admin/status')).status()).toBe(401);
     invitationAdmin('revoke_app_invitation', [hash]);
-    await expect(page.getByRole('heading', { name: /Good company.*By invitation/ })).toBeVisible();
-    const denied = await page.evaluate(async () => {
+    await expect(settings.getByRole('heading', { name: /Good company.*By invitation/ })).toBeVisible();
+    const denied = await settings.evaluate(async () => {
       const key = Object.keys(localStorage).find(k => k.startsWith('tandem:participant:'))!;
       return (await fetch('/api/voice/session', { method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem(key)}`, 'Content-Type': 'application/json' }, body: '{}' })).status;
     });
     expect(denied).toBe(403);
-    await page.goto('/');
-    await expect(page.locator('video track')).toHaveAttribute('src', '/media/tandem-demo-narration.vtt');
-  } finally { await second.close(); }
+  } finally { await second.close(); await third.close(); }
 });

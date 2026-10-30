@@ -39,6 +39,7 @@ export const configureAdminAccount = spacetimedb.reducer(
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('INVALID_ARGUMENT', 'valid email required');
   if (!/^[a-f0-9]{128}$/.test(args.passwordHash) || !/^[a-f0-9]{64}$/.test(args.passwordSalt))
     fail('INVALID_ARGUMENT', 'scrypt credential required');
+  if (ctx.db.travellerCredential.email.find(email)) fail('EMAIL_IN_USE', 'traveller accounts cannot be replaced by administrator provisioning');
   const current = ctx.db.adminAccount.email.find(email);
   if (args.enabled && !current?.enabled && [...ctx.db.adminAccount.iter()].filter(a => a.enabled).length >= 3)
     fail('ADMIN_LIMIT', 'at most three active administrators');

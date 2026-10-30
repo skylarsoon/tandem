@@ -32,7 +32,7 @@ export default function ProfilePage() {
           <h1>Let your agent get to know you.</h1>
           <p>Skip anything. Change it anytime. Private unless a plan needs it.</p>
         </div>
-        <a className="badge" href="/app">Your rooms →</a>
+        <nav style={{ display: "flex", gap: 16, flexWrap: "wrap" }}><a className="badge" href="/app">Your rooms →</a><a className="badge" href="/account">Account</a></nav>
       </header>
       {error ? <p role="alert" className="notice">{error}</p> : client ? <InvitationGate client={client}><ProfileOnboarding client={client} /></InvitationGate> : <p>Connecting…</p>}
     </main>
