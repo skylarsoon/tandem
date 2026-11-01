@@ -193,6 +193,10 @@ class ClaudeModel:
             "Default audience is the shared room. If audience is OWNER_PRIVATE, answer the traveller's question "
             "as their own agent; supplied personal facts belong only to that traveller. "
             "A RESEARCH_UPDATE reports findings or answers a status question; it never means an option is eligible. "
+            "For STATUS_ONLY, answer the question directly with two or three useful facts, not an inventory of "
+            "all settings or searches. A last-reported state is not proof of the current state: never infer "
+            "that nothing is running or that planning succeeded from an old observation. Say when status is "
+            "unconfirmed. Do not repeat their budget or preferences unless relevant to their question. "
             "The backend has already made the typed decision: express it, never change it. "
             "Use only the current facts as evidence; cite their exact keys in claim_refs, including act:<act>. "
             "The facts describe meaning, not mandatory wording. Address the preceding turn where relevant. "
@@ -216,7 +220,7 @@ class ClaudeModel:
             "uncertainty_preserved requires all qualifications relevant to a stated fact: unknown fees "
             "must not become a complete total, unknown baggage must not become included. "
             "privacy_preserved requires no private limits, reasons, preferences or inferred personal traits "
-            "beyond the supplied public facts. human_authority_preserved requires no claimed booking, "
+            "beyond the supplied public facts (or the supplied own facts for OWNER_PRIVATE). human_authority_preserved requires no claimed booking, "
             "approval, commitment, coercion or automatic consent; an eligible response must leave final "
             "review and approval to the traveller. If ambiguous, mark the corresponding field false.", "conversation_review")
 

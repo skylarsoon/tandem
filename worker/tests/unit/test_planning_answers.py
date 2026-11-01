@@ -14,3 +14,27 @@ def test_answers_use_latest_attempt_and_only_allowlisted_public_search_fields():
 
 def test_no_events_does_not_invent_search_activity():
     assert 'No execution updates' in planning_facts([],10)['status']
+
+
+def test_fresh_queued_retry_does_not_report_previous_failure_as_current():
+    events=[{'id':'1','at':10,'type':'WORKFLOW_PROGRESS','payload':{'job_ref':'8','stage':'STOPPED','phase':'FAILED'}}]
+    facts=planning_facts(events,100,{'id':'9','status':'PENDING'})
+    assert 'queued' in facts['planning_job']
+    assert 'FAILED' not in ' '.join(facts.values())
+    assert 'workflow' not in facts
+
+
+def test_current_claimed_job_uses_only_its_own_observations():
+    events=[{'id':'1','at':10,'type':'WORKFLOW_PROGRESS','payload':{'job_ref':'8','stage':'STOPPED','phase':'FAILED'}},
+            {'id':'2','at':100,'type':'WORKFLOW_PROGRESS','payload':{'job_ref':'9','stage':'RESEARCH','phase':'RUNNING'}}]
+    facts=planning_facts(events,225,{'id':'9','status':'CLAIMED'})
+    assert 'claimed by the worker' in facts['planning_job']
+    assert 'RESEARCH / RUNNING, 2 minutes ago' in facts['workflow']
+    assert 'FAILED' not in ' '.join(facts.values())
+
+
+def test_private_constraints_have_readable_units_and_no_private_rationale():
+    from tandem_worker.adapters.spacetime import own_fact
+    text=own_fact({'key':'trip_budget_total','value':65000,'unit':'USD_cents','hardness':'HARD','private_rationale':'PRIVATE_CANARY'})
+    assert '$650.00' in text and 'whole-trip maximum' in text
+    assert '65000' not in text and 'PRIVATE_CANARY' not in text

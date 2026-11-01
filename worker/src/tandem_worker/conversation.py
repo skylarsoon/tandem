@@ -31,7 +31,8 @@ def check_draft(draft, facts, act):
 
 def grounded_turn(backend, claim, model, *, act, facts, operation_ref, role,
                   evaluation, blocker, recent_turns=(), audience="ROOM"):
-    # Never pass the private decision rationale, profile, rules or owner limits.
+    # Shared turns receive room-safe facts only; OWNER_PRIVATE may receive
+    # the authenticated recipient's own confirmed details.
     context = {"act": act.value, "evaluation": evaluation, "blocker": blocker,
                "role": role, "facts": facts, "recent_turns": list(recent_turns[-6:])}
     if audience == "OWNER_PRIVATE":
@@ -58,5 +59,11 @@ def grounded_turn(backend, claim, model, *, act, facts, operation_ref, role,
             # Lease, permission, provider and cost-limit failures must remain visible.
             if isinstance(exc, ContractError) and exc.code != "UTTERANCE_PAYLOAD_MISMATCH":
                 raise
-    text, refs = fallback_voice(facts)
+    # A failed generation must not dump an entire evidence table into chat.
+    # Keep the canonical intent plus a bounded, relevant status fallback.
+    fallback = facts
+    if audience == "OWNER_PRIVATE":
+        chosen = [k for k in facts if k.startswith('act:') or k in {'workflow','status','planning_job'}]
+        fallback = {k:facts[k] for k in chosen[:3]}
+    text, refs = fallback_voice(fallback)
     return text, refs, "TEMPLATE_FALLBACK"

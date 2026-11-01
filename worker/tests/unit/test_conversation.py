@@ -68,3 +68,18 @@ def test_provider_budget_failure_is_not_disguised_as_conversation():
         def converse(self, context): raise ContractError("MODEL_CALL_BUDGET_EXHAUSTED")
     with pytest.raises(ContractError, match="MODEL_CALL_BUDGET_EXHAUSTED"):
         run(Exhausted("irrelevant"))
+
+
+def test_private_fallback_is_bounded_to_status_not_all_personal_rules():
+    facts={'act:RESEARCH_UPDATE':'Here is the recorded planning status.',
+           'planning_job':'The latest attempt is queued for a worker.',
+           'own:budget':'Your personal limit is $650.00.',
+           'search:1':'A long list of returned evidence.',
+           'status':'No execution update for this attempt yet.'}
+    result=grounded_turn(Backend(),None,Model('unsupported'),act=Act.RESEARCH_UPDATE,
+        facts=facts,operation_ref='private',role='personal',evaluation='STATUS_ONLY',
+        blocker='NONE',audience='OWNER_PRIVATE')
+    assert result[2]=='TEMPLATE_FALLBACK'
+    assert 'queued' in result[0]
+    assert '$650.00' not in result[0] and 'long list' not in result[0]
+    assert len(result[1])==3

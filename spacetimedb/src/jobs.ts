@@ -420,6 +420,9 @@ function buildContext(ctx: Ctx, j: JobRow) {
     threads,
     messages,
     candidates,
+    planning_job: [...ctx.db.job.byRoom.filter(r.id)]
+      .filter(p => p.kind === 'PLAN' && p.inputRevision === r.inputRevision && p.membershipRevision === r.membershipRevision && p.permissionRevision === r.permissionRevision)
+      .sort((a,b) => a.id < b.id ? 1 : -1).map(p => ({id:String(p.id),status:p.status}))[0] ?? null,
     planning_activity: [...ctx.db.decisionEvent.byRoom.filter(r.id)]
       .filter(e => e.audience === 'ROOM' && ['WORKFLOW_PROGRESS','RESEARCH_ACTIVITY'].includes(e.type))
       .map(e => ({id: String(e.id), at: Number(e.createdAt.microsSinceUnixEpoch) / 1000000, type:e.type, payload:parsed(e.safePayloadJson)}))

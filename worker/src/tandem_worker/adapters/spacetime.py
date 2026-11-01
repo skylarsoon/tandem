@@ -621,8 +621,8 @@ class SpacetimeBackend:
             question_count=intake.get("question_count", 0),
             preferences_confirmed=me["participation_preferences"]["confirmed"],
             profile=subject.get("profile") or {}, open_recovery=subject.get("open_recovery"),
-            planning_facts={**planning_facts(ctx.get("planning_activity", []), self.clock.now()),
-                **{f"own:{c['constraint_id']}": f"Your confirmed {c['hardness'].lower()} {c['key']} is {json.dumps(c['value'])} {c['unit']}."
+            planning_facts={**planning_facts(ctx.get("planning_activity", []), self.clock.now(), ctx.get("planning_job")),
+                **{f"own:{c['constraint_id']}": own_fact(c)
                    for c in ctx['constraints'] if c['member_id'] == me['member_id']}})
 
     def _member_id(self, claim, owner):
@@ -695,12 +695,16 @@ def seed_room(http: StdbHttp, briefs, goal: str = "Group trip", settings: dict |
     return {"room_id": room["id"], "invite_code": room["invite_code"], "owner_tokens": tokens}
 
 
-def planning_facts(events, now):
+def planning_facts(events, now, job=None):
     """Only recorded shared telemetry reaches a private status answer. No other
     traveller's profile, rules, conversation, cap, job outcome body or prompt."""
+    status = {}
+    if job:
+        statuses = {'PENDING':'queued for a worker', 'CLAIMED':'claimed by the worker', 'WAITING_FOR_INPUT':'waiting for a traveller response', 'FINISHED':'finished its attempt', 'FAILED':'failed its attempt', 'SUPERSEDED':'superseded by changed details'}
+        status['planning_job'] = f"The latest planning attempt is recorded as {statuses.get(job['status'], 'status unknown')}. This does not mean a final plan has been approved."
     if not events:
-        return {'status': 'No execution updates have been reported for the current trip details yet.'}
-    latest = events[-1]['payload'].get('job_ref')
+        return {**status, 'status': 'No execution updates have been reported for the current trip details yet.'}
+    latest = str(job['id']) if job else events[-1]['payload'].get('job_ref')
     selected = {}
     for event in events:
         p = event['payload']
@@ -709,17 +713,34 @@ def planning_facts(events, now):
         key = p.get('search_ref') if event['type'] == 'RESEARCH_ACTIVITY' else 'workflow'
         if key:
             selected[key] = event
-    facts = {}
+    facts = dict(status)
     for key, event in selected.items():
         p = event['payload']; age = max(0, int(now-event['at']))
+        age_text = f'{age} seconds' if age < 60 else f'{age // 60} minutes'
         if event['type'] == 'RESEARCH_ACTIVITY':
             context = p.get('search_context') or {}
             detail = ', '.join(f'{k}: {v}' for k,v in context.items()
                 if k in {'origin','destination','departure_date','locations','check_in','check_out','leg','queries','location'})
             count = p.get('result_count')
             facts[f"search:{event['id']}"] = (f"{p.get('category')} search ({detail}): last reported {p.get('phase')} "
-                f"{age} seconds ago." + (f" Returned {count} usable options." if isinstance(count,int) else '')
+                f"{age_text} ago." + (f" Returned {count} usable options." if isinstance(count,int) else '')
                 + ' This is a provider observation, not a selected or booked option.')
         else:
-            facts['workflow'] = f"Planning last reported {p.get('stage')} / {p.get('phase')}, {age} seconds ago."
+            facts['workflow'] = f"Planning last reported {p.get('stage')} / {p.get('phase')}, {age_text} ago."
     return facts
+
+
+def own_fact(constraint):
+    key, value = constraint['key'], constraint['value']
+    names = {'origin_airport':'departure airport', 'dates_ok':'trip dates work for you',
+             'trip_budget_total':'whole-trip maximum', 'flight_budget_total':'flight maximum',
+             'max_stops':'maximum flight connections', 'own_bedroom':'separate bedroom needed',
+             'baggage_required':'checked baggage needed', 'stay_min_rating':'minimum stay rating'}
+    if key in {'trip_budget_total','flight_budget_total'} and isinstance(value,(int,float)):
+        text=f'${value/100:,.2f}'
+    elif isinstance(value,bool):
+        text='yes' if value else 'no'
+    else:
+        text=str(value)
+    strength='preference' if constraint['hardness']=='SOFT' else 'requirement'
+    return f"Your confirmed {names.get(key,key.replace('_',' '))}: {text} ({strength})."
