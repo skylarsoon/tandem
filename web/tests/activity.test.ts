@@ -44,3 +44,11 @@ it('carries result exclusions and collection limits without treating them as app
  const model=liveActivity(room,{room_events:[event(1,'COMPLETED',{result_count:10,excluded_count:2,duplicate_count:1,collection_truncated:true,search_context:{origin:'SFO',destination:'SAN'}})]},true,now);
  expect(model.runs[0]).toMatchObject({count:10,excluded:2,duplicates:1,truncated:true,live:false});expect(model.runs[0].search.title).toBe('SFO → SAN');
 });
+
+it('an accepted retry is visibly queued until fresh worker events arrive', () => {
+  const retry = {...event(3), type:'PLANNING_RETRY_REQUESTED', safePayloadJson:JSON.stringify({job_id:'2',previous_job_id:'1'})};
+  const m=liveActivity(room,{room_events:[event(1,'FAILED'),retry]},true,now);
+  expect(m.retryPending).toBe(true);expect(m.title).toContain('Retry queued');expect(m.tone).toBe('waiting');
+  const started=liveActivity(room,{room_events:[event(1,'FAILED'),retry,event(4,'RUNNING',{job_ref:'2',generation:'2'})]},true,now);
+  expect(started.retryPending).toBe(false);expect(started.title).toContain('search in progress');
+});

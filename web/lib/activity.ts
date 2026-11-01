@@ -82,12 +82,17 @@ export function liveActivity(room: Row, tables: Record<string, Row[]>, connected
   const running = runs.filter(r => r.live && r.phase !== 'QUEUED');
   const queued = runs.filter(r => r.live && r.phase === 'QUEUED');
   const failed = runs.filter(r => r.phase === 'FAILED');
-  const latestTime = last?.time || 0;
+  const retry = (tables.room_events || []).filter(e => String(e.roomId) === String(room.id)
+    && e.audience === 'ROOM' && e.type === 'PLANNING_RETRY_REQUESTED'
+    && (!last || e.id > last.eventId)).sort((a,b) => a.id < b.id ? 1 : -1)[0];
+  const retryPending = !!retry;
+  const latestTime = retry ? timestamp(retry.createdAt) : last?.time || 0;
   const fresh = connected && latestTime > 0 && now - latestTime <= 45000;
   const ended = !!graph.published || stopped || graph.last?.phase === 'PAUSED';
   let title = planningStatus(room, tables, connected);
   let tone = 'quiet';
   if (!connected) title = 'Connection lost · showing last received activity';
+  else if (retryPending) { title = 'Retry queued · waiting for the worker'; tone = 'waiting'; }
   else if (stopped) { title = graph.last?.phase === 'FAILED' ? 'Planning needs attention' : 'Planning has stopped'; tone = graph.last?.phase === 'FAILED' ? 'error' : 'quiet'; }
   else if (running.length && !ended) { title = `${running.length} ${running.length === 1 ? 'search' : 'searches'} in progress${queued.length ? ` · ${queued.length} queued` : ''}`; tone = 'live'; }
   else if (failed.length && !ended) { title = 'A search needs attention'; tone = 'error'; }
@@ -106,6 +111,6 @@ export function liveActivity(room: Row, tables: Record<string, Row[]>, connected
       label: a.activity === 'WAITING_FOR_OWNER' && !member?.isMe ? 'Ready' : labels[a.activity] || 'Status received', busy: !['IDLE','WAITING_FOR_OWNER'].includes(a.activity), recent, time };
   });
   if (!events.length && connected && agents.some(a => a.recent && a.busy)) { title = 'Your agents are working on the trip details'; tone = 'live'; }
-  return { title, tone, runs, agents, events, latestTime, graph, earlier: all.filter(e => !events.includes(e)),
-    detail: !events.length ? 'No worker execution has been reported for the current trip details yet.' : stopped ? 'Your saved trip is safe. This is the last reported state; a new attempt will appear here when it starts.' : 'Updates come from worker and provider events. Search results still need to be checked against the group’s needs.' };
+  return { title, tone, retryPending, runs, agents, events, latestTime, graph, earlier: all.filter(e => !events.includes(e)),
+    detail: retryPending ? 'Your retry request was saved. Searches below show the previous attempt until the worker reports fresh activity.' : !events.length ? 'No worker execution has been reported for the current trip details yet.' : stopped ? 'Your saved trip is safe. This is the last reported state; a new attempt will appear here when it starts.' : 'Updates come from worker and provider events. Search results still need to be checked against the group’s needs.' };
 }
