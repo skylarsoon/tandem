@@ -1,11 +1,13 @@
 import { money, type Row } from './state';
+import { allStagesAgreed } from './trip-completion';
 import type { Tables } from './planning';
 
 export type TripPhase = 'brief' | 'intake' | 'planning' | 'review' | 'agreed';
-export function tripPhase(tables: Tables): TripPhase {
+export function tripPhase(tables: Tables, room?: Row): TripPhase {
   const proposals = (tables.room_proposals || []).filter(p => p.state !== 'SUPERSEDED');
   if (proposals.some(p => p.state === 'AWAITING_REVIEW')) return 'review';
   if (proposals.some(p => p.state === 'AGREED' && p.scope === 'COMPLETE_PLAN')) return 'agreed';
+  if (room && allStagesAgreed(room, tables)) return 'agreed';
   if (!tables.room_trip_brief?.some(b => b.state === 'CONFIRMED')) return 'brief';
   if (tables.my_intake?.[0]?.state !== 'CONFIRMED') return 'intake';
   return 'planning';

@@ -1,4 +1,5 @@
 import { json, money, type Row } from "./state";
+import { allStagesAgreed } from './trip-completion';
 import { workflow } from "./workflow";
 
 export type Tables = Record<string, Row[]>;
@@ -138,6 +139,7 @@ export function established(room: Row, tables: Tables): [string, string][] {
 
 export function planningStatus(room: Row, tables: Tables, connected: boolean): string {
   if (!connected) return "Reconnecting · waiting for synchronized details";
+  if (allStagesAgreed(room, tables)) return "Agreed · everyone approved";
   const progress = workflow(room, tables);
   if (progress.published?.state === "AGREED") return "Agreed · everyone approved";
   if (progress.published) return "Ready for your review";

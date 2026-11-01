@@ -232,7 +232,7 @@ export function PlanningConversation({ room, tables: input, reducers, connected,
   const [incoming, setIncoming] = useState<{key:string;target?:string}>();
   const knownDiscussion = useRef<Set<string> | undefined>(undefined);
   const autoScrollUntil = useRef(0);
-  const phase = tripPhase(tables);
+  const phase = tripPhase(tables, room);
   const proposals = tables.room_proposals || [];
   const groups = proposalGroups(proposals);
   const stages = ['brief', 'intake', 'planning', 'review', 'agreed'] as const;
