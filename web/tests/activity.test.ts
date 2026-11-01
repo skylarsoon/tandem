@@ -52,3 +52,14 @@ it('an accepted retry is visibly queued until fresh worker events arrive', () =>
   const started=liveActivity(room,{room_events:[event(1,'FAILED'),retry,event(4,'RUNNING',{job_ref:'2',generation:'2'})]},true,now);
   expect(started.retryPending).toBe(false);expect(started.title).toContain('search in progress');
 });
+
+it('fresh agent work remains visible after search telemetry ages, but never revives stopped work', () => {
+  const work={roomId:1n,agentId:2n,activity:'WRITING',updatedAt:{microsSinceUnixEpoch:BigInt(now*1000)}};
+  const tables={room_events:[event(1,'COMPLETED',{},now-120000)],room_agent_activity:[work]};
+  const m=liveActivity(room,tables,true,now);
+  expect(m.title).toBe('Your agents are preparing a reply');expect(m.latestTime).toBe(now);
+  expect(liveActivity(room,tables,true,now+46000).tone).not.toBe('live');
+  expect(liveActivity(room,tables,false,now).title).toContain('Connection lost');
+  const stop={...event(2),type:'WORKFLOW_PROGRESS',safePayloadJson:JSON.stringify({schema_version:1,job_ref:'1',generation:'1',attempt:'1',input_revision:1,membership_revision:1,permission_revision:1,stage:'STOPPED',phase:'FAILED'})};
+  expect(liveActivity(room,{...tables,room_events:[...tables.room_events,stop]},true,now).title).toBe('Planning needs attention');
+});
