@@ -172,3 +172,27 @@ test('travellers can privately talk to Pip without leaving live group discussion
   await expect(page.getByRole('log',{name:'Private conversation with your Pip'})).toHaveCount(0);
   await expect(page.getByText('Following live updates',{exact:true})).toBeVisible();
 });
+
+
+test('private replies follow the latest message and preserve deliberate scrolling', async({page})=>{
+  await open(page,'room');
+  await page.evaluate(()=>window.productFixture.patch({my_private_messages:[
+    {id:1n,roomId:1n,sender:'AGENT',body:'Earlier confirmed details. '.repeat(100),createdAt:1n},
+    {id:2n,roomId:1n,sender:'HUMAN',body:'What is happening now?',createdAt:2n}
+  ]}));
+  await page.getByRole('tab',{name:'Agent discussion',exact:true}).click();
+  await page.getByRole('button',{name:'Talk to your Pip',exact:true}).click();
+  const log=page.getByRole('log',{name:'Private conversation with your Pip'});
+  await expect.poll(()=>log.evaluate(n=>n.scrollHeight-n.scrollTop-n.clientHeight)).toBeLessThan(3);
+  await log.evaluate(n=>{n.scrollTop=0;n.dispatchEvent(new Event('scroll',{bubbles:true}));});
+  await page.evaluate(()=>window.productFixture.patch({my_private_messages:[
+    {id:1n,roomId:1n,sender:'AGENT',body:'Earlier confirmed details. '.repeat(100),createdAt:1n},
+    {id:2n,roomId:1n,sender:'HUMAN',body:'What is happening now?',createdAt:2n},
+    {id:3n,roomId:1n,sender:'AGENT',body:'The first search returned options for comparison.',createdAt:3n}
+  ]}));
+  await expect(log.getByText('The first search returned options for comparison.')).toBeAttached();
+  expect(await log.evaluate(n=>n.scrollTop)).toBe(0);
+  await page.getByRole('button',{name:'Close private conversation'}).click();
+  await page.getByRole('button',{name:'Talk to your Pip',exact:true}).click();
+  await expect.poll(()=>log.evaluate(n=>n.scrollHeight-n.scrollTop-n.clientHeight)).toBeLessThan(3);
+});

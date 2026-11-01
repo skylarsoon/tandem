@@ -235,8 +235,19 @@ class ApifyResearch:
             # superseded mid-run (someone confirmed an answer) hands its paid runs to the next
             # job, within one freshness window.
             window = int(request.get("observed_at", 0) // self.reuse_window_seconds)
-            key = digest([self.actor_id, self.build, request.get("room_id"), request["purpose"], request.get("blocker_code"),
-                          search.model_dump(mode="json"), actor_input, window])
+            identity = [self.actor_id, self.build, request.get("room_id"), request["purpose"], request.get("blocker_code"),
+                        search.model_dump(mode="json"), actor_input]
+            key = digest([*identity, window])
+            if self.ledger.read(key) is None:
+                # A retry can cross the time-bucket boundary while an accepted
+                # paid run is still collecting. Resume its receipt, never start
+                # another run just because the clock crossed that boundary.
+                previous_key = digest([*identity, window - 1])
+                previous = self.ledger.read(previous_key)
+                if previous and (previous["state"] in {"STARTING", "RUNNING", "COLLECTING"}
+                                 or (previous["state"] == "DONE" and previous.get("candidates")
+                                     and all(c["valid_until"] > self.clock.now() for c in previous["candidates"]))):
+                    key = previous_key
             jobs.append(RunJob(self, key, search, actor_input, request["purpose"]))
         return jobs
 
@@ -382,7 +393,7 @@ def collect_all(jobs, deadline, pause, max_active=None):
                     completed_search(job)
                 elif job.run["state"] == "COLLECTING":
                     research_update(job, "COLLECTING")
-                    job.gateway.collect(job, run_deadlines[job.key])
+                    job.gateway.collect(job, Deadline(deadline.monotonic, deadline.seconds))
                     research_update(job, "COMPLETED")
                     completed_search(job)
                 else:
@@ -393,7 +404,7 @@ def collect_all(jobs, deadline, pause, max_active=None):
                 current = job
                 if job.gateway.poll(job, run_deadlines[job.key]):
                     research_update(job, "COLLECTING")
-                    job.gateway.collect(job, run_deadlines[job.key])
+                    job.gateway.collect(job, Deadline(deadline.monotonic, deadline.seconds))
                     research_update(job, "COMPLETED")
                     completed_search(job)
                     active.remove(job)

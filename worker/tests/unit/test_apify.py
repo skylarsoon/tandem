@@ -501,3 +501,43 @@ def test_queued_search_gets_its_own_deadline_after_capacity_opens(tmp_path):
     gateway.monotonic=lambda:now[0];gateway.pause=lambda seconds:now.__setitem__(0,now[0]+seconds)
     gateway.search({**request,'members':['p1','p2']})
     assert client.starts==2 and now[0]>10
+
+
+def test_retry_across_time_bucket_resumes_accepted_dataset(tmp_path):
+    class FailOnce(Client):
+        def items(self, *args):
+            if not self.pages:
+                self.pages.append("failed")
+                raise ContractError("APIFY_CONNECTION_FAILED")
+            return super().items(*args)
+    gateway, client, request = setup_gateway(tmp_path, FailOnce())
+    with pytest.raises(ContractError):
+        gateway.search({**request, "observed_at": 899})
+    result = gateway.search({**request, "observed_at": 901})
+    assert result and client.starts == client.polls == 1
+
+
+def test_ambiguous_start_stays_blocked_across_time_bucket(tmp_path):
+    class Ambiguous(Client):
+        def start(self, *args):
+            self.starts += 1
+            raise SystemExit()
+    gateway, client, request = setup_gateway(tmp_path, Ambiguous())
+    with pytest.raises(SystemExit):
+        gateway.search({**request, "observed_at": 899})
+    with pytest.raises(ContractError, match="APIFY_START_AMBIGUOUS"):
+        gateway.search({**request, "observed_at": 901})
+    assert client.starts == 1
+
+
+def test_dataset_collection_has_its_own_bounded_deadline(tmp_path):
+    now = [0.0]
+    class SlowSuccess(Client):
+        def run(self, run_id):
+            now[0] += 2
+            return super().run(run_id)
+    gateway, client, request = setup_gateway(tmp_path, SlowSuccess())
+    gateway.monotonic = lambda: now[0]
+    gateway.poll_deadline_seconds = 2
+    assert gateway.search(request)
+    assert client.starts == 1

@@ -206,6 +206,17 @@ export function PlanningConversation({ room, tables: input, reducers, connected,
   const [localView, setLocalView] = useState<View>('personal');
   const view = selectedView ?? localView, setView = onViewChange ?? setLocalView;
   const [privateOpen, setPrivateOpen] = useState(false);
+  const privateLog = useRef<HTMLDivElement>(null), privateFollow = useRef(true);
+  const privateItems = items.filter(item => item.audience === 'private' && (item.kind === 'message' || (item.kind === 'question' && item.row.state === 'OPEN'))).slice(-3);
+  const privateKeys = privateItems.map(item => item.key).join('|');
+  useEffect(() => {
+    if (!privateOpen) { privateFollow.current = true; return; }
+    if (!privateFollow.current) return;
+    const frame = requestAnimationFrame(() => {
+      if (privateLog.current) privateLog.current.scrollTop = privateLog.current.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [privateOpen, privateKeys]);
   const [followLive, setFollowLive] = useState(true), [unread, setUnread] = useState(0);
   const [incoming, setIncoming] = useState<{key:string;target?:string}>();
   const knownDiscussion = useRef<Set<string> | undefined>(undefined);
@@ -354,7 +365,7 @@ export function PlanningConversation({ room, tables: input, reducers, connected,
     {error && <p role="alert" className="notice room-error">{error}</p>}
     {view === 'discussion' ? <div className="discussion-footer"><span>Every agent has a voice. The final decision is yours.</span><button type="button" aria-expanded={privateOpen} onClick={() => setPrivateOpen(!privateOpen)}>{privateOpen ? 'Close private conversation' : ownerQuestion ? 'Your Pip has a question' : 'Talk to your Pip'}</button>{proposals.length > 0 && <button type="button" className="primary-action" onClick={() => setView('plan')}>Review the plan ↗</button>}</div> : null}
     {(view === 'personal' || (view === 'discussion' && privateOpen)) ? <div className="composer-wrap">
-      {view === 'discussion' && <div className="private-planning-replies" aria-label="Private conversation with your Pip" role="log" aria-live="polite"><small>ONLY YOU AND YOUR PIP</small>{items.filter(item => item.audience === 'private' && (item.kind === 'message' || (item.kind === 'question' && item.row.state === 'OPEN'))).slice(-3).map(item => <article key={item.key}><strong>{item.row.sender === 'HUMAN' ? 'You' : 'Your Pip'}</strong><MessageCard item={item} tables={tables} room={room} disabled={!connected || pending.length > 0} act={act} reducers={reducers} prefs={prefs} setPrefs={setPrefs} excluded={excluded} setExcluded={setExcluded} edit={() => startEdit(item)} /></article>)}</div>}
+      {view === 'discussion' && <div ref={privateLog} onScroll={event => { const node = event.currentTarget; privateFollow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 60; }} className="private-planning-replies" aria-label="Private conversation with your Pip" role="log" aria-live="polite"><small>ONLY YOU AND YOUR PIP</small>{privateItems.map(item => <article key={item.key}><strong>{item.row.sender === 'HUMAN' ? 'You' : 'Your Pip'}</strong><MessageCard item={item} tables={tables} room={room} disabled={!connected || pending.length > 0} act={act} reducers={reducers} prefs={prefs} setPrefs={setPrefs} excluded={excluded} setExcluded={setExcluded} edit={() => startEdit(item)} /></article>)}</div>}
       {editing && <div className="reply-context"><span>Replying about {editing.title}</span><button onClick={() => setEditing(undefined)}>Cancel reply</button></div>}
       <form className="chat-composer" onSubmit={e => { e.preventDefault(); void send(); }}>
         <label className="sr-only" htmlFor="trip-message">Message your agent</label>
