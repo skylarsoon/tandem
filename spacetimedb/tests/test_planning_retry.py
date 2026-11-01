@@ -54,3 +54,18 @@ def test_completed_research_survives_permission_grant_but_not_changed_trip_input
     room.set_constraint('alice','flight_budget_total',90000)
     changed=room.plan_job(worker);room.claim(worker,changed)
     assert room.context(worker,changed)['research_complete'] is False
+
+
+def test_waiting_for_intake_cannot_retry_before_actual_onboarding(ready_room,client,worker):
+    room,job=ready_room
+    finish(client,worker,room,job,'WAITING_FOR_INTAKE')
+    expect_error('JOB_NOT_ELIGIBLE',client.call,room.people['alice'],'retry_planning',room_id=room.room_id,job_id=job,request_key=key())
+
+
+def test_private_planning_context_excludes_internal_discussion(ready_room,client,worker):
+    room,job=ready_room
+    room.send(worker,job,type='RESEARCH_UPDATE',utterance='These are research findings, not an approved plan.',claim_refs=['act:RESEARCH_UPDATE'])
+    room.send(worker,job,audience='INTERNAL',utterance='INTERNAL_CANARY')
+    turns=room.context(worker,job)['planning_discussion']
+    assert len(turns)==1 and 'research findings' in turns[0]['text']
+    assert 'INTERNAL_CANARY' not in json.dumps(turns)

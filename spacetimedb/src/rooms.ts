@@ -18,7 +18,7 @@ import {
   requireRoom,
 } from './guards';
 import { applyParticipationPreferences, reopenBroken } from './effects';
-import { startIntake } from './onboarding';
+import { startIntake, findIntake } from './onboarding';
 
 const DEFAULT_REMINDER_DELAY_SECONDS = 600;
 const DEFAULT_ROOM_SETTINGS = JSON.stringify({ arrival_overlap_seconds: 7200 });
@@ -221,7 +221,10 @@ export const retryPlanning = spacetimedb.reducer(
         'APIFY_INVALID_RESPONSE','APIFY_RUN_FAILED','EXECUTION_FAILED','INVALID_RESEARCH_REQUEST',
         // The worker rechecks its durable allowance before every provider call.
         // This also lets a trip resume after the UTC reset or an operator-approved increase.
-        'ACTOR_RUN_BUDGET_EXHAUSTED','MODEL_CALL_BUDGET_EXHAUSTED','EVIDENCE_EXPIRED'];
+        'ACTOR_RUN_BUDGET_EXHAUSTED','MODEL_CALL_BUDGET_EXHAUSTED','EVIDENCE_EXPIRED','WAITING_FOR_INTAKE'];
+      if (latest.outcome === 'WAITING_FOR_INTAKE' && (ctx.db.tripBrief.roomId.find(r.id)?.state !== 'CONFIRMED'
+          || [...ctx.db.membership.byRoomMember.filter(r.id)].some(m => m.active && findIntake(ctx,r.id,m.member)?.state !== 'CONFIRMED')))
+        fail('JOB_NOT_ELIGIBLE', 'travellers must finish their confirmed intake first');
       if (!retryable.includes(latest.outcome ?? ''))
         fail('JOB_NOT_ELIGIBLE', 'this outcome needs attention before it can be retried');
       const next = createJob(ctx, r, 'PLAN', 'organizer retried an interrupted search');

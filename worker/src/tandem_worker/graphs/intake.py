@@ -67,7 +67,7 @@ def _change(backend, claim, model, ctx) -> str:
         return "NO_CHANGE"
     if not changes:
         # A question during planning deserves an answer, not another demand for
-        # intake details. Only real room telemetry is available as evidence here.
+        # intake details. Use recorded shared discussion, proposals and own facts.
         from ..conversation import grounded_turn
         facts = {"act:RESEARCH_UPDATE": "Your confirmed trip details have not changed. You can ask questions while planning continues; only you can approve changes or a final proposal.",
                  **(ctx.planning_facts or {"status": "No verified planning status is available in this response."})}

@@ -168,7 +168,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             return {"candidates": [], "need_research": False}  # every stage is decided
         if state["round"] == 0 and not state["candidates"]:
             reused = backend.reusable_candidates(claim)
-            if reused:
+            if reused and set(snapshot.components) <= {c.category for c in reused}:
                 # Earlier jobs' results can hold the same offer twice (separate runs, new ids).
                 return {"candidates": candidates_data(dedupe(reused)), "need_research": False}
         purpose = "INITIAL" if state["round"] == 0 else "TARGETED"
@@ -339,8 +339,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             return {**update, "recover": sorted({c.owner for c in result.conflicts})}
         if result.status == "INFEASIBLE":
             owners = sorted({c.owner for c in result.conflicts if c.owner})
-            categories = sorted({k for c in result.conflicts for k in RESEARCH_CATEGORIES.get(c.code, ("FLIGHT",))})
-            update.update(research_target_owners=owners or list(snapshot.members), research_categories=categories or ["FLIGHT"],
+            categories = sorted({k for c in result.conflicts for k in RESEARCH_CATEGORIES.get(c.code, snapshot.components)})
+            update.update(research_target_owners=owners or list(snapshot.members), research_categories=categories or list(snapshot.components),
                 research_blocker_code=RESEARCH_BLOCKER[result.conflicts[0].code] if result.conflicts else "NO_MATCHING_CANDIDATE",
                 questions=ask_to_relax(snapshot, result.conflicts, briefs))
         return update

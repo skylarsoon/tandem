@@ -555,3 +555,20 @@ def test_a_reply_in_chat_that_changes_nothing_is_pointed_back_to_the_choices(tmp
     assert reply.startswith("I couldn't tell which way you'd like to go.")
     assert "• Flight: fare at most $1,350: that brings back HA1 LAX-HNL (nonstop, $1,350)" in reply
     assert [q.kind for q in backend.owner_questions("Bella") if q.answer is None] == ["RECOVERY"], "still waiting on her"
+
+
+def test_later_stage_research_is_not_skipped_by_unrelated_reusable_flights(qa, monkeypatch):
+    backend, worker, research = qa
+    [(flight_id, _)] = live(plan(backend, worker), "flight")
+    agree(backend, flight_id)
+    [(stay_id, _)] = live(plan(backend, worker, until=lambda r: live(r, "stay")), "stay")
+    # At the activity stage, only unrelated flight quotes remain reusable.
+    # This is the live failure mode when the earlier activity batch has expired.
+    original = backend.reusable_candidates
+    monkeypatch.setattr(backend, 'reusable_candidates', lambda claim: [c for c in original(claim) if c.category=='FLIGHT'])
+    before = len(research.requests)
+    agree(backend, stay_id)
+    assert live(plan(backend, worker, until=lambda r: live(r, "activity:1")), "activity:1")
+    new = research.requests[before:]
+    assert new and new[0]['purpose']=='INITIAL'
+    assert 'ACTIVITY' in new[0]['categories'] and 'FLIGHT' not in new[0]['categories']

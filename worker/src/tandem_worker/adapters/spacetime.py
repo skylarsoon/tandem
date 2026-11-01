@@ -623,6 +623,7 @@ class SpacetimeBackend:
             preferences_confirmed=me["participation_preferences"]["confirmed"],
             profile=subject.get("profile") or {}, open_recovery=subject.get("open_recovery"),
             planning_facts={**planning_facts(ctx.get("planning_activity", []), self.clock.now(), ctx.get("planning_job")),
+                **planning_decision_facts(ctx, self.owner_name(me)),
                 **{f"own:{c['constraint_id']}": own_fact(c)
                    for c in ctx['constraints'] if c['member_id'] == me['member_id']}})
 
@@ -745,3 +746,40 @@ def own_fact(constraint):
         text=str(value)
     strength='preference' if constraint['hardness']=='SOFT' else 'requirement'
     return f"Your confirmed {names.get(key,key.replace('_',' '))}: {text} ({strength})."
+
+
+def planning_decision_facts(ctx, owner):
+    """Shared proposal terms and room-visible turns, plus this owner's allocation.
+
+    Do not send the execution context itself: it also contains other travellers'
+    private rules, profile and permission data. Cost semantics come from the same
+    category catalog used by planning; an estimate never becomes a booking quote.
+    """
+    from ..policy import candidate_facts, money
+    from ..rules import decisions
+    facts = {}
+    for turn in ctx.get('planning_discussion', []):
+        if turn.get('text'):
+            facts[f"discussion:{turn['id']}"] = ('Recorded shared agent message: ' + turn['text']
+                + ' Agent discussion alone is not human approval.')
+    shapes = decisions()['categories']
+    members = [m for m in ctx.get('members', []) if m.get('active')]
+    n = len(members)
+    for proposal in ctx.get('proposals', []):
+        if proposal.get('state') not in {'AWAITING_REVIEW','AGREED'}:
+            continue
+        ref = f"proposal:{proposal['proposal_id']}"
+        status = ('all required travellers agreed to these terms' if proposal['state']=='AGREED'
+                  else 'awaiting group review; individual approval counts are not supplied here')
+        facts[ref] = f"The {proposal.get('decision_id','trip')} proposal is {status}. Nothing is booked by Tandem."
+        for item in proposal.get('terms', {}).get('selected', []):
+            if item.get('owner') not in (None, owner):
+                continue
+            facts.update(candidate_facts(item))
+            price = item.get('total_cents'); category = item.get('category'); shape = shapes.get(category)
+            if price is None or not shape or not n:
+                continue
+            share = price/n if shape['pays']=='split' else price
+            qualifier = 'planning estimate, not a final quote' if category in {'ACTIVITY','DINNER'} else 'share of the recorded terms, not a new live quote'
+            facts[f"{ref}:{item['id']}#your_share"] = f"Your {category.lower()} share is {money(share)} ({qualifier}); proposal status: {status}."
+    return facts

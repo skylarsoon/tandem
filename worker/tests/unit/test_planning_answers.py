@@ -38,3 +38,27 @@ def test_private_constraints_have_readable_units_and_no_private_rationale():
     text=own_fact({'key':'trip_budget_total','value':65000,'unit':'USD_cents','hardness':'HARD','private_rationale':'PRIVATE_CANARY'})
     assert '$650.00' in text and 'whole-trip maximum' in text
     assert '65000' not in text and 'PRIVATE_CANARY' not in text
+
+
+def test_private_answer_includes_shared_decisions_and_own_share_without_other_private_data():
+    from tandem_worker.adapters.spacetime import planning_decision_facts
+    ctx={'members':[{'active':True},{'active':True}],
+         'constraints':[{'private_rationale':'PRIVATE_CANARY'}],
+         'planning_discussion':[{'id':'7','text':'Could you evaluate the shared stay at $246.92?'}],
+         'proposals':[{'proposal_id':9,'decision_id':'stay','state':'AWAITING_REVIEW',
+           'terms':{'selected':[{'id':'stay','category':'STAY','owner':None,'title':'Shared room','total_cents':24692,'cost_basis':'COMPLETE_STAY_TOTAL'}]}}]}
+    text=' '.join(planning_decision_facts(ctx,'Alex').values())
+    assert '$123.46' in text and 'awaiting group review' in text and 'not a new live quote' in text
+    assert 'PRIVATE_CANARY' not in text and 'Could you evaluate' in text
+    ctx['proposals'][0]['state']='AGREED'
+    assert 'all required travellers agreed' in ' '.join(planning_decision_facts(ctx,'Alex').values())
+
+
+def test_activity_answer_keeps_estimate_qualification_and_ignores_superseded_proposals():
+    from tandem_worker.adapters.spacetime import planning_decision_facts
+    ctx={'members':[{'active':True},{'active':True}], 'proposals':[
+      {'proposal_id':1,'decision_id':'activity:1','state':'SUPERSEDED','terms':{'selected':[]}},
+      {'proposal_id':2,'decision_id':'activity:1','state':'AGREED','terms':{'selected':[
+        {'id':'cruise','category':'ACTIVITY','owner':None,'total_cents':3700,'title':'Cruise'}]}}]}
+    facts=planning_decision_facts(ctx,'Alex');text=' '.join(facts.values())
+    assert 'proposal:1' not in facts and '$37.00' in text and 'planning estimate, not a final quote' in text

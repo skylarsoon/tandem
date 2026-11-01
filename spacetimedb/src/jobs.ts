@@ -396,6 +396,9 @@ function buildContext(ctx: Ctx, j: JobRow) {
     member_id: memberOf(x.owner), fact: x.fact, value: parsed(x.valueJson),
   }));
 
+  const currentPlan = [...ctx.db.job.byRoom.filter(r.id)]
+    .filter(p => p.kind === 'PLAN' && p.inputRevision === r.inputRevision && p.membershipRevision === r.membershipRevision && p.permissionRevision === r.permissionRevision)
+    .sort((a,b) => a.id < b.id ? 1 : -1)[0];
   return {
     job: leaseFields(j),
     room: { room_id: num(r.id), goal: r.goal, status: r.status, settings: parsed(r.settingsJson) },
@@ -420,9 +423,12 @@ function buildContext(ctx: Ctx, j: JobRow) {
     threads,
     messages,
     candidates,
-    planning_job: [...ctx.db.job.byRoom.filter(r.id)]
-      .filter(p => p.kind === 'PLAN' && p.inputRevision === r.inputRevision && p.membershipRevision === r.membershipRevision && p.permissionRevision === r.permissionRevision)
-      .sort((a,b) => a.id < b.id ? 1 : -1).map(p => ({id:String(p.id),status:p.status}))[0] ?? null,
+    planning_job: currentPlan ? {id:String(currentPlan.id),status:currentPlan.status} : null,
+    // A private agent can read the same current shared discussion its person sees,
+    // never other agents' private messages or internal turns.
+    planning_discussion: currentPlan ? byId([...ctx.db.agentMessage.byJob.filter(currentPlan.id)])
+      .filter(m => m.effectiveAudience === 'ROOM')
+      .slice(-8).map(m => ({id:String(m.id),type:m.type,text:m.utterance})) : [],
     planning_activity: [...ctx.db.decisionEvent.byRoom.filter(r.id)]
       .filter(e => e.audience === 'ROOM' && ['WORKFLOW_PROGRESS','RESEARCH_ACTIVITY'].includes(e.type))
       .map(e => ({id: String(e.id), at: Number(e.createdAt.microsSinceUnixEpoch) / 1000000, type:e.type, payload:parsed(e.safePayloadJson)}))
