@@ -37,12 +37,14 @@ def grounded_turn(backend, claim, model, *, act, facts, operation_ref, role,
                "role": role, "facts": facts, "recent_turns": list(recent_turns[-6:])}
     if audience == "OWNER_PRIVATE":
         context["audience"] = audience
+    relevant_refs = ()
     for attempt in range(2):
         try:
             key = f"conversation:{operation_ref}:{digest(context)}:{attempt}"
             raw = backend.operation(claim, key, context, "model", lambda: model.converse(context))
             draft = ConversationDraft.model_validate(raw)
             check_draft(draft, facts, act.value)
+            relevant_refs = draft.claim_refs
             review_context = {"act": act.value, "evaluation": evaluation, "blocker": blocker,
                               "facts": {ref: facts[ref] for ref in draft.claim_refs},
                               "draft": draft.model_dump(mode="json"),
@@ -67,7 +69,12 @@ def grounded_turn(backend, claim, model, *, act, facts, operation_ref, role,
     # Keep the canonical intent plus a bounded, relevant status fallback.
     fallback = facts
     if audience == "OWNER_PRIVATE":
-        chosen = [k for k in facts if k.startswith('act:') or k in {'workflow','status','planning_job'}]
-        fallback = {k:facts[k] for k in chosen[:3]}
+        # Keep the validated evidence selection even if the free wording failed.
+        # Publish canonical facts, never the rejected draft's unsupported claims.
+        evidence = [k for k in relevant_refs if not k.startswith('act:')]
+        if not evidence:
+            evidence = [k for k in facts if k in {'workflow','status','planning_job'}]
+        chosen = [k for k in facts if k.startswith('act:')] + evidence[:2]
+        fallback = {k:facts[k] for k in chosen}
     text, refs = fallback_voice(fallback)
     return text, refs, "TEMPLATE_FALLBACK"

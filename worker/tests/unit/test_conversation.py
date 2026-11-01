@@ -100,3 +100,19 @@ def test_reviewer_receives_published_context_and_rejected_draft_gets_repair_feed
                   role='personal',evaluation='ELIGIBLE',blocker='NONE',recent_turns=recent)
     assert model.reviews[0]['recent_turns']==recent
     assert model.contexts[1]['revision_needed']==['facts_supported']
+
+
+def test_private_rejected_wording_keeps_relevant_canonical_search_facts():
+    facts={'act:RESEARCH_UPDATE':'Your confirmed preferences have not changed.',
+           'planning_job':'The worker claimed the job.',
+           'search:stay':'The stay search reported 10 usable options.',
+           'search:activity':'The activity search reported 10 usable options.',
+           'own:budget':'Your private maximum is $650.00.'}
+    model=Model('Both searches have booked everything.',facts_supported=False)
+    model.draft=ConversationDraft(text='Both searches have booked everything.',claim_refs=('act:RESEARCH_UPDATE','search:stay','search:activity'))
+    text,refs,status=grounded_turn(Backend(),None,model,act=Act.RESEARCH_UPDATE,facts=facts,
+        operation_ref='private',role='personal',evaluation='STATUS_ONLY',blocker='NONE',audience='OWNER_PRIVATE')
+    assert status=='TEMPLATE_FALLBACK'
+    assert '10 usable options' in text and 'booked everything' not in text
+    assert 'claimed' not in text and '$650' not in text
+    assert refs==('act:RESEARCH_UPDATE','search:stay','search:activity')
