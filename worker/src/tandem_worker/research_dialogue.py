@@ -87,7 +87,11 @@ def search_with_dialogue(backend, claim, model, research, request, snapshot, rou
     # off its polling loop, so a slow reply cannot consume a scraper's deadline.
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix='research') as pool:
         future = pool.submit(copy_context().run, discover)
-        while not future.done() or not updates.empty():
+        # Research dialogue must not delay the actual comparison once the full
+        # evidence batch is ready. Finish the current handoff (or one immediate
+        # finding), then let the solver drive the next meaningful conversation.
+        # Every search remains visible through its independent activity events.
+        while not future.done() or (not recent and not updates.empty()):
             try:
                 update = updates.get(timeout=0.2)
             except Empty:

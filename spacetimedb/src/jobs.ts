@@ -434,8 +434,9 @@ function buildContext(ctx: Ctx, j: JobRow) {
       const p = parsed(e.safePayloadJson) as Record<string, unknown>;
       return p.stage === 'RESEARCH' && p.phase === 'COMPLETED'
         && String(p.input_revision) === String(j.inputRevision)
-        && String(p.membership_revision) === String(j.membershipRevision)
-        && String(p.permission_revision) === String(j.permissionRevision);
+        && String(p.membership_revision) === String(j.membershipRevision);
+      // A scoped permission grant changes what agents may say/do, not what was
+      // searched. Reuse evidence only; all current rules and grants are rechecked.
     }),
     proposals,
     commitments: agreed,

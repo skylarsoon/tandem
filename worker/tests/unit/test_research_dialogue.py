@@ -51,3 +51,19 @@ def test_search_error_keeps_evidence_but_does_not_claim_complete(setup_worker):
         search_with_dialogue(backend,claim,model,Research(),{},snapshot,0,clock)
     assert backend.shared_report()['messages']
     assert not backend.reusable_candidates(claim)
+
+
+def test_completed_batch_does_not_wait_for_a_backlog_of_research_recitals(setup_worker):
+    backend,worker,job,model,fixture,clock=setup_worker('happy')
+    claim=backend.claim_job(job,'test','claim');snapshot=backend.load_execution_context(claim)
+    from tandem_worker.contracts import Candidate
+    candidates=fixture.search({'observed_at':clock.now(),'purpose':'INITIAL','input_revision':1,'members':list(snapshot.members)})
+    candidate=Candidate.model_validate(candidates[0])
+    class Research:
+        def search(self,request):
+            for i in range(7):
+                completed_search(SimpleNamespace(key=str(i),gateway=SimpleNamespace(category='FLIGHT'),search=SimpleNamespace(owner=candidate.owner),results=[candidate]))
+            return candidates
+    result=search_with_dialogue(backend,claim,model,Research(),{},snapshot,0,clock)
+    assert result==candidates, 'The full evidence batch must reach the optimizer'
+    assert len(backend.shared_report()['messages'])<=2, 'No serial recital backlog after research is complete'

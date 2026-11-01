@@ -33,3 +33,24 @@ def test_research_handoff_requires_confirmed_preferences_and_recorded_evidence(r
     assert any(m['type']=='RESEARCH_UPDATE' for m in client.view(room.people['bob'],'room_messages'))
     expect_error('UTTERANCE_PAYLOAD_MISMATCH',room.send,worker,job,type='RESEARCH_UPDATE',claim_refs=['act:RESEARCH_UPDATE','invented#price'])
     assert room.context(worker,job)['research_complete'] is False
+
+
+def test_completed_research_survives_permission_grant_but_not_changed_trip_input(ready_room,client,worker):
+    from test_questions import ask, park, answer
+    room,job=ready_room
+    context=room.context(worker,job)
+    j=context['job']
+    payload=dict(schema_version=1,stage='RESEARCH',phase='COMPLETED',job_ref=str(job),
+                 input_revision=j['input_revision'],membership_revision=j['membership_revision'],permission_revision=j['permission_revision'])
+    client.call(worker,'emit_event',job_id=job,attempt=room.leases[job],request_key=key(),
+                type='WORKFLOW_PROGRESS',member_id=None,payload_json=json.dumps(payload))
+    assert room.context(worker,job)['research_complete'] is True
+    question=ask(room,worker,job,'alice',kind='CONCESSION_CONSULTATION',action={'action_ref':'draft-1'})
+    park(room,worker,job,[question['id']])
+    answer(room,'alice',question,{'granted':True})
+    newer=room.plan_job(worker);room.claim(worker,newer)
+    assert room.context(worker,newer)['research_complete'] is True
+    assert client.view(room.people['alice'],'my_consents')==[]
+    room.set_constraint('alice','flight_budget_total',90000)
+    changed=room.plan_job(worker);room.claim(worker,changed)
+    assert room.context(worker,changed)['research_complete'] is False

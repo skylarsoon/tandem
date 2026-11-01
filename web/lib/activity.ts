@@ -84,7 +84,7 @@ export function liveActivity(room: Row, tables: Record<string, Row[]>, connected
   const failed = runs.filter(r => r.phase === 'FAILED');
   const retry = (tables.room_events || []).filter(e => String(e.roomId) === String(room.id)
     && e.audience === 'ROOM' && e.type === 'PLANNING_RETRY_REQUESTED'
-    && (!last || e.id > last.eventId)).sort((a,b) => a.id < b.id ? 1 : -1)[0];
+    && (!all.length || e.id > all[all.length - 1].eventId)).sort((a,b) => a.id < b.id ? 1 : -1)[0];
   const retryPending = !!retry;
   let latestTime = retry ? timestamp(retry.createdAt) : last?.time || 0;
   const fresh = connected && latestTime > 0 && now - latestTime <= 45000;

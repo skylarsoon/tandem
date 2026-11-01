@@ -63,3 +63,11 @@ it('fresh agent work remains visible after search telemetry ages, but never revi
   const stop={...event(2),type:'WORKFLOW_PROGRESS',safePayloadJson:JSON.stringify({schema_version:1,job_ref:'1',generation:'1',attempt:'1',input_revision:1,membership_revision:1,permission_revision:1,stage:'STOPPED',phase:'FAILED'})};
   expect(liveActivity(room,{...tables,room_events:[...tables.room_events,stop]},true,now).title).toBe('Planning needs attention');
 });
+
+
+it('a changed permission revision cannot revive an already processed retry request',()=>{
+  const retry={...event(2),type:'PLANNING_RETRY_REQUESTED',safePayloadJson:JSON.stringify({job_id:'2',previous_job_id:'1'})};
+  const model=liveActivity({...room,permissionRevision:2n},{room_events:[event(1,'FAILED'),retry,event(3,'RUNNING',{job_ref:'2',generation:'2'})]},true,now);
+  expect(model.retryPending).toBe(false);
+  expect(model.title).not.toContain('Retry queued');
+});
