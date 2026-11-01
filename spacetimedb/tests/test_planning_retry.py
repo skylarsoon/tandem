@@ -7,7 +7,7 @@ def finish(client, worker, room, job, outcome):
     client.call(worker,'finish_job',job_id=job,attempt=room.leases[job],request_key=key(),outcome=outcome,outcome_json='{}')
 
 
-@pytest.mark.parametrize("outcome", ["APIFY_POLL_DEADLINE_EXCEEDED", "INVALID_RESEARCH_REQUEST"])
+@pytest.mark.parametrize("outcome", ["APIFY_POLL_DEADLINE_EXCEEDED", "INVALID_RESEARCH_REQUEST", "ACTOR_RUN_BUDGET_EXHAUSTED", "MODEL_CALL_BUDGET_EXHAUSTED"])
 def test_retry_is_organizer_only_idempotent_and_cannot_duplicate_active_work(ready_room,client,worker,outcome):
     room, job=ready_room
     args=dict(room_id=room.room_id,job_id=job,request_key=key())
@@ -21,9 +21,9 @@ def test_retry_is_organizer_only_idempotent_and_cannot_duplicate_active_work(rea
     expect_error('JOB_NOT_ELIGIBLE',client.call,room.people['alice'],'retry_planning',**{**args,'request_key':key()})
 
 
-def test_retry_does_not_bypass_provider_allowance_or_reopen_success(ready_room,client,worker):
+def test_retry_does_not_reopen_success(ready_room,client,worker):
     room,job=ready_room
-    finish(client,worker,room,job,'ACTOR_RUN_BUDGET_EXHAUSTED')
+    finish(client,worker,room,job,'PROPOSED')
     expect_error('JOB_NOT_ELIGIBLE',client.call,room.people['alice'],'retry_planning',room_id=room.room_id,job_id=job,request_key=key())
 
 

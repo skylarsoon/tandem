@@ -46,3 +46,28 @@ def test_service_actor_budget_is_valid_and_survives_config_reload():
 def test_actor_budget_remains_bounded(actor_runs):
     with pytest.raises(ValidationError):
         LiveLimits(actor_runs=actor_runs)
+
+
+def test_authorized_daily_override_preserves_usage_and_expires(tmp_path):
+    today = ["2026-11-01"]
+    budget = ProviderBudget(tmp_path / "budget.sqlite", "serve", model_calls=1,
+                            actor_runs=2, daily=True, day=lambda: today[0])
+    budget.reserve("apify")
+    budget.reserve("apify")
+    budget.set_daily_limit("apify", 3, utc_date=today[0])
+    # An already-created budget sees the operator change on its next attempt.
+    again = ProviderBudget(tmp_path / "budget.sqlite", "serve", model_calls=1,
+                           actor_runs=2, daily=True, day=lambda: today[0])
+    assert again.reserve("apify") == 3
+    with pytest.raises(ContractError, match="ACTOR_RUN_BUDGET_EXHAUSTED"):
+        budget.reserve("apify")
+    assert budget.report()["limits"] == {"claude": 1, "apify": 3}
+    assert budget.report()["used"]["apify"] == 3
+    today[0] = "2026-11-02"
+    assert budget.report()["limits"] == {"claude": 1, "apify": 2}
+    assert budget.reserve("apify") == 1
+    # Other service scopes and one-off runs cannot inherit the override.
+    other = ProviderBudget(tmp_path / "budget.sqlite", "other", daily=True, day=lambda: "2026-11-01")
+    assert other.report()["limits"]["apify"] == 1
+    with pytest.raises(ValueError, match="INVALID_DAILY_LIMIT"):
+        ProviderBudget(tmp_path / "budget.sqlite", "run").set_daily_limit("apify", 3, utc_date="2026-11-01")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from .contracts import ContractError
 
@@ -21,10 +21,27 @@ class ProviderBudget:
         with sqlite3.connect(self.path) as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS provider_budget (scope TEXT, kind TEXT, used INTEGER, PRIMARY KEY(scope, kind))")
             conn.execute("CREATE TABLE IF NOT EXISTS provider_metrics (scope TEXT, body TEXT)")
+            conn.execute("CREATE TABLE IF NOT EXISTS provider_daily_limits (scope TEXT, kind TEXT, ceiling INTEGER NOT NULL, PRIMARY KEY(scope, kind))")
 
     @property
     def scope(self):
         return f"{self.base_scope}:{self.day()}" if self.daily else self.base_scope
+
+    def set_daily_limit(self, kind, ceiling, *, utc_date):
+        """Operator-authorized ceiling for exactly one UTC date; never resets usage."""
+        if not self.daily or kind not in self.limits or type(ceiling) is not int or ceiling < 1:
+            raise ValueError("INVALID_DAILY_LIMIT")
+        if date.fromisoformat(utc_date).isoformat() != utc_date:
+            raise ValueError("INVALID_UTC_DATE")
+        with sqlite3.connect(self.path, timeout=15) as conn:
+            conn.execute("INSERT OR REPLACE INTO provider_daily_limits VALUES (?, ?, ?)",
+                         (f"{self.base_scope}:{utc_date}", kind, ceiling))
+
+    def _limits(self, conn, scope):
+        limits = dict(self.limits)
+        if self.daily:
+            limits.update(conn.execute("SELECT kind, ceiling FROM provider_daily_limits WHERE scope=?", (scope,)))
+        return limits
 
     def reserve(self, kind):
         scope = self.scope
@@ -32,7 +49,7 @@ class ProviderBudget:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT used FROM provider_budget WHERE scope=? AND kind=?", (scope, kind)).fetchone()
             used = row[0] if row else 0
-            if used >= self.limits[kind]:
+            if used >= self._limits(conn, scope)[kind]:
                 raise ContractError("MODEL_CALL_BUDGET_EXHAUSTED" if kind == "claude" else "ACTOR_RUN_BUDGET_EXHAUSTED")
             conn.execute("INSERT OR REPLACE INTO provider_budget VALUES (?, ?, ?)", (scope, kind, used + 1))
             return used + 1
@@ -52,6 +69,7 @@ class ProviderBudget:
     def report(self):
         scope = self.scope
         with sqlite3.connect(self.path) as conn:
+            limits = self._limits(conn, scope)
             used = dict(conn.execute("SELECT kind, used FROM provider_budget WHERE scope=?", (scope,)))
             metrics = [json.loads(r[0]) for r in conn.execute("SELECT body FROM provider_metrics WHERE scope=? ORDER BY rowid", (scope,))]
-        return {"limits": self.limits, "used": {k: used.get(k, 0) for k in self.limits}, "calls": metrics}
+        return {"limits": limits, "used": {k: used.get(k, 0) for k in self.limits}, "calls": metrics}
