@@ -185,6 +185,7 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
     if not providers.research.verified:
         providers.preflight()
     limits = Limits(model_calls=config.job_model_calls)
+    owns_backend = backend is None
     backend = backend or SpacetimeBackend(settings.stdb_url, settings.stdb_database,
         settings.stdb_worker_token.get_secret_value(), clock=clock, limits=limits,
         owner_name=lambda member: member["display_name"])
@@ -223,11 +224,15 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
         return done
 
     if once or max_jobs is not None:
-        while True:
-            sweep()
-            if once or handled >= max_jobs:
-                return results
-            time.sleep(poll_seconds)
+        try:
+            while True:
+                sweep()
+                if once or handled >= max_jobs:
+                    return results
+                time.sleep(poll_seconds)
+        finally:
+            if owns_backend:
+                backend.http.close()
 
     scheduler = JobScheduler(run, parallel)
     def scan(*_args, **_kwargs):
@@ -244,4 +249,6 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
         run_service(service, token, host=host, port=port, label={"mode": "ROOMS", "rooms": sorted(rooms) if rooms else "ALL"})
     finally:
         scheduler.close()
+        if owns_backend:
+            backend.http.close()
     return results

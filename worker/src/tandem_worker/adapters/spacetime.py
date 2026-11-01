@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-import urllib.error
-import urllib.request
+import httpx
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -64,19 +63,21 @@ class StdbHttp:
     """Minimal HTTP client. Top-level argument names are sent camelCase (as the
     module declares them); nested objects and view columns are snake_case."""
 
-    def __init__(self, url: str, database: str, timeout: float = 30):
+    def __init__(self, url: str, database: str, timeout: float = 30, *, transport=None):
         self.url, self.database, self.timeout = url.rstrip("/"), database, timeout
+        # Shared by the service lanes. Credentials stay request-local, and writes
+        # are never automatically retried after an ambiguous network outcome.
+        self.client = httpx.Client(timeout=timeout, transport=transport, follow_redirects=False)
+
+    def close(self):
+        self.client.close()
 
     def _post(self, path: str, body: bytes | None, token: str | None, content_type: str) -> tuple[int, str]:
         headers = {"Content-Type": content_type}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        request = urllib.request.Request(self.url + path, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                return response.status, response.read().decode()
-        except urllib.error.HTTPError as exc:
-            return exc.code, exc.read().decode()
+        response = self.client.post(self.url + path, content=body, headers=headers)
+        return response.status_code, response.content.decode()
 
     @staticmethod
     def _args(args: dict) -> bytes:
