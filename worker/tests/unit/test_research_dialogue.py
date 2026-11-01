@@ -28,6 +28,7 @@ def test_findings_are_published_before_last_search_finishes_and_replay_is_idempo
     assert search_with_dialogue(backend,claim,model,Research(),{},snapshot,0,clock)==candidates
     before=backend.shared_report()['messages']
     assert len(before)==2
+    assert '$' not in before[1]['utterance'], 'A receipt should acknowledge findings rather than recite the same price'
     assert 'PRIVATE_CANARY' not in json.dumps(before)
     assert all(m['type']=='RESEARCH_UPDATE' for m in before)
     assert not backend.reusable_candidates(claim), 'A partial handoff is not a completed search batch'

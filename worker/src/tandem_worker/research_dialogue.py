@@ -71,7 +71,8 @@ def search_with_dialogue(backend, claim, model, research, request, snapshot, rou
             answer = {'act:RESEARCH_UPDATE':
                 'I have received these research findings. I will compare the complete set of returned '
                 'options for the group before proposing a plan. Traveller approval is still required.'}
-            answer.update(candidate_facts(example.model_dump(mode='json')))
+            # Receipt confirms the handoff, not a second recital of the fare.
+            # The preceding published turn supplies the conversational context.
             reply_text, reply_refs, reply_status = grounded_turn(backend, claim, model,
                 act=Act.RESEARCH_UPDATE, facts=answer, operation_ref=ref+':receipt', role='mediator',
                 evaluation='RESEARCH_ONLY', blocker='NONE', recent_turns=(*prior[-5:], recent[-1]))

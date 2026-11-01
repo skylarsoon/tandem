@@ -236,6 +236,8 @@ export function PlanningConversation({ room, tables: input, reducers, connected,
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState("");
+  const latestPrivateReply = privateItems.filter(item => item.row.sender !== 'HUMAN').at(-1)?.key;
+  useEffect(() => { setReceipt(""); }, [latestPrivateReply]);
   const [pending, setPending] = useState<string[]>([]);
   const inflight = useRef(new Set<string>());
   const [excluded, setExcluded] = useState<string[]>([]);

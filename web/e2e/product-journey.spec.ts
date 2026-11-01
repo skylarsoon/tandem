@@ -164,6 +164,9 @@ test('travellers can privately talk to Pip without leaving live group discussion
   await page.getByRole('button',{name:'Send message ↑'}).click();
   expect(await page.evaluate(()=>window.productFixture.calls.at(-1).method)).toBe('submitPrivateMessage');
   await expect(page.getByRole('log',{name:'Private conversation with your Pip'})).toBeVisible();
+  await expect(page.getByText('Message sent · awaiting your agent’s response',{exact:true})).toBeVisible();
+  await page.evaluate(()=>window.productFixture.patch({my_private_messages:[{id:9n,roomId:1n,sender:'AGENT',body:'The completed search returned options for comparison.',createdAt:9n}]}));
+  await expect(page.getByText('Message sent · awaiting your agent’s response',{exact:true})).toHaveCount(0);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const composer=await page.locator('.chat-composer').boundingBox();
   expect(composer!.y+composer!.height).toBeLessThanOrEqual(768);
