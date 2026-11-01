@@ -1,27 +1,70 @@
-Tandem — walkthrough narration
+Actual production browser recordings using two dedicated demonstration accounts. Waiting and troubleshooting pauses cut; navigation sped up and some interactions slowed for readability. Narration added. No injected messages, search results, or approvals. Live invitation code obscured.
 
-This transcript covers the added narration. The original agent dialogue is preserved in the video.
+00:00:00.000 — Your own agent
+Tandem helps a group find common ground, with a personal agent representing each traveller. This is a real production walkthrough with two demonstration accounts. We start with onboarding: the person shares what they enjoy, how they travel, and which tradeoffs matter. Private preferences belong to their own agent. Waiting periods have been shortened, and this explanation is added narration.
 
-00:00:00.600
-Meet Tandem. A little common ground for people planning a trip together. Everyone has different priorities. Tandem gives each traveller a personal companion, so those differences can shape one shared plan. First, your agent gets to know you.
+00:00:28.000 — Create a shared trip
+Alex creates a fresh shared trip. Each trip keeps its own brief, participants, conversation, and decisions together.
 
-00:00:23.000
-Choose the experiences you enjoy, rank what matters most, and decide when your agent should ask you before suggesting a compromise. These answers guide your companion. They don't replace the specific limits you confirm for each trip.
+00:00:37.000 — Meet Pip
+This is Pip: the companion connected to Alex’s personal planning agent.
 
-00:00:48.500
-Create a trip, meet your companion, and invite your friends. Each person has their own agent, with a distinct colour and voice. Together, they form the planning room.
+00:00:43.000 — Describe the whole trip
+Alex describes the weekend, including where the group is going, when, and which parts of the trip to plan.
 
-00:01:18.000
-The agent turns your idea into a trip brief. You confirm the destination and dates before planning continues.
+00:00:50.500 — Confirm the full trip
+The group confirms the actual scope: flights, accommodation, activities, and dinner, in that order, for a weekend in San Diego.
 
-00:01:39.000
-Now the conversation becomes personal. Share your departure airport, budget, baggage needs, and anything that would make the trip work better for you. Your agent records what you say and asks you to confirm it. Private reasons stay in your own conversation.
+00:01:00.500 — Join the trip
+Jamie joins the same trip using an invitation code. The code is concealed in this recording.
 
-00:02:52.000
-With everyone's details confirmed, the agents can research flights and compare options. The shared discussion brings their findings together, while each companion checks what a proposal means for its own traveller.
+00:01:07.500 — A separate agent for Jamie
+Jamie gets a separate agent and a private conversation. Each agent represents its own traveller’s needs.
 
-00:03:23.500
-When a trade-off needs your decision, your companion asks privately. You remain in control.
+00:01:15.500 — Confirm your private needs
+Alex explains the budget, departure airport, dates, and preferences. Pip extracts the details for review. Alex confirms them before they become planning inputs. Compromises still require permission.
 
-00:04:40.000
-Finally, everyone reviews the proposed plan. Flight prices and sources are visible, and each traveller gives their own approval. An agent's recommendation is not the final decision. This walkthrough ends with the group agreeing to the plan. Tandem helps people find common ground, while keeping a voice, and a final say, for everyone.
+00:01:33.500 — See real search inputs
+Behind the plan shows what was actually sent to the search providers: the route, travel dates, traveller count, and collection limit. Provider references make the work traceable. These are observed execution updates, without invented progress percentages.
+
+00:01:50.500 — Flights, stays, activities and dinner
+The trip includes more than flights. Accommodation, activity, and restaurant searches appear with their actual criteria and returned result counts. Research findings are not yet selected options or approved bookings.
+
+00:02:04.500 — Ask your Pip what is actually happening
+You can ask your own Pip questions while planning continues. Here it answers from recorded search activity, distinguishes completed and interrupted work, and makes clear that results have not been approved.
+
+00:02:17.500 — An actual permission question
+An earlier flight option had a late arrival. Jamie’s agent asked permission before proceeding.
+
+00:02:25.500 — Each traveller has a say
+Alex gets the same choice privately, beside the group discussion. Each person’s response is recorded separately. Permission for a tradeoff is still not final plan approval.
+
+00:02:37.000 — Real agent-to-agent evaluation
+In the shared discussion, the mediator asks each personal agent to evaluate the actual flight options. Alex’s fare is one hundred forty-one dollars, nonstop both ways. Jamie’s is two hundred sixty-nine dollars with a connection each way. The agents check these terms against their travellers’ needs and permissions.
+
+00:02:58.000 — Approve exact flight terms
+Both travellers review the proposed flights and their own share. Each acceptance is separate. Once both responses are recorded, the flight stage is agreed. Tandem has not booked or purchased anything.
+
+00:03:16.000 — Continue with a real accommodation search
+With flights agreed, the worker moves on to accommodation. This search returned twenty usable options for two travellers on the confirmed dates. The activity panel exposes the real search criteria and collection limit. The mediator then brings the observed stay details into the discussion.
+
+00:03:36.733 — Agree on a shared stay
+The group reviews the accommodation itself: dates, capacity, bedrooms, rating, source, and total cost. Both travellers accept these exact terms. The agreed flights remain saved while planning moves to the next decision.
+
+00:03:52.100 — Search for experiences and dinner
+Activities and dinner are real provider searches too. The interface shows the actual date, location, restaurant query, and returned counts. Prices for activities and meals remain planning estimates, clearly separated from final quoted fares and accommodation totals.
+
+00:04:12.033 — Approve the activity with its estimate visible
+The cruise becomes a separate activity decision. Its thirty-seven-dollar price is still an estimate, and that qualification remains visible when both travellers approve the plan.
+
+00:04:25.967 — Pip explains my actual agreed costs
+Alex asks a private question while the group plans dinner. Pip explains the agreed cost so far, breaks down Alex’s share, and identifies the cruise price as an estimate. The shared discussion continues beside it.
+
+00:04:41.867 — Dinner discussion reaches a reviewable decision
+The dinner discussion uses the restaurant actually found by the search. Both agents evaluate it for their own traveller before asking for approval.
+
+00:04:50.867 — Both travellers approve the dinner plan
+The dinner proposal keeps its fifteen-dollar-per-person estimate visible. Alex and Jamie each accept the terms. All four requested decisions now have both travellers’ approval, with no purchase or reservation made.
+
+00:05:05.867 — A complete trip, agreed together
+The complete trip is now agreed: flights, accommodation, an activity, and dinner. Each stage retains its own details, source links, and recorded approvals. The final plan grew from real searches, agent evaluations, private answers, and each person’s decisions. That is Tandem: a little common ground.

@@ -79,9 +79,9 @@ export function LandingPage() {
         <div className={styles.manifestoCopy}><div className={styles.eyebrow}>SMALL COMPANION. BIG DIFFERENCE.</div><h2>For the things<br />you don’t want<br />to say in the<br /><span>group chat.</span></h2><p>Maybe the budget’s a stretch. Maybe you need a slower pace. Pip helps your needs be heard, without making you explain yourself to everyone.</p><a href="/profile">Meet your Pip <Arrow /></a></div>
       </section>
       <section id="demo" className={styles.demo} data-reveal>
-        <div className={styles.sectionHead}><div><div className={styles.eyebrow}>REAL PEOPLE’S NEEDS. A REAL WORKFLOW.</div><h2>Watch a little<br />common ground happen.</h2></div><p>From the first hello to everyone’s yes.<br />A walkthrough of the original Tandem experience.</p></div>
+        <div className={styles.sectionHead}><div><div className={styles.eyebrow}>REAL PEOPLE’S NEEDS. A REAL WORKFLOW.</div><h2>Watch a little<br />common ground happen.</h2></div><p>From the first hello to everyone’s yes.<br />A real trip: flights, stays, activities, and dinner.</p></div>
         <video controls playsInline preload="none" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><source src="/media/tandem-demo.mp4" type="video/mp4" /><track kind="captions" src="/media/tandem-demo-narration.vtt" srcLang="en" label="English narration" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>
-        <div className={styles.demoCaption}><span>05:10 / ORIGINAL PRODUCT WALKTHROUGH</span><span>Explanation + original agent voices · <a href="/media/tandem-demo-transcript.txt">Narration transcript ↗</a></span></div>
+        <div className={styles.demoCaption}><span>05:26 / REAL END-TO-END WALKTHROUGH</span><span>Edited production recording · added narration · <a href="/media/tandem-demo-transcript.txt">Narration transcript ↗</a></span></div>
       </section>
       <section className={styles.finalCta} data-reveal><div className={styles.eyebrow}>YOUR NEXT CHAPTER STARTS HERE</div><h2>A little less planning.<br /><span>A lot more together.</span></h2><a href="/profile" className={styles.primary}>Let’s go somewhere <Arrow /></a><div className={styles.finalSprout}>✳</div></section>
     </main>

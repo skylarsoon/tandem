@@ -1,42 +1,140 @@
 [
   {
-    "start": 0.6,
-    "end": 21.5,
-    "text": "Meet Tandem. A little common ground for people planning a trip together. Everyone has different priorities. Tandem gives each traveller a personal companion, so those differences can shape one shared plan. First, your agent gets to know you."
+    "start": 0,
+    "end": 28.0,
+    "title": "Your own agent",
+    "text": "Tandem helps a group find common ground, with a personal agent representing each traveller. This is a real production walkthrough with two demonstration accounts. We start with onboarding: the person shares what they enjoy, how they travel, and which tradeoffs matter. Private preferences belong to their own agent. Waiting periods have been shortened, and this explanation is added narration."
   },
   {
-    "start": 23,
-    "end": 43,
-    "text": "Choose the experiences you enjoy, rank what matters most, and decide when your agent should ask you before suggesting a compromise. These answers guide your companion. They don't replace the specific limits you confirm for each trip."
+    "start": 28.0,
+    "end": 37.0,
+    "title": "Create a shared trip",
+    "text": "Alex creates a fresh shared trip. Each trip keeps its own brief, participants, conversation, and decisions together."
   },
   {
-    "start": 48.5,
-    "end": 61,
-    "text": "Create a trip, meet your companion, and invite your friends. Each person has their own agent, with a distinct colour and voice. Together, they form the planning room."
+    "start": 37.0,
+    "end": 43.0,
+    "title": "Meet Pip",
+    "text": "This is Pip: the companion connected to Alex\u2019s personal planning agent."
   },
   {
-    "start": 78,
-    "end": 86,
-    "text": "The agent turns your idea into a trip brief. You confirm the destination and dates before planning continues."
+    "start": 43.0,
+    "end": 50.5,
+    "title": "Describe the whole trip",
+    "text": "Alex describes the weekend, including where the group is going, when, and which parts of the trip to plan."
   },
   {
-    "start": 99,
-    "end": 121,
-    "text": "Now the conversation becomes personal. Share your departure airport, budget, baggage needs, and anything that would make the trip work better for you. Your agent records what you say and asks you to confirm it. Private reasons stay in your own conversation."
+    "start": 50.5,
+    "end": 60.5,
+    "title": "Confirm the full trip",
+    "text": "The group confirms the actual scope: flights, accommodation, activities, and dinner, in that order, for a weekend in San Diego."
   },
   {
-    "start": 172,
-    "end": 188,
-    "text": "With everyone's details confirmed, the agents can research flights and compare options. The shared discussion brings their findings together, while each companion checks what a proposal means for its own traveller."
+    "start": 60.5,
+    "end": 67.5,
+    "title": "Join the trip",
+    "text": "Jamie joins the same trip using an invitation code. The code is concealed in this recording."
   },
   {
-    "start": 203.5,
-    "end": 211,
-    "text": "When a trade-off needs your decision, your companion asks privately. You remain in control."
+    "start": 67.5,
+    "end": 75.5,
+    "title": "A separate agent for Jamie",
+    "text": "Jamie gets a separate agent and a private conversation. Each agent represents its own traveller\u2019s needs."
   },
   {
-    "start": 280,
-    "end": 309,
-    "text": "Finally, everyone reviews the proposed plan. Flight prices and sources are visible, and each traveller gives their own approval. An agent's recommendation is not the final decision. This walkthrough ends with the group agreeing to the plan. Tandem helps people find common ground, while keeping a voice, and a final say, for everyone."
+    "start": 75.5,
+    "end": 93.5,
+    "title": "Confirm your private needs",
+    "text": "Alex explains the budget, departure airport, dates, and preferences. Pip extracts the details for review. Alex confirms them before they become planning inputs. Compromises still require permission."
+  },
+  {
+    "start": 93.5,
+    "end": 110.5,
+    "title": "See real search inputs",
+    "text": "Behind the plan shows what was actually sent to the search providers: the route, travel dates, traveller count, and collection limit. Provider references make the work traceable. These are observed execution updates, without invented progress percentages."
+  },
+  {
+    "start": 110.5,
+    "end": 124.5,
+    "title": "Flights, stays, activities and dinner",
+    "text": "The trip includes more than flights. Accommodation, activity, and restaurant searches appear with their actual criteria and returned result counts. Research findings are not yet selected options or approved bookings."
+  },
+  {
+    "start": 124.5,
+    "end": 137.5,
+    "title": "Ask your Pip what is actually happening",
+    "text": "You can ask your own Pip questions while planning continues. Here it answers from recorded search activity, distinguishes completed and interrupted work, and makes clear that results have not been approved."
+  },
+  {
+    "start": 137.5,
+    "end": 145.5,
+    "title": "An actual permission question",
+    "text": "An earlier flight option had a late arrival. Jamie\u2019s agent asked permission before proceeding."
+  },
+  {
+    "start": 145.5,
+    "end": 157.0,
+    "title": "Each traveller has a say",
+    "text": "Alex gets the same choice privately, beside the group discussion. Each person\u2019s response is recorded separately. Permission for a tradeoff is still not final plan approval."
+  },
+  {
+    "start": 157.0,
+    "end": 178.0,
+    "title": "Real agent-to-agent evaluation",
+    "text": "In the shared discussion, the mediator asks each personal agent to evaluate the actual flight options. Alex\u2019s fare is one hundred forty-one dollars, nonstop both ways. Jamie\u2019s is two hundred sixty-nine dollars with a connection each way. The agents check these terms against their travellers\u2019 needs and permissions."
+  },
+  {
+    "start": 178.0,
+    "end": 196.0,
+    "title": "Approve exact flight terms",
+    "text": "Both travellers review the proposed flights and their own share. Each acceptance is separate. Once both responses are recorded, the flight stage is agreed. Tandem has not booked or purchased anything."
+  },
+  {
+    "start": 196.0,
+    "end": 216.733,
+    "title": "Continue with a real accommodation search",
+    "text": "With flights agreed, the worker moves on to accommodation. This search returned twenty usable options for two travellers on the confirmed dates. The activity panel exposes the real search criteria and collection limit. The mediator then brings the observed stay details into the discussion."
+  },
+  {
+    "start": 216.733,
+    "end": 232.1,
+    "title": "Agree on a shared stay",
+    "text": "The group reviews the accommodation itself: dates, capacity, bedrooms, rating, source, and total cost. Both travellers accept these exact terms. The agreed flights remain saved while planning moves to the next decision."
+  },
+  {
+    "start": 232.1,
+    "end": 252.033,
+    "title": "Search for experiences and dinner",
+    "text": "Activities and dinner are real provider searches too. The interface shows the actual date, location, restaurant query, and returned counts. Prices for activities and meals remain planning estimates, clearly separated from final quoted fares and accommodation totals."
+  },
+  {
+    "start": 252.033,
+    "end": 265.967,
+    "title": "Approve the activity with its estimate visible",
+    "text": "The cruise becomes a separate activity decision. Its thirty-seven-dollar price is still an estimate, and that qualification remains visible when both travellers approve the plan."
+  },
+  {
+    "start": 265.967,
+    "end": 281.867,
+    "title": "Pip explains my actual agreed costs",
+    "text": "Alex asks a private question while the group plans dinner. Pip explains the agreed cost so far, breaks down Alex\u2019s share, and identifies the cruise price as an estimate. The shared discussion continues beside it."
+  },
+  {
+    "start": 281.867,
+    "end": 290.867,
+    "title": "Dinner discussion reaches a reviewable decision",
+    "text": "The dinner discussion uses the restaurant actually found by the search. Both agents evaluate it for their own traveller before asking for approval."
+  },
+  {
+    "start": 290.867,
+    "end": 305.867,
+    "title": "Both travellers approve the dinner plan",
+    "text": "The dinner proposal keeps its fifteen-dollar-per-person estimate visible. Alex and Jamie each accept the terms. All four requested decisions now have both travellers\u2019 approval, with no purchase or reservation made."
+  },
+  {
+    "start": 305.867,
+    "end": 325.867,
+    "title": "A complete trip, agreed together",
+    "text": "The complete trip is now agreed: flights, accommodation, an activity, and dinner. Each stage retains its own details, source links, and recorded approvals. The final plan grew from real searches, agent evaluations, private answers, and each person\u2019s decisions. That is Tandem: a little common ground."
   }
 ]
