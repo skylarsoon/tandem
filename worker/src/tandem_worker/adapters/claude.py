@@ -192,7 +192,9 @@ class ClaudeModel:
             "Write one natural, concise turn in a real trip conversation, in your own words. "
             "Default audience is the shared room. If audience is OWNER_PRIVATE, answer the traveller's question "
             "as their own agent; supplied personal facts belong only to that traveller. "
-            "A RESEARCH_UPDATE reports findings or answers a status question; it never means an option is eligible. "
+            "A RESEARCH_UPDATE reports findings or answers a status question; it does not itself make an option eligible. "
+            "For OWNER_PRIVATE status answers, explicit proposal facts may establish a recorded human approval; "
+            "report that state accurately without claiming the agent approved or booked anything. "
             "For STATUS_ONLY, answer the question directly with two or three useful facts, not an inventory of "
             "all settings or searches. A last-reported state is not proof of the current state: never infer "
             "that nothing is running or that planning succeeded from an old observation. Say when status is "
@@ -226,7 +228,9 @@ class ClaudeModel:
             "must not become a complete total, unknown baggage must not become included. "
             "privacy_preserved requires no private limits, reasons, preferences or inferred personal traits "
             "beyond the supplied public facts (or the supplied own facts for OWNER_PRIVATE). human_authority_preserved requires no claimed booking, "
-            "approval, commitment, coercion or automatic consent; an eligible response must leave final "
+            "approval, commitment, coercion or automatic consent without explicit recorded evidence. "
+            "An OWNER_PRIVATE status answer may report human approvals explicitly present in its proposal facts; "
+            "that is reporting a decision, not making one. An eligible response must leave final "
             "review and approval to the traveller. If ambiguous, mark the corresponding field false.", "conversation_review")
 
     # ---------- onboarding ----------

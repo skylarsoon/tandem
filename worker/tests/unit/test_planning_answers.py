@@ -52,6 +52,7 @@ def test_private_answer_includes_shared_decisions_and_own_share_without_other_pr
     assert 'PRIVATE_CANARY' not in text and 'Could you evaluate' in text
     ctx['proposals'][0]['state']='AGREED'
     assert 'all required travellers agreed' in ' '.join(planning_decision_facts(ctx,'Alex').values())
+    assert '$123.46' in planning_decision_facts(ctx,'Alex')['agreed:your_total']
 
 
 def test_activity_answer_keeps_estimate_qualification_and_ignores_superseded_proposals():
@@ -62,3 +63,4 @@ def test_activity_answer_keeps_estimate_qualification_and_ignores_superseded_pro
         {'id':'cruise','category':'ACTIVITY','owner':None,'total_cents':3700,'title':'Cruise'}]}}]}
     facts=planning_decision_facts(ctx,'Alex');text=' '.join(facts.values())
     assert 'proposal:1' not in facts and '$37.00' in text and 'planning estimate, not a final quote' in text
+    assert 'includes activity or meal estimates' in facts['agreed:your_total']

@@ -765,6 +765,7 @@ def planning_decision_facts(ctx, owner):
     shapes = decisions()['categories']
     members = [m for m in ctx.get('members', []) if m.get('active')]
     n = len(members)
+    agreed_costs, has_estimates, missing_cost = {}, False, False
     for proposal in ctx.get('proposals', []):
         if proposal.get('state') not in {'AWAITING_REVIEW','AGREED'}:
             continue
@@ -778,8 +779,16 @@ def planning_decision_facts(ctx, owner):
             facts.update(candidate_facts(item))
             price = item.get('total_cents'); category = item.get('category'); shape = shapes.get(category)
             if price is None or not shape or not n:
+                if proposal['state']=='AGREED': missing_cost = True
                 continue
             share = price/n if shape['pays']=='split' else price
+            if proposal['state']=='AGREED':
+                agreed_costs[item['id']] = share
+                has_estimates |= category in {'ACTIVITY','DINNER'}
             qualifier = 'planning estimate, not a final quote' if category in {'ACTIVITY','DINNER'} else 'share of the recorded terms, not a new live quote'
             facts[f"{ref}:{item['id']}#your_share"] = f"Your {category.lower()} share is {money(share)} ({qualifier}); proposal status: {status}."
+    if agreed_costs:
+        qualifier = 'includes activity or meal estimates; not a booking total' if has_estimates else 'recorded terms, not refreshed quotes or bookings'
+        scope = 'known priced items in your agreed plan' if missing_cost else 'your agreed planning costs'
+        facts['agreed:your_total'] = f"The total for {scope} is {money(sum(agreed_costs.values()))} ({qualifier})."
     return facts
