@@ -94,7 +94,7 @@ class InvalidVoice(ScriptedModel):
 def test_bad_wording_regenerates_once_then_templates(setup_worker):
     backend, worker, job, model, *_ = setup_worker(model=InvalidVoice())
     assert worker.run_one(job)["outcome"] == "AWAITING_REVIEW"
-    assert len(model.voices) == 8
+    assert len(model.voices) == 16  # Both mediator and personal turns regenerate once.
     for message in backend.shared_report()["messages"]:
         assert "booked" not in message["utterance"]
         assert message["worker_validation"]["status"] == "TEMPLATE_FALLBACK"

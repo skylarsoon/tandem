@@ -23,6 +23,8 @@ from ..rules import dates_outside_trip, decisions, evaluate, remaining_stages, s
 from ..shortlist import dedupe, shortlist_choices
 from ..solver import POLICY, RELAXABLE, TripSolver, flight_violation, relax_nudge
 from .personal import build_personal, nudges, question_for, send_message
+from ..conversation import grounded_turn
+from ..policy import permitted_facts
 
 # Solver conflict → the research blocker a targeted search can act on, and what to search again.
 RESEARCH_BLOCKER = {"HARD_LIMIT": "HARD_LIMIT", "BAGGAGE_UNAVAILABLE": "BAGGAGE_UNKNOWN",
@@ -368,19 +370,27 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         personal = build_personal(backend, claim, model, impacts.get)
         questions, fingerprints = [], set()
         eligible = set()
+        recent_turns = []  # Only already-published public messages from this negotiation pass.
         for owner in snapshot.members:
             thread_id = "conversation-" + digest([claim.generation, state["round"], state["cycle"], owner])[:24]
             mine = [own[owner]] if own[owner] else []
             initial = Payload(draft_ref=state["draft_ref"], evaluation="REQUESTED",
                               candidate_refs=tuple(c["id"] for c in [*mine, *shared]))
+            activity(backend, claim, "mediator", "WRITING")
+            proposal_text, proposal_refs, proposal_status = grounded_turn(backend, claim, model,
+                act=Act.PROPOSE, facts=permitted_facts(Act.PROPOSE, initial, [*mine, *shared], window, share),
+                operation_ref=f"dispatch:{owner}:{state['cycle']}:{state['round']}", role="mediator",
+                evaluation=initial.evaluation, blocker=initial.blocker, recent_turns=recent_turns)
             inbound_ref = send_message(backend, claim, state["snapshot"], "mediator", owner, Act.PROPOSE, initial,
                 thread_id, tuple(sorted(("mediator", owner))), state["round"], operation_ref=f"dispatch:{owner}:{state['cycle']}",
-                candidate=[*mine, *shared], group_window=window, share_cents=share)
+                text=proposal_text, refs=proposal_refs, status=proposal_status)
+            activity(backend, claim, "mediator", "IDLE")
+            recent_turns.append({"speaker": "mediator", "recipient": owner, "text": proposal_text})
             sender, recipient, inbound_type = "mediator", owner, "PROPOSE"
             inbound_payload = initial.model_dump(mode="json")
             for turn in range(limits.thread_turns):
                 task = {"owner": recipient, "sender": sender, "candidate": own[recipient] or shared[0],
-                    "shared": shared, "share_cents": share,
+                    "shared": shared, "share_cents": share, "recent_turns": recent_turns[-6:],
                     "draft_ref": state["draft_ref"], "inbound_type": inbound_type, "inbound_ref": inbound_ref,
                     "inbound_payload": inbound_payload,
                     "inbound_evidence": [candidates[ref] for ref in inbound_payload["candidate_refs"]],
@@ -393,6 +403,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
                     questions.extend(result["questions"])
                     break
                 decision = Decision.model_validate(result["decision"])
+                recent_turns.append({"speaker": recipient, "recipient": decision.recipient, "text": result["utterance"]})
                 fingerprint = digest([recipient, decision.model_dump(mode="json"), state["draft_ref"]])
                 if fingerprint in fingerprints:
                     return {"outcome": "NO_PROGRESS", "questions": []}

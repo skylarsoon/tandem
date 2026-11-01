@@ -309,6 +309,20 @@ class VoiceDraft(Record):
     connector: Literal[" ", " Also, ", " Next, "] = " "
 
 
+class ConversationDraft(Record):
+    # Model-written public wording, with references to every factual assertion.
+    text: str = Field(min_length=1, max_length=1400)
+    claim_refs: tuple[str, ...] = Field(min_length=1, max_length=16)
+
+
+class ConversationReview(Record):
+    facts_supported: bool
+    intent_preserved: bool
+    uncertainty_preserved: bool
+    privacy_preserved: bool
+    human_authority_preserved: bool
+
+
 class Question(Record):
     id: str
     owner: str

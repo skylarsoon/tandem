@@ -122,31 +122,6 @@ def permitted_facts(act: Act, payload: Payload, candidate: dict | list[dict] | N
     return facts
 
 
-def conversation_facts(act: Act, payload: Payload, candidate, *, position=0, share_cents=0):
-    """Concise, grounded turns. No personality inferred from private profiles.
-
-    Vary the approved act wording by stable participant order, then give that
-    agent one evidence detail to contribute rather than replaying the mediator's
-    entire option. Objections and missing evidence remain explicit.
-    """
-    facts = permitted_facts(act, payload, candidate, share_cents=share_cents)
-    if act == Act.EVALUATE and payload.evaluation == 'ELIGIBLE':
-        openings = (
-            "This fits my traveller's confirmed requirements. I'll bring it to them for review.",
-            "From my side, this option is ready for my traveller to review.",
-            "I can put this forward to my traveller. Their approval is still needed.",
-            "My checks are complete. Let's give my traveller the final say on this option.",
-        )
-        act_ref = f'act:{act.value}'
-        details = [(ref, text) for ref, text in facts.items() if ref != act_ref]
-        concise = {act_ref: openings[position % len(openings)]}
-        if details:
-            ref, text = details[position % len(details)]
-            concise[ref] = text
-        return concise
-    return facts
-
-
 def validate_voice(draft: VoiceDraft, facts: dict[str, str]) -> tuple[str, tuple[str, ...]]:
     """Exact grounded segments avoid pretending regex/LLMs can prove semantics.
 

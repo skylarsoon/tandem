@@ -250,6 +250,12 @@ class RecordingModel:
     def voice(self, context):
         return self.inner.voice(context)
 
+    def converse(self, context):
+        return self.inner.converse(context)
+
+    def review_conversation(self, context):
+        return self.inner.review_conversation(context)
+
 
 def test_agents_know_what_their_owner_already_set_aside(setup_worker):
     model = RecordingModel("own-room-squeeze")

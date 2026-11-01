@@ -95,18 +95,3 @@ def test_connectors_read_naturally_without_changing_cited_facts():
     facts = {"act:EVALUATE": "This works.", "x#price": "The fare is $1.00 including taxes."}
     draft = VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k, text=v) for k, v in facts.items()), connector=" Also, ")
     assert validate_voice(draft, facts)[0] == "This works. Also, the fare is $1.00 including taxes."
-
-
-def test_conversation_turns_are_distinct_brief_and_grounded():
-    from tandem_worker.policy import conversation_facts
-    payload=Payload(draft_ref='d',evaluation='ELIGIBLE')
-    candidate={'id':'flight','category':'FLIGHT','total_cents':14100,'arrival_epoch':1800052000,'arrival_timezone':'UTC','cost_basis':'COMPLETE_FLIGHT_TOTAL','missing_critical_fields':[],'baggage_included':False}
-    turns=[conversation_facts(Act.EVALUATE,payload,candidate,position=i) for i in range(4)]
-    assert len({f['act:EVALUATE'] for f in turns})==4
-    for facts in turns:
-        assert len(facts)==2
-        text,refs=fallback_voice(facts)
-        assert validate_voice(VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k,text=v) for k,v in facts.items())),facts)==(text,refs)
-        assert 'approv' in text.lower() or 'review' in text.lower() or 'final say' in text.lower()
-    objection=Payload(draft_ref='d',evaluation='INELIGIBLE',blocker='HARD_LIMIT')
-    assert conversation_facts(Act.OBJECT,objection,None,position=2)==permitted_facts(Act.OBJECT,objection,None)

@@ -36,7 +36,7 @@ def live_case(tmp_path):
     from pathlib import Path
     from types import SimpleNamespace
     from tandem_worker.config import LiveConfig, Settings
-    from tandem_worker.contracts import Decision, VoiceDraft, VoiceSegment
+    from tandem_worker.contracts import Decision, VoiceDraft, VoiceSegment, ConversationDraft, ConversationReview
 
     config = LiveConfig.model_validate_json((Path(__file__).parents[1] / "live.example.json").read_text())
     settings = Settings(anthropic_api_key="private-test-key", claude_model="claude-test-model", apify_token="private-apify-token")
@@ -64,6 +64,11 @@ def live_case(tmp_path):
             context = json.loads(kwargs["messages"][0]["content"])
             if kwargs["output_format"] is Decision:
                 result = Decision()
+            elif kwargs["output_format"] is ConversationDraft:
+                result = ConversationDraft(text=" ".join(context["facts"].values()), claim_refs=tuple(context["facts"]))
+            elif kwargs["output_format"] is ConversationReview:
+                result = ConversationReview(facts_supported=True, intent_preserved=True, uncertainty_preserved=True,
+                                            privacy_preserved=True, human_authority_preserved=True)
             else:
                 result = VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k, text=v) for k, v in context["facts"].items()))
             return SimpleNamespace(id="message-test", _request_id="request-test", stop_reason="end_turn", parsed_output=result,

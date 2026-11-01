@@ -77,7 +77,7 @@ test('streaming microphone turns populate real message actions, never approve, a
   expect(await page.evaluate(() => (window as any).voiceStreams.every((s: MediaStream) => s.getTracks().every(t => t.readyState === 'ended')))).toBe(true);
 });
 
-test('discussion groups repeated deliveries, speaks each evaluation once, and surfaces a private action', async ({ page }, info) => {
+test('discussion displays and speaks raw backend messages and surfaces a private action', async ({ page }, info) => {
   const spoken: string[] = [];
   await page.route('https://api.cartesia.ai/tts/sse', async route => {
     spoken.push(route.request().postDataJSON().transcript);
@@ -97,14 +97,15 @@ test('discussion groups repeated deliveries, speaks each evaluation once, and su
     window.planningFixture.setTables({ room_messages: (window as any).discussionRows });
   });
   await expect.poll(() => spoken.length).toBe(2);
-  expect(spoken[1]).not.toContain('$128');
+  expect(spoken[1]).toContain('$128');
   await page.evaluate(() => {
     const rows = (window as any).discussionRows;
     window.planningFixture.setTables({ room_messages: [...rows, { ...rows[0], id: 22n, createdAt: 22n }, { ...rows[1], id: 23n, createdAt: 23n }] });
   });
-  await expect(page.locator('.conversation-panel--discussion .chat-item')).toHaveCount(2);
-  await page.waitForTimeout(1500);
-  expect(spoken).toHaveLength(2);
+  await expect(page.locator('.conversation-panel--discussion .chat-item')).toHaveCount(4);
+  await expect.poll(() => spoken.length).toBe(4);
+  expect(spoken[2]).toBe(spoken[0]);
+  expect(spoken[3]).toBe(spoken[1]);
   await page.evaluate(() => window.planningFixture.setTables({ my_questions: [{ id: 40n, roomId: 1n, state: 'OPEN', version: 1, kind: 'CONCESSION_CONSULTATION', prompt: 'PRIVATE_CANARY: Is this compromise OK?', createdAt: 40n }] }));
   await expect(page.getByRole('button', { name: 'Answer privately' })).toBeVisible();
   await expect(page.locator('.conversation-panel--discussion')).not.toContainText('PRIVATE_CANARY');

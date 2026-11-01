@@ -161,3 +161,16 @@ def test_sdk_non_json_stop_body_is_handled_before_parsing(stop, code):
 def test_injected_sdk_client_cannot_enable_hidden_retries():
     with pytest.raises(ContractError, match="CLAUDE_SDK_RETRIES_MUST_BE_DISABLED"):
         ClaudeModel("claude-test-model", client=SimpleNamespace(max_retries=2))
+
+
+def test_daily_service_cap_is_shared_across_job_scopes(live_case):
+    budget = ProviderBudget(live_case.directory / "daily.sqlite", "service", model_calls=2, daily=True)
+    model = ClaudeModel("claude-test-model", client=live_case.claude, budget=budget)
+    for job in (1, 2):
+        with model.job_budget(1, job):
+            model.decide({})
+    with model.job_budget(2, 3):
+        with pytest.raises(ContractError, match="MODEL_CALL_BUDGET_EXHAUSTED"):
+            model.decide({})
+    assert budget.report()["used"]["claude"] == 2
+    assert len(live_case.claude.requests) == 2

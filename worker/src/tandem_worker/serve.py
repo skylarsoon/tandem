@@ -35,7 +35,7 @@ class ServeConfig(Record):
     # model_calls and actor_runs are the whole service's ceilings per UTC day.
     limits: LiveLimits = Field(default_factory=lambda: LiveLimits(model_calls=500, actor_runs=40))
     # What one job may use (counted per job by the database): a 4-person
-    # negotiation cycle alone is a decide and a voice call per person.
+    # negotiation cycle uses a decision plus generated/reviewed public turns.
     job_model_calls: int = Field(default=100, ge=1, le=500)
     # How the group-dinner search is phrased; everything else comes from the room.
     dinner_query: str = "restaurant for large groups"

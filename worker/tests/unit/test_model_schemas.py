@@ -9,7 +9,7 @@ from anthropic.lib._parse._transform import transform_schema
 from tandem_worker import contracts
 from tandem_worker.contracts import IntakeItem
 
-OUTPUTS = ("Decision", "VoiceDraft", "IntakeExtraction", "IntakeQuestion", "BriefDraft", "ProfileSummary")
+OUTPUTS = ("Decision", "VoiceDraft", "ConversationDraft", "ConversationReview", "IntakeExtraction", "IntakeQuestion", "BriefDraft", "ProfileSummary")
 
 
 @pytest.mark.parametrize("name", OUTPUTS)

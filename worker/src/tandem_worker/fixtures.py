@@ -153,6 +153,18 @@ class ScriptedModel:
         self.voices.append(copy.deepcopy(context))
         return VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k, text=v) for k, v in context["facts"].items()))
 
+    def converse(self, context):
+        from .contracts import ConversationDraft
+        draft = self.voice(context)
+        return ConversationDraft(text=" ".join(s.text for s in draft.segments),
+                                 claim_refs=tuple(s.fact_ref for s in draft.segments))
+
+    def review_conversation(self, context):
+        from .contracts import ConversationReview
+        valid = context["draft"]["text"] == " ".join(context["facts"].values())
+        return ConversationReview(facts_supported=valid, intent_preserved=valid,
+            uncertainty_preserved=valid, privacy_preserved=valid, human_authority_preserved=valid)
+
     def profile_summary(self, context):
         return ProfileSummary(summary="You: " + " ".join(f.rstrip(".") + "." for f in context["facts"])[:1100])
 

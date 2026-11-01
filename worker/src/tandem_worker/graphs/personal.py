@@ -5,14 +5,15 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
 
-from ..contracts import Act, ContractError, Decision, Impact, Message, Payload, Question, ValidationMetadata, VoiceDraft, digest
+from ..contracts import Act, ContractError, Decision, Impact, Message, Payload, Question, ValidationMetadata, digest
 from ..explain import consultation_prompt
 from ..intake_policy import describe_rule
 from ..persona import persona
 from ..progress import activity
 from ..recovery import remember
 from ..solver import RELAXABLE
-from ..policy import conversation_facts, fallback_voice, needed_permissions, permitted_facts, validate_voice
+from ..policy import fallback_voice, needed_permissions, permitted_facts
+from ..conversation import grounded_turn
 
 
 UNRESOLVED_ACTS = {Act.OBJECT, Act.CLARIFY, Act.COUNTERPROPOSE}
@@ -27,6 +28,7 @@ class PersonalState(TypedDict, total=False):
     message_ref: str
     outgoing_payload: dict
     outgoing_thread_id: str
+    utterance: str
 
 
 def question_for(claim, owner, kind, action_ref, prompt="", nudge=None):
@@ -193,23 +195,11 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
         payload = Payload(draft_ref=task["draft_ref"], evaluation=decision.evaluation, blocker=decision.blocker,
             candidate_refs=(task["candidate"]["id"], *(c["id"] for c in task.get("shared", []))), research=decision.research,
             concession=decision.concession, exceeds_exploration=decision.exceeds_exploration)
-        # The mediator states the group window; each agent speaks to its own fare.
-        position = task["snapshot"]["members"].index(task["owner"])
-        facts = conversation_facts(decision.act, payload, task["candidate"], position=position, share_cents=task.get("share_cents", 0))
-        context = {"act": decision.act.value, "facts": facts}
-        text, refs = fallback_voice(facts)
-        status = "TEMPLATE_FALLBACK"
-        for attempt in range(2):
-            try:
-                raw = backend.operation(claim, f"voice:{task['operation_ref']}:{digest(context)}:{attempt}", context, "model", lambda: model.voice(context))
-                text, refs = validate_voice(VoiceDraft.model_validate(raw), facts)
-                if f"act:{decision.act.value}" not in refs:
-                    raise ContractError("UTTERANCE_PAYLOAD_MISMATCH")
-                status = "VALIDATED"
-                break
-            except (ValidationError, ValueError, ContractError) as exc:
-                if isinstance(exc, ContractError) and exc.code != "UTTERANCE_PAYLOAD_MISMATCH":
-                    raise
+        facts = permitted_facts(decision.act, payload, [task["candidate"], *task.get("shared", [])],
+                                share_cents=task.get("share_cents", 0))
+        text, refs, status = grounded_turn(backend, claim, model, act=decision.act, facts=facts,
+            operation_ref=task["operation_ref"], role="traveller agent", evaluation=decision.evaluation,
+            blocker=decision.blocker, recent_turns=task.get("recent_turns", []))
         # Check revocation/lease after model generation, before submission.
         backend.check(claim)
         same_thread = decision.recipient == task["sender"]
@@ -221,7 +211,7 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             operation_ref=task["operation_ref"])
         backend.record_message_processed(claim, task["inbound_ref"], task["owner"], (ref,))
         activity(backend, claim, task["owner"], "IDLE")
-        return {"message_ref": ref, "outgoing_payload": payload.model_dump(mode="json"), "outgoing_thread_id": thread_id}
+        return {"message_ref": ref, "outgoing_payload": payload.model_dump(mode="json"), "outgoing_thread_id": thread_id, "utterance": text}
 
     builder = StateGraph(PersonalState)
     builder.add_node("decide_and_enforce", decide)
