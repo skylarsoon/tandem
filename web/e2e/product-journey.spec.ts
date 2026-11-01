@@ -199,3 +199,19 @@ test('private replies follow the latest message and preserve deliberate scrollin
   await page.getByRole('button',{name:'Talk to your Pip',exact:true}).click();
   await expect.poll(()=>log.evaluate(n=>n.scrollHeight-n.scrollTop-n.clientHeight)).toBeLessThan(3);
 });
+
+
+for (const viewport of [{width:1440,height:900},{width:1366,height:768},{width:390,height:844}]) {
+  test(`private chat stays above its footer at ${viewport.width}px`, async({page})=>{
+    await page.setViewportSize(viewport); await open(page,'room');
+    await page.getByRole('tab',{name:'Agent discussion',exact:true}).click();
+    await page.getByRole('button',{name:'Talk to your Pip',exact:true}).click();
+    await expect.poll(async()=>{
+      const panel=await page.locator('.composer-wrap').boundingBox();
+      const footer=await page.locator('.discussion-footer').boundingBox();
+      return panel!.y+panel!.height <= footer!.y-8;
+    }).toBe(true);
+    await page.getByRole('button',{name:'Close private conversation',exact:true}).click();
+    await expect(page.getByLabel('Message your agent')).toHaveCount(0);
+  });
+}
