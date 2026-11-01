@@ -83,3 +83,20 @@ def test_private_fallback_is_bounded_to_status_not_all_personal_rules():
     assert 'queued' in result[0]
     assert '$650.00' not in result[0] and 'long list' not in result[0]
     assert len(result[1])==3
+
+
+def test_reviewer_receives_published_context_and_rejected_draft_gets_repair_feedback():
+    class Reviewing(Model):
+        def __init__(self):
+            super().__init__('This option is ready for my traveller to review.',facts_supported=False)
+            self.contexts=[];self.reviews=[]
+        def converse(self,context):
+            self.contexts.append(context.copy());return self.draft
+        def review_conversation(self,context):
+            self.reviews.append(context);return self.review
+    model=Reviewing()
+    recent=[{'speaker':'mediator','text':'Please evaluate this option.'}]
+    grounded_turn(Backend(),None,model,act=Act.EVALUATE,facts=FACTS,operation_ref='context',
+                  role='personal',evaluation='ELIGIBLE',blocker='NONE',recent_turns=recent)
+    assert model.reviews[0]['recent_turns']==recent
+    assert model.contexts[1]['revision_needed']==['facts_supported']

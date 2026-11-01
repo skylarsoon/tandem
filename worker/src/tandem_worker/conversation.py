@@ -45,17 +45,21 @@ def grounded_turn(backend, claim, model, *, act, facts, operation_ref, role,
             check_draft(draft, facts, act.value)
             review_context = {"act": act.value, "evaluation": evaluation, "blocker": blocker,
                               "facts": {ref: facts[ref] for ref in draft.claim_refs},
-                              "draft": draft.model_dump(mode="json")}
+                              "draft": draft.model_dump(mode="json"),
+                              "recent_turns": list(recent_turns[-6:])}
             if audience == "OWNER_PRIVATE":
                 review_context["audience"] = audience
             review_raw = backend.operation(claim, key + ":review:" + digest(review_context), review_context,
                                            "model", lambda: model.review_conversation(review_context))
             review = ConversationReview.model_validate(review_raw)
             if not all(review.model_dump().values()):
+                context = {**context, "revision_needed": [field for field, passed in review.model_dump().items() if not passed]}
                 raise ContractError("UTTERANCE_PAYLOAD_MISMATCH")
             backend.check(claim)
             return draft.text, draft.claim_refs, "VALIDATED"
         except (ValidationError, ValueError, ContractError) as exc:
+            if "revision_needed" not in context:
+                context = {**context, "revision_needed": ["Use only cited facts, preserve their qualifications, and include the typed act."]}
             # Lease, permission, provider and cost-limit failures must remain visible.
             if isinstance(exc, ContractError) and exc.code != "UTTERANCE_PAYLOAD_MISMATCH":
                 raise
