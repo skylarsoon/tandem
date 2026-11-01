@@ -56,6 +56,12 @@ def candidate_facts(candidate: dict) -> dict[str, str]:
     bag = candidate.get("baggage_included")
     facts[f"{ref}#bag"] = ("A checked bag is included." if bag is True else
                            "No checked bag is included." if bag is False else "Checked-bag coverage is not confirmed.")
+    if candidate.get("stops") is not None:
+        facts[f"{ref}#stops"] = f"The outward flight has {candidate['stops']} connection{'s' if candidate['stops'] != 1 else ''}."
+    if candidate.get("return_stops") is not None:
+        facts[f"{ref}#return_stops"] = f"The return flight has {candidate['return_stops']} connection{'s' if candidate['return_stops'] != 1 else ''}."
+    if candidate.get("return_departure_date"):
+        facts[f"{ref}#return_date"] = f"The return departure date is {candidate['return_departure_date']}."
     return facts
 
 
@@ -81,6 +87,13 @@ def shared_facts(candidate: dict, complete: bool) -> dict[str, str]:
                                      f"The airport transfer is listed at {money(price)}; some fees are not confirmed.")
         if candidate.get("capacity") is not None:
             facts[f"{ref}#seats"] = f"It seats {candidate['capacity']}."
+    elif candidate["category"] in {"ACTIVITY", "DINNER"}:
+        if price is not None:
+            facts[f"{ref}#price"] = f"The planning estimate is {money(price)} per person, not a final quoted price."
+        if candidate.get("rating") is not None:
+            facts[f"{ref}#rating"] = f"The recorded rating is {candidate['rating']:.2g} out of 5."
+        if candidate.get("free_cancellation") is not None:
+            facts[f"{ref}#cancellation"] = ("The source reports free cancellation." if candidate['free_cancellation'] else "The source does not offer free cancellation.")
     return facts
 
 

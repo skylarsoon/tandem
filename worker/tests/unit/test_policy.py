@@ -95,3 +95,22 @@ def test_connectors_read_naturally_without_changing_cited_facts():
     facts = {"act:EVALUATE": "This works.", "x#price": "The fare is $1.00 including taxes."}
     draft = VoiceDraft(segments=tuple(VoiceSegment(fact_ref=k, text=v) for k, v in facts.items()), connector=" Also, ")
     assert validate_voice(draft, facts)[0] == "This works. Also, the fare is $1.00 including taxes."
+
+
+def test_live_shared_suggestions_preserve_estimates_and_unknowns():
+    from tandem_worker.policy import candidate_facts
+    for category in ['ACTIVITY','DINNER']:
+        facts=candidate_facts({'id':'observed','category':category,'title':'Observed venue','total_cents':3500,
+            'cost_basis':'ESTIMATE_PER_PERSON','rating':4.6})
+        assert '$35.00 per person, not a final quoted price' in facts['observed#price']
+        assert facts['observed#rating']=='The recorded rating is 4.6 out of 5.'
+        assert 'observed#cancellation' not in facts
+
+
+def test_connection_facts_do_not_invent_a_nonstop_return():
+    from tandem_worker.policy import candidate_facts
+    facts=candidate_facts({'id':'flight','category':'FLIGHT','arrival_epoch':1800052000,
+        'arrival_timezone':'Pacific/Honolulu','stops':0,'return_stops':1,'return_departure_date':'2026-11-22'})
+    assert '0 connections' in facts['flight#stops']
+    assert '1 connection.' in facts['flight#return_stops']
+    assert facts['flight#return_date'].endswith('2026-11-22.')
