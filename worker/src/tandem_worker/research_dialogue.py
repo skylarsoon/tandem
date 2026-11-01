@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from queue import Queue, Empty
 
-from .contracts import Act, ContractError, Payload, digest
+from .contracts import Act, Payload
 from .conversation import grounded_turn
 from .policy import candidate_facts
 from .progress import activity, research_results
@@ -55,10 +55,11 @@ def search_with_dialogue(backend, claim, model, research, request, snapshot, rou
                  "for comparison with the rest of the trip. This example has not been evaluated "
                  "against anyone's requirements, selected, approved, or booked."}
         facts.update(candidate_facts(example.model_dump(mode='json')))
+        prior = backend.operation(claim, ref+':prior', {}, 'local', lambda: list(recent[-6:]))
         activity(backend, claim, sender, 'WRITING')
         text, refs, status = grounded_turn(backend, claim, model, act=Act.RESEARCH_UPDATE,
             facts=facts, operation_ref=ref, role='personal' if owner else 'mediator',
-            evaluation='RESEARCH_ONLY', blocker='NONE', recent_turns=())
+            evaluation='RESEARCH_ONLY', blocker='NONE', recent_turns=prior)
         # Per-search context is stable on replay; prior arrival order is not.
         message = send_message(backend, claim, snapshot.model_dump(mode='json'), sender, recipient,
             Act.RESEARCH_UPDATE, payload, ref, (sender, recipient), 1000000 + round_id,
@@ -70,13 +71,15 @@ def search_with_dialogue(backend, claim, model, research, request, snapshot, rou
             answer = {'act:RESEARCH_UPDATE':
                 'I have received these research findings. I will compare the complete set of returned '
                 'options for the group before proposing a plan. Traveller approval is still required.'}
+            answer.update(candidate_facts(example.model_dump(mode='json')))
             reply_text, reply_refs, reply_status = grounded_turn(backend, claim, model,
                 act=Act.RESEARCH_UPDATE, facts=answer, operation_ref=ref+':receipt', role='mediator',
-                evaluation='RESEARCH_ONLY', blocker='NONE', recent_turns=(recent[-1],))
+                evaluation='RESEARCH_ONLY', blocker='NONE', recent_turns=(*prior[-5:], recent[-1]))
             send_message(backend, claim, snapshot.model_dump(mode='json'), recipient, sender,
                 Act.RESEARCH_UPDATE, payload.model_copy(update={'candidate_refs': ()}), ref,
                 (sender, recipient), 1000000 + round_id, text=reply_text,
                 refs=reply_refs, status=reply_status, reply_to=message, operation_ref=ref+':receipt')
+            recent.append({'speaker': 'mediator', 'text': reply_text})
         activity(backend, claim, sender, 'SEARCHING')
 
     # Carry job budget/observer context into provider work. Model generation stays
