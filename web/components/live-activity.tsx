@@ -20,7 +20,7 @@ export function LiveActivity({ room, tables, connected, retry, busy }: { room: R
       <span className={styles.indicator} aria-hidden="true" /><span className={styles.heading}><small>BEHIND THE PLAN</small><strong aria-live="polite">{model.title}</strong></span>
       <span className={styles.updated}>{model.latestTime ? time(model.latestTime) : 'Waiting'}</span><span className={styles.toggle}>{open ? 'Hide activity −' : 'View activity +'}</span>
     </button>
-    {model.tone === 'error' && retry && model.graph.last?.job_ref && <div className={styles.recovery}><p>Completed searches are saved. Retry the interrupted planning attempt with the current trip details.</p><button type="button" disabled={!connected || busy} onClick={() => retry(String(model.graph.last!.job_ref))}>{busy ? 'Requesting retry…' : 'Retry planning'}</button></div>}
+    {model.tone === 'error' && retry && model.graph.last?.job_ref && <div className={styles.recovery}><p>{model.runs.some(run => ['COMPLETED','CACHED'].includes(run.phase)) ? 'Completed searches are saved.' : 'Your confirmed trip details are saved.'} Retry the interrupted planning attempt with the current trip details.</p><button type="button" disabled={!connected || busy} onClick={() => retry(String(model.graph.last!.job_ref))}>{busy ? 'Requesting retry…' : 'Retry planning'}</button></div>}
     {!open && model.runs.length > 0 && <div className={styles.preview}>{model.runs.slice(-3).map(run => <span key={`${run.round}:${run.search_ref}`}>{run.search.reported ? run.search.title : categories[run.category]} <b>·</b> {run.label}</span>)}{model.runs.length > 3 && <span>+{model.runs.length - 3} more</span>}</div>}
     {open && <div className={styles.body}>
       <p className={styles.description}>{model.detail}</p>

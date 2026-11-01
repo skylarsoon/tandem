@@ -1,4 +1,4 @@
-import { type Row } from './state';
+import { money, type Row } from './state';
 import type { Tables } from './planning';
 
 export type TripPhase = 'brief' | 'intake' | 'planning' | 'review' | 'agreed';
@@ -37,6 +37,16 @@ export function optionFacts(c: Row): [string, string][] {
   } else if (c.category === 'STAY') {
     add('Check-in', c.check_in); add('Check-out', c.check_out);
     add('Bedrooms', c.bedrooms); add('Sleeps', c.capacity); add('Rating', c.rating);
+  } else if (c.category === 'ACTIVITY' || c.category === 'DINNER') {
+    add('Price basis', 'Per-person estimate · final price not confirmed'); add('Rating', c.rating);
+    if (typeof c.free_cancellation === 'boolean') add('Free cancellation', c.free_cancellation ? 'Reported by source' : 'Not offered by source');
   }
   return facts;
+}
+
+export function planPriceSummary(selected: Row[]): [string,string] {
+  if (!selected.length || selected.some(c => typeof c.total_cents !== 'number')) return ['Selected prices','See details'];
+  const estimates=selected.filter(c => c.cost_basis === 'ESTIMATE_PER_PERSON' || ['ACTIVITY','DINNER'].includes(c.category));
+  if (estimates.length && estimates.length !== selected.length) return ['Selected prices','See each option'];
+  return [estimates.length ? 'Planning estimate per person' : 'Selected options total', money(selected.reduce((sum,c) => sum+c.total_cents,0))];
 }

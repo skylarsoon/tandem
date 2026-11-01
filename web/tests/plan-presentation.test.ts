@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { tripPhase, optionFacts, proposalGroups } from '../lib/plan-presentation';
+import { tripPhase, optionFacts, proposalGroups, planPriceSummary } from '../lib/plan-presentation';
 import { liveActivity } from '../lib/activity';
 it('keeps partial agreements in planning and never borrows another room agreement', () => {
  const tables={room_trip_brief:[{state:'CONFIRMED'}],my_intake:[{state:'CONFIRMED'}],my_rooms:[{id:2n,status:'AGREED'}],room_proposals:[{state:'AGREED',scope:'INDIVIDUAL_FLIGHT'}]};
@@ -18,4 +18,10 @@ it('keeps superseded decisions out of the current plan groups', () => {
 it('does not identify another traveller as owing a private answer in shared activity', () => {
  const model=liveActivity({id:1n},{room_members:[{agentId:2n,displayName:'Jamie',isMe:false}],room_agent_activity:[{roomId:1n,agentId:2n,activity:'WAITING_FOR_OWNER'}]},true,Date.now());
  expect(model.agents[0].label).toBe('Ready');
+});
+
+it('never displays per-person estimates as a confirmed whole-group total', () => {
+ expect(planPriceSummary([{category:'DINNER',total_cents:3500,cost_basis:'ESTIMATE_PER_PERSON'}])).toEqual(['Planning estimate per person','$35.00']);
+ expect(planPriceSummary([{category:'STAY',total_cents:10000},{category:'DINNER',total_cents:3500}])).toEqual(['Selected prices','See each option']);
+ expect(optionFacts({category:'ACTIVITY',rating:4.5})).toContainEqual(['Price basis','Per-person estimate · final price not confirmed']);
 });

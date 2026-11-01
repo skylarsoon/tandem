@@ -13,7 +13,7 @@ import { AgentVoice, type VoicePlayback } from './agent-voice';
 import { RoomAgents } from "./agent-companions";
 import { MyLimits } from "./my-limits";
 import { Icon, EmptyState } from "./product-shell";
-import { tripPhase, phaseLabels, proposalGroups, optionTitle, optionFacts } from "../lib/plan-presentation";
+import { tripPhase, phaseLabels, proposalGroups, optionTitle, optionFacts, planPriceSummary } from "../lib/plan-presentation";
 import { myCharacter, messageCharacter } from "../lib/agents";
 
 export type Reducers = ReturnType<typeof connect>["connection"]["reducers"];
@@ -49,13 +49,14 @@ function ProposalCard({ proposal: p, tables, disabled, act, reducers, edit }: {
   const consent = tables.my_consents?.find(c => c.proposalId === p.id);
   const impact = tables.my_proposal_impacts?.find(c => c.proposalId === p.id);
   const [note, setNote] = useState("");
+  const [priceLabel, priceValue] = planPriceSummary(Array.isArray(terms.selected) ? terms.selected : []);
   return <>
     <div className="card-title"><h3>Plan · version {p.version}</h3><span className="tag">{readable(p.state)}</span></div>
-    <div className="plan-totals"><div><small>Selected options total</small><strong>{Array.isArray(terms.selected) && terms.selected.length && terms.selected.every((c: Row) => typeof c.total_cents === 'number') ? money(terms.selected.reduce((sum: number, c: Row) => sum + c.total_cents, 0)) : 'See details'}</strong></div>{count && <div><small>Group agreement</small><strong>{count.accepted} <span>of {count.required} accepted</span></strong></div>}<div><small>Booking status</small><strong className="not-booked">Not booked by Tandem</strong></div></div>
+    <div className="plan-totals"><div><small>{priceLabel}</small><strong>{priceValue}</strong></div>{count && <div><small>Group agreement</small><strong>{count.accepted} <span>of {count.required} accepted</span></strong></div>}<div><small>Booking status</small><strong className="not-booked">Not booked by Tandem</strong></div></div>
     {summary.text && <details className="proposal-explanation"><summary>Why this plan works · shared summary</summary><p>{summary.text}</p></details>}
     {p.state === 'SUPERSEDED' && <p className="stale-plan">This version is out of date. Review the latest plan before responding.</p>}
     <div className="plan-options">{(Array.isArray(terms.selected) ? terms.selected : []).map((c: Row, index: number) => <div className="option plan-option" key={c.id || index}>
-      <div className="option-heading"><span className="option-icon"><Icon name={c.category === 'STAY' ? 'trips' : 'arrow'} /></span><div><small>{label(c.category || "Option")} · {c.owner || 'Shared with the group'}</small><h4>{optionTitle(c)}</h4></div><strong>{money(c.total_cents)}</strong></div>
+      <div className="option-heading"><span className="option-icon"><Icon name={c.category === 'STAY' ? 'trips' : 'arrow'} /></span><div><small>{label(c.category || "Option")} · {c.owner || 'Shared with the group'}</small><h4>{optionTitle(c)}</h4></div><strong>{money(c.total_cents)}{['ACTIVITY','DINNER'].includes(c.category) && <small>per person · estimate</small>}</strong></div>
       <dl className="option-facts">{optionFacts(c).map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>
       <Source url={c.source_url} />
       {c.category === 'FLIGHT' && c.return_departure_date && !c.return_source_url && <small className="source-note">Source link may show the outbound flight only. Return details above are part of this proposal.</small>}
