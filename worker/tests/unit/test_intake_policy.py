@@ -174,3 +174,23 @@ def test_whose_flight_can_be_named_anywhere_in_that_message():
     assert kept.hardness == "SOFT", "someone else's pick is only ever a wish"
     other = wish.model_copy(update={"rule": {**wish.rule, "value": "Bella"}})
     assert verify(IntakeExtraction(items=(other,)), ctx(said))[0] == (), "a name they never said is dropped"
+
+
+@pytest.mark.parametrize("reply", ["$1,000 for the whole trip, firm limit", "1000 for everything, hard maximum"])
+def test_repeating_the_same_amount_can_clarify_its_scope(reply):
+    extraction = IntakeExtraction(items=(item("trip_budget_total", 100000, "1000 budget"),))
+    kept, _, coverage, _ = verify(extraction, ctx("1000 budget", reply))
+    assert kept[0].value == 100000 and coverage["money"] == "ANSWERED"
+
+
+def test_complete_budget_restatement_after_a_numbered_clarification():
+    extraction = IntakeExtraction(items=(item("trip_budget_total", 100000, "1000 budget"),))
+    kept, _, coverage, _ = verify(extraction, ctx("1000 budget", "Nov 20–22 works, $1,000 includes the stay",
+        "My firm maximum is $1,000 for the entire trip, including flights and my hotel share."))
+    assert kept[0].value == 100000 and coverage["money"] == "ANSWERED"
+
+
+@pytest.mark.parametrize("reply", ["$2,000 for the whole trip, firm limit", "$1,000 for flights and $500 for the hotel, firm limits"])
+def test_restatement_of_a_different_or_ambiguous_amount_does_not_validate_an_old_budget(reply):
+    extraction = IntakeExtraction(items=(item("trip_budget_total", 100000, "1000 budget"),))
+    assert verify(extraction, ctx("1000 budget", reply))[0] == ()

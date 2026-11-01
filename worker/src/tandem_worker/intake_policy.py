@@ -184,9 +184,24 @@ def verify(extraction: IntakeExtraction, ctx: IntakeContext):
                     continue
                 if not after_source or message.sender != "HUMAN":
                     continue
-                if amounts(message.body):
+                figures = amounts(message.body)
+                if figures and figures != {item.value / 100}:
                     break
                 budget_said += " " + message.body
+            # A complete restatement of the same budget is also evidence. The
+            # extractor may retain the original amount's source even after a
+            # clarification containing dates/numbers stopped the scan above.
+            # Only the latest numbered HUMAN reply can supply this evidence:
+            # never borrow scope from another amount or a multi-amount reply.
+            for message in reversed(ctx.messages):
+                if message.id == item.source_message_id:
+                    break
+                if message.sender != "HUMAN" or not amounts(message.body):
+                    continue
+                if (amounts(message.body) == {item.value / 100}
+                        and budget_gap(item, message.body) is None):
+                    budget_said = message.body
+                break
         if item.key in BUDGET_KEYS and (gap := budget_gap(item, budget_said)):
             reasons["money"] = gap
             continue
