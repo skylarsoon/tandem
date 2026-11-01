@@ -29,6 +29,29 @@ export function ageLabel(time: number, now: number) {
   const age = Math.max(0, Math.floor((now - time) / 1000));
   return age < 5 ? 'Just now' : age < 60 ? `${age}s ago` : age < 3600 ? `${Math.floor(age / 60)}m ago` : `${Math.floor(age / 3600)}h ago`;
 }
+export function searchDetails(category: string, value: unknown): { title: string; facts: [string,string][]; reported: boolean } {
+  const c = value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
+  const text = (key: string) => typeof c[key] === 'string' && c[key].length <= 160 ? c[key] as string : '';
+  const list = (key: string) => Array.isArray(c[key]) ? c[key].filter((v: unknown) => typeof v === 'string' && v.length <= 160).slice(0,5).join(', ') : '';
+  const facts: [string,string][] = [];
+  const add = (label: string, value: string) => { if (value) facts.push([label,value]); };
+  let title = categories[category] || 'Search';
+  if ((category === 'FLIGHT' || category === 'TRANSFER') && text('origin') && text('destination')) title = `${text('origin')} → ${text('destination')}`;
+  else if (['STAY','ACTIVITY'].includes(category) && list('locations')) title = list('locations');
+  else if (category === 'DINNER' && text('location')) title = text('location');
+  if (['FLIGHT','TRANSFER'].includes(category)) {
+    add(c.leg === 'return' ? 'Return date' : 'Departure', text('departure_date')); add('Pickup time',text('departure_time'));
+    if (category === 'FLIGHT') add('Leg',c.leg === 'return' ? 'Return flight' : c.leg === 'outbound' ? 'Outbound flight' : '');
+  }
+  if (category === 'STAY') { add('Check-in',text('check_in'));add('Check-out',text('check_out')); }
+  if (category === 'ACTIVITY') { add('From',text('start_date'));add('Until',text('end_date')); }
+  if (category === 'DINNER') add('Searching for',list('queries'));
+  if (Number.isInteger(c.travellers) && c.travellers > 0 && c.travellers <= 1000) add('Travellers',String(c.travellers));
+  if (category === 'FLIGHT') add('Cabin',text('cabin'));
+  if (Number.isInteger(c.result_limit) && c.result_limit > 0 && c.result_limit <= 1000) add('Collection limit',`Up to ${c.result_limit} results`);
+  add('Search type',({INITIAL:'First search',TARGETED:'Refining the search',REFRESH:'Refreshing current options'} as Record<string,string>)[c.purpose] || '');
+  return {title,facts,reported:facts.length>0 || title !== categories[category]};
+}
 export type ActivityRecord = Row & { time: number; eventId: bigint; type: string; job_ref: string; generation: string; attempt: string; phase: string; category: string; search_ref: string; round: number; actor_id: string; run_ref?: string; polls: number; stage: string };
 export function liveActivity(room: Row, tables: Record<string, Row[]>, connected: boolean, now: number) {
   const graph = workflow(room, tables);
@@ -51,7 +74,7 @@ export function liveActivity(room: Row, tables: Record<string, Row[]>, connected
   const runs = [...latestRuns.values()].map((run, index) => {
     const terminal = ['COMPLETED','CACHED','FAILED'].includes(run.phase);
     const stale = !terminal && (!connected || !run.time || now - run.time > 45000 || run.attempt !== currentAttempt || stopped);
-    return { ...run, number: index + 1, stale, live: !terminal && !stale,
+    return { ...run, excluded: Number.isInteger(run.excluded_count) && run.excluded_count > 0 ? Number(run.excluded_count) : 0, duplicates: Number.isInteger(run.duplicate_count) && run.duplicate_count > 0 ? Number(run.duplicate_count) : 0, truncated: run.collection_truncated === true, search: searchDetails(run.category, run.search_context), number: index + 1, stale, live: !terminal && !stale,
       label: stale ? (!connected ? 'Disconnected · last reported' : stopped ? 'Monitoring stopped' : 'Awaiting a fresh update') : researchPhases[run.phase],
       detail: run.phase === 'FAILED' ? errors[run.error_code] || 'The search could not continue. The team can check the provider connection.' : undefined,
       count: Number.isInteger(run.result_count) && run.result_count >= 0 ? run.result_count as number : undefined };

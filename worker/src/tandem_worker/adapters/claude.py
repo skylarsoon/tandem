@@ -178,6 +178,8 @@ class ClaudeModel:
     def voice(self, context):
         return self._structured(context, VoiceDraft,
             "Phrase this agent's typed act. Select canonical fact sentences exactly as supplied; preserve text and references. "
+            "Start with the act sentence so your response is clear, then select at most two relevant evidence sentences. "
+            "Keep this a short conversational turn, not a repeated inventory of every fact. "
             "You may order them and select the allowed connector. Do not add claims, urgency or free prose.", "voice")
 
     # ---------- onboarding ----------

@@ -12,7 +12,7 @@ from ..persona import persona
 from ..progress import activity
 from ..recovery import remember
 from ..solver import RELAXABLE
-from ..policy import fallback_voice, needed_permissions, permitted_facts, validate_voice
+from ..policy import conversation_facts, fallback_voice, needed_permissions, permitted_facts, validate_voice
 
 
 UNRESOLVED_ACTS = {Act.OBJECT, Act.CLARIFY, Act.COUNTERPROPOSE}
@@ -194,7 +194,8 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             candidate_refs=(task["candidate"]["id"], *(c["id"] for c in task.get("shared", []))), research=decision.research,
             concession=decision.concession, exceeds_exploration=decision.exceeds_exploration)
         # The mediator states the group window; each agent speaks to its own fare.
-        facts = permitted_facts(decision.act, payload, task["candidate"], share_cents=task.get("share_cents", 0))
+        position = task["snapshot"]["members"].index(task["owner"])
+        facts = conversation_facts(decision.act, payload, task["candidate"], position=position, share_cents=task.get("share_cents", 0))
         context = {"act": decision.act.value, "facts": facts}
         text, refs = fallback_voice(facts)
         status = "TEMPLATE_FALLBACK"
@@ -202,6 +203,8 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             try:
                 raw = backend.operation(claim, f"voice:{task['operation_ref']}:{digest(context)}:{attempt}", context, "model", lambda: model.voice(context))
                 text, refs = validate_voice(VoiceDraft.model_validate(raw), facts)
+                if f"act:{decision.act.value}" not in refs:
+                    raise ContractError("UTTERANCE_PAYLOAD_MISMATCH")
                 status = "VALIDATED"
                 break
             except (ValidationError, ValueError, ContractError) as exc:

@@ -201,6 +201,10 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
   const sharedSetup = tables.room_members?.some(m => m.isMe && m.role === "ORGANIZER") && !tables.room_trip_brief?.length;
   type View = 'personal' | 'discussion' | 'plan' | 'limits';
   const [view, setView] = useState<View>('personal');
+  const [followLive, setFollowLive] = useState(true), [unread, setUnread] = useState(0);
+  const [incoming, setIncoming] = useState<{key:string;target?:string}>();
+  const knownDiscussion = useRef<Set<string> | undefined>(undefined);
+  const autoScrollUntil = useRef(0);
   const phase = tripPhase(tables);
   const proposals = tables.room_proposals || [];
   const groups = proposalGroups(proposals);
@@ -229,17 +233,31 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
     if (authoritativePrefs) setPrefs({ speakUpForMe: authoritativePrefs.speakUpForMe, askMeFirst: authoritativePrefs.askMeFirst,
       giveMeTime: authoritativePrefs.giveMeTime, remindersOptedIn: authoritativePrefs.remindersOptedIn });
   }, [authoritativePrefs]);
-  useEffect(() => { if (view === 'discussion' && scroll.current) scroll.current.scrollTop = 0; }, [view]);
-  const latest = items.at(-1)?.key;
+  const latest = visibleItems.at(-1)?.key;
+  const lastDiscussionKey = discussionItems.at(-1)?.key;
+  useEffect(() => {
+    const keys = new Set(discussionItems.map(item => item.key));
+    const added = knownDiscussion.current ? discussionItems.filter(item => !knownDiscussion.current!.has(item.key)) : [];
+    knownDiscussion.current = keys;
+    if (!connected || !added.length) return;
+    const newest = added.at(-1)!;
+    setIncoming({key:newest.key,target:String(newest.row.senderAgentId)});
+    if (!followLive) setUnread(count => count + added.length);
+    const timer = setTimeout(() => setIncoming(undefined),4500);
+    return () => clearTimeout(timer);
+  }, [lastDiscussionKey,connected]);
   const pendingCorrection = items.some(item => corrections.includes(item.key) && ["OPEN", "PENDING", "PROPOSED", "SUMMARY"].includes(item.row.state));
   useEffect(() => {
-    if (atBottom.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
-  }, [latest, items.length]);
+    if (!scroll.current || (view === 'discussion' ? !followLive : !atBottom.current)) return;
+    autoScrollUntil.current = Date.now() + 600;
+    scroll.current.scrollTo({top:scroll.current.scrollHeight,behavior: view === 'discussion' && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto'});
+    if (view === 'discussion') setUnread(0);
+  }, [latest, view, followLive]);
   useEffect(() => {
-    if (!playback) return;
+    if (!playback || (view === 'discussion' && !followLive)) return;
     const node = scroll.current?.querySelector(`[data-message-key="${CSS.escape(playback.key)}"]`);
-    if (node instanceof HTMLElement && scroll.current) scroll.current.scrollTo({ top: node.offsetTop - scroll.current.offsetTop - 20, behavior: 'smooth' });
-  }, [playback?.key]);
+    if (node instanceof HTMLElement && scroll.current) { autoScrollUntil.current = Date.now() + 600; scroll.current.scrollTo({ top: node.offsetTop - scroll.current.offsetTop - 20, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
+  }, [playback?.key,followLive]);
   const act: Action = async (key, operation) => {
     if (!connected || inflight.current.has(key)) return false;
     inflight.current.add(key); setPending(keys => [...keys, key]); setError("");
@@ -278,7 +296,7 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
       {([['personal','Your agent','chat'], ['discussion','Agent discussion','spark'], ['plan','Your plan','plan'], ['limits','My limits','lock']] as const).map(([id, text, icon]) => <button id={`trip-tab-${id}`} key={id} type="button" role="tab" tabIndex={view === id ? 0 : -1} aria-controls="room-view" aria-selected={view === id} onClick={() => setView(id)}><Icon name={icon} size={16}/>{text}{id === 'plan' && proposals.some(p => p.state === 'AWAITING_REVIEW') && <span className="tab-attention" aria-label="Ready for review"/>}{id === 'personal' && ownerQuestion && <span className="tab-attention" aria-label="Private question waiting"/>}</button>)}
     </div>
     <div className="room-view" id="room-view" role="tabpanel" aria-labelledby={`trip-tab-${view}`}>
-    {view === 'discussion' && <RoomAgents room={room} tables={tables} connected={connected} activeTarget={playback?.target} speaking={playback?.phase === 'speaking'} />}
+    {view === 'discussion' && <RoomAgents room={room} tables={tables} connected={connected} activeTarget={playback?.target} liveTarget={incoming?.target} speaking={playback?.phase === 'speaking'} />}
     <div className="voice-dock" hidden={view === 'plan' || view === 'limits'}>
     <AgentVoice onPlayback={setPlayback} key={String(room.id)} items={view === "discussion" ? discussionItems : relevantItems} tables={tables} discussion={view === 'discussion'} connected={connected && (view === 'personal' || view === 'discussion')} onTranscript={async body => {
       const outgoing = outgoingMessage(room, tables, body);
@@ -291,11 +309,15 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
     </div>
     <div className="conversation-workspace">
     <LiveActivity room={room} tables={input} connected={connected} />
+    {view === 'discussion' && <div className="discussion-live-bar"><span><i data-connected={connected}/>{!connected ? 'Reconnecting to shared updates' : followLive ? 'Following live updates' : 'Reading earlier messages'}</span><button type="button" aria-pressed={followLive} onClick={() => { setFollowLive(value => !value); setUnread(0); }}>{followLive ? 'Pause following' : unread ? `Follow live · ${unread} new` : 'Follow live ↓'}</button></div>}
     {view === 'personal' && (phase === 'review' || phase === 'agreed') && <div className="next-step-banner"><span className="next-step-icon"><Icon name="plan" size={20}/></span><div><strong>{phase === 'agreed' ? 'You found your common ground.' : 'There’s a plan ready for your review.'}</strong><small>{phase === 'agreed' ? 'Your agreed decisions and personal share are saved in Your plan.' : 'Check the options and your share before giving your final yes.'}</small></div><button onClick={() => setView('plan')}>{phase === 'agreed' ? 'View agreed plan' : 'Review plan'} →</button></div>}
     {view === 'personal' && tables.my_intake?.[0]?.state === 'CONFIRMED' && tables.room_intake_progress?.[0]?.ready < tables.room_intake_progress?.[0]?.total && <div className="readiness-note"><Icon name="person" size={16}/><span>Your details are ready. {tables.room_intake_progress[0].ready} of {tables.room_intake_progress[0].total} travellers have confirmed. Everyone gets their own time.</span></div>}
     {ownerQuestion && <div className="next-step-banner next-step-banner--question"><span className="next-step-icon"><Icon name="chat" size={20}/></span><div><strong>Your companion has a private question.</strong><small>Your answer helps it find the right next step.</small></div><button onClick={() => { setView('personal'); atBottom.current = false; requestAnimationFrame(() => document.querySelector(`[data-message-key="${ownerQuestion.key}"]`)?.scrollIntoView({block:'center'})); }}>Answer privately →</button></div>}
     <div className="conversation-feed" hidden={view === "plan" || view === "limits"} role="log" aria-label="Trip messages" aria-live="polite" aria-relevant="additions" ref={scroll} onScroll={() => {
-      if (scroll.current) atBottom.current = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100;
+      if (scroll.current) {
+        atBottom.current = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100;
+        if (view === 'discussion' && Date.now() > autoScrollUntil.current && !atBottom.current) setFollowLive(false);
+      }
     }}>
       {archived.length > 0 && <button type="button" className="conversation-history" aria-expanded={showHistory} onClick={() => setShowHistory(value => !value)}>{showHistory ? 'Hide earlier updates' : `Show ${archived.length} earlier updates & saved details`}</button>}
       {!visibleItems.length && <div className="conversation-empty"><span aria-hidden="true">↗</span><h3>{view === 'discussion' ? 'Every voice, one plan.' : 'Start with an idea.'}</h3><p>{view === 'discussion' ? 'Shared agent messages appear here as your companions compare options. Each traveller first confirms their needs privately.' : 'A weekend away, a camping trip, a celebration—tell your agent what you’re imagining. It can ask for the details as you go.'}</p></div>}
@@ -305,9 +327,10 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
         const agent = tables.room_agents?.find(a => a.id === item.row.senderAgentId);
         const member = tables.room_members?.find(m => m.agentId === item.row.senderAgentId);
         const appearance = messageCharacter(tables, item.row.senderAgentId);
+        const recipient = tables.room_agents?.find(a => a.id === item.row.recipientAgentId)?.kind === 'MEDIATOR' ? 'Mediator' : tables.room_members?.find(m => m.agentId === item.row.recipientAgentId)?.displayName;
         const speaker = human ? "You" : item.row.senderAgentId ? agent?.kind === "MEDIATOR" ? "Mediator" : `${member?.displayName || "Personal"}’s agent` : item.speaker;
-        return <article key={item.key} data-message-key={item.key} data-speaking={playback?.key === item.key} data-color={appearance.variant} className={`chat-item ${human ? "from-you" : "from-agent"} ${item.kind === "event" ? "chat-event" : ""} ${item.audience === "shared" ? "shared-item" : "private-item"}`}>
-          <div className="message-meta">{!human && item.kind !== "event" && (item.audience === "private" || item.row.senderAgentId != null) && <AgentAvatar speechTarget={String(item.row.senderAgentId ?? tables.room_members?.find(m => m.isMe)?.agentId ?? 'personal')} variant={appearance.variant} mediator={appearance.mediator} size="message" animated={false} />}<strong>{speaker}</strong>{playback?.key === item.key && <span className="message-speaking">{playback.phase === 'speaking' ? 'Speaking' : 'Preparing voice'}</span>}<span>{item.audience === "private" ? "Only you" : "Shared with trip"}</span></div>
+        return <article key={item.key} data-message-key={item.key} data-speaking={playback?.key === item.key} data-new={view === 'discussion' && incoming?.key === item.key} data-color={appearance.variant} className={`chat-item ${human ? "from-you" : "from-agent"} ${item.kind === "event" ? "chat-event" : ""} ${item.audience === "shared" ? "shared-item" : "private-item"}`}>
+          <div className="message-meta">{!human && item.kind !== "event" && (item.audience === "private" || item.row.senderAgentId != null) && <AgentAvatar speechTarget={String(item.row.senderAgentId ?? tables.room_members?.find(m => m.isMe)?.agentId ?? 'personal')} variant={appearance.variant} mediator={appearance.mediator} size="message" animated={false} />}<strong>{speaker}</strong>{view === 'discussion' && recipient && <span className="message-recipient">to {recipient}{recipient === 'Mediator' ? '' : '’s agent'}</span>}{view === 'discussion' && item.time > 0n && <time className="message-time" dateTime={new Date(Number(item.time)/1000).toISOString()}>{new Date(Number(item.time)/1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</time>}{playback?.key === item.key && <span className="message-speaking">{playback.phase === 'speaking' ? 'Speaking' : 'Preparing voice'}</span>}<span>{item.audience === "private" ? "Only you" : "Shared with trip"}</span></div>
           <MessageCard item={item} tables={tables} room={room} disabled={!connected || pending.length > 0 || blocked || pendingCorrection} act={act} reducers={reducers} prefs={prefs} setPrefs={setPrefs} excluded={excluded} setExcluded={setExcluded} edit={() => startEdit(item)} />
           {view === 'discussion' && item.discussionMeta && (item.discussionMeta.deliveries > 1 || item.text !== item.discussionMeta.originalText) && <details className="discussion-source"><summary>Full message{item.discussionMeta.deliveries > 1 ? ` · ${item.discussionMeta.deliveries} deliveries grouped` : ' · repeated details shortened'}</summary><p>{item.discussionMeta.originalText}</p></details>}
           {blocked && <small className="correction-status">{corrections.includes(item.key) ? "Correction sent · awaiting an updated response" : "Write your correction below, or cancel to keep this suggestion."}</small>}
@@ -320,7 +343,7 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
       {groups.map(([stage, plans]) => <section className="decision-group" key={stage}><h3 className="eyebrow">{label(stage)}</h3>{plans.map(p => <article className="plan-review-card" key={String(p.id)}><ProposalCard proposal={p} tables={tables} disabled={!connected || pending.length > 0} act={act} reducers={reducers} edit={() => startEdit({ kind: 'proposal', row: p, key: `proposal:${p.id}`, audience: 'shared', speaker: '', time: 0n })}/></article>)}</section>)}
       {proposals.some(p => p.state === 'SUPERSEDED') && <details className="plan-history"><summary>Earlier versions · no longer open for approval</summary>{proposals.filter(p => p.state === 'SUPERSEDED').map(p => <article className="plan-review-card" key={String(p.id)}><ProposalCard proposal={p} tables={tables} disabled act={act} reducers={reducers} edit={() => setView('personal')}/></article>)}</details>}
     </section>}
-    {view === 'limits' && <MyLimits tables={tables} disabled={!connected || pending.length > 0} reducers={reducers} edit={() => { setView('personal'); requestAnimationFrame(() => composer.current?.focus()); }}/ >}
+    {view === 'limits' && <MyLimits tables={tables} disabled={!connected || pending.length > 0} reducers={reducers} edit={() => { setView('personal'); requestAnimationFrame(() => composer.current?.focus()); }}/>}
     </div>
     {error && <p role="alert" className="notice room-error">{error}</p>}
     {view === 'discussion' ? <div className="discussion-footer"><span>Every agent has a voice. The final decision is yours.</span><button type="button" onClick={() => setView('personal')}>Back to your agent →</button>{proposals.length > 0 && <button type="button" className="primary-action" onClick={() => setView('plan')}>Review the plan ↗</button>}</div> : view === 'personal' ? <div className="composer-wrap">

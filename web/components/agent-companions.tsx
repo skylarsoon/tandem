@@ -47,7 +47,7 @@ export function AgentWelcome({ tables, connected, appearanceReady = true, save }
   </section>;
 }
 
-export function RoomAgents({ tables, connected, room, activeTarget, speaking }: { tables: Tables; connected: boolean; room?: Row; activeTarget?: string; speaking?: boolean }) {
+export function RoomAgents({ tables, connected, room, activeTarget, liveTarget, speaking }: { tables: Tables; connected: boolean; room?: Row; activeTarget?: string; liveTarget?: string; speaking?: boolean }) {
   const members = (tables.room_members || []).filter(m => m.active);
   const mediator = tables.room_agents?.find(a => a.kind === 'MEDIATOR');
   const count = Math.max(1, members.length);
@@ -65,10 +65,10 @@ export function RoomAgents({ tables, connected, room, activeTarget, speaking }: 
           const reportedActivity = agentActivity(tables, m.agentId, connected);
           const activity = reportedActivity === 'WAITING_FOR_OWNER' && !m.isMe ? 'IDLE' : reportedActivity;
           const online = connected && tables.room_presence?.find(p => String(p.membershipId) === String(m.id))?.online;
-          return <li key={String(m.id)} className={m.isMe ? 'is-your-agent' : ''} data-color={m.isMe ? myCharacter(tables) : memberCharacter(tables, m)} data-speaking={speaking && activeTarget === String(m.agentId)} data-activity={activity}>
+          return <li key={String(m.id)} className={m.isMe ? 'is-your-agent' : ''} data-color={m.isMe ? myCharacter(tables) : memberCharacter(tables, m)} data-speaking={speaking && activeTarget === String(m.agentId)} data-updated={liveTarget === String(m.agentId)} data-activity={activity}>
             <AgentAvatar speechTarget={String(m.agentId)} variant={m.isMe ? myCharacter(tables) : memberCharacter(tables, m)} activity={activity} />
             <strong>{m.isMe ? 'Your agent' : `${m.displayName}’s agent`}</strong>
-            <span className="agent-status">{activeTarget === String(m.agentId) ? speaking ? 'Speaking' : 'Getting ready to speak' : activityLabels[activity]}</span>
+            <span className="agent-status">{activeTarget === String(m.agentId) ? speaking ? 'Speaking' : 'Getting ready to speak' : liveTarget === String(m.agentId) ? 'Shared an update' : activityLabels[activity]}</span>
             <small className="agent-owner-presence"><i className={`dot ${online ? 'online' : ''}`} />{m.displayName}{m.isMe ? ' (you)' : ''} · {connected ? online ? 'online' : 'away' : 'unknown'}</small>
           </li>;
         })}

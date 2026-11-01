@@ -42,7 +42,7 @@ test('private input, source activity, return itinerary and exact approval remain
   await expect(page.getByText('My private reason stays with my agent.',{exact:true})).toHaveCount(0);
   await expect(page.getByText('Someone’s missing')).toHaveCount(0);
   await expect(page.locator('.room-companions-list>li')).toHaveCount(2);
-  await activity.getByRole('button').click();await expect(activity).toContainText('isolated-test-run');
+  await activity.getByRole('button').click();await activity.getByText('Source details',{exact:true}).click();await expect(activity.getByRole('link',{name:'Open provider run'})).toHaveAttribute('href','https://console.apify.com/actors/runs/isolated-test-run');await expect(activity).toContainText('SFO → SAN');await expect(activity).toContainText('2027-06-04');await page.screenshot({path:info.outputPath('actual-search-details.png'),animations:'disabled'});
   await page.getByRole('tab',{name:'Your plan'}).click();
   await expect(activity).toBeVisible(); await activity.getByRole('button').click();
   await expect(page.getByText('2027-06-06',{exact:true}).first()).toBeVisible();
@@ -85,4 +85,16 @@ test('profile name input keeps focus while typing and transitions to the next qu
   await expect(page.getByText('QUESTION 2 OF 9')).toBeVisible();
   expect(await page.evaluate(()=>JSON.parse(window.productFixture.calls.at(-1).args.valueJson))).toBe('Alexandra');
   await page.screenshot({path:info.outputPath('profile-desktop.png')});
+});
+
+test('live discussion follows new turns, keeps history readable, and never invents waiting dialogue',async({page})=>{
+ await open(page,'room');await page.getByRole('tab',{name:'Agent discussion'}).click();
+ await expect(page.getByText('Following live updates',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Pause following'}).click();
+ await page.evaluate(()=>window.productFixture.patch({room_messages:[{id:10n,roomId:1n,senderAgentId:12n,recipientAgentId:13n,utterance:'Could we check the later departure?',createdAt:{microsSinceUnixEpoch:BigInt(Date.now())*1000n}}]}));
+ await expect(page.getByText('Could we check the later departure?',{exact:true})).toBeVisible();
+ await expect(page.getByText('to Mediator',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Follow live · 1 new'})).toBeVisible();
+ await page.getByRole('button',{name:'Follow live · 1 new'}).click();
+ await expect(page.getByText('Following live updates',{exact:true})).toBeVisible();
 });

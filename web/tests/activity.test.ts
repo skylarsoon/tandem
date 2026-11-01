@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { liveActivity } from '../lib/activity';
+import { liveActivity, searchDetails } from '../lib/activity';
 const room = { id: 1n, inputRevision: 1n, membershipRevision: 1n, permissionRevision: 1n };
 const now = 1800000000000;
 function event(id: number, phase = 'RUNNING', extra = {}, time = now) {
@@ -32,4 +32,15 @@ it('stopped worker never leaves its previous provider run animated as active', (
   const stop = { ...event(2), type: 'WORKFLOW_PROGRESS', safePayloadJson: JSON.stringify({ schema_version: 1, job_ref: '1', generation: '1', attempt: '1', input_revision: 1, membership_revision: 1, permission_revision: 1, stage: 'STOPPED', phase: 'FAILED', step_ref: 'stop' }) };
   const m = liveActivity(room, { room_events: [event(1), stop] }, true, now);
   expect(m.title).toBe('Planning needs attention'); expect(m.runs[0].live).toBe(false);
+});
+
+it('displays only reported search criteria and hides private or unknown input fields', () => {
+ const detail=searchDetails('FLIGHT',{origin:'SAN',destination:'SFO',departure_date:'2027-06-06',leg:'return',result_limit:10,private_reason:'PRIVATE_CANARY',maxStops:0});
+ expect(detail.title).toBe('SAN → SFO');expect(detail.facts).toContainEqual(['Return date','2027-06-06']);expect(JSON.stringify(detail)).not.toContain('PRIVATE_CANARY');
+ expect(searchDetails('FLIGHT',undefined).reported).toBe(false);
+ expect(searchDetails('DINNER',{location:'San Diego',queries:['restaurants for groups']}).facts).toContainEqual(['Searching for','restaurants for groups']);
+});
+it('carries result exclusions and collection limits without treating them as approved options', () => {
+ const model=liveActivity(room,{room_events:[event(1,'COMPLETED',{result_count:10,excluded_count:2,duplicate_count:1,collection_truncated:true,search_context:{origin:'SFO',destination:'SAN'}})]},true,now);
+ expect(model.runs[0]).toMatchObject({count:10,excluded:2,duplicates:1,truncated:true,live:false});expect(model.runs[0].search.title).toBe('SFO → SAN');
 });
