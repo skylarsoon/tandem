@@ -3,9 +3,11 @@ import { buildSync } from "esbuild";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const bundle = buildSync({ entryPoints: [path.resolve("e2e/fixtures/planning.tsx")], bundle: true, write: false, format: "iife",
-  platform: "browser", jsx: "automatic", define: { "process.env.NODE_ENV": '"development"' } }).outputFiles[0].text;
-const css = readFileSync(path.resolve("app/globals.css"), "utf8");
+const built = buildSync({ entryPoints: [path.resolve("e2e/fixtures/planning.tsx")], bundle: true, write: false, outfile: "/private/tmp/tandem-browser-fixture.js", format: "iife",
+  platform: "browser", jsx: "automatic", define: { "process.env.NODE_ENV": '"development"' } }).outputFiles;
+const bundle = built.find(f => f.path.endsWith(".js"))!.text;
+const componentCss = built.filter(f => f.path.endsWith(".css")).map(f => f.text).join("\n");
+const css = readFileSync(path.resolve("app/globals.css"), "utf8") + readFileSync(path.resolve("app/product.css"), "utf8") + componentCss;
 const fonts = ["manrope", "ibm-plex-mono"].map((font) => {
   const bytes = readFileSync(path.resolve(`node_modules/@fontsource/${font}/files/${font}-latin-400-normal.woff2`)).toString("base64");
   return `@font-face{font-family:'${font === "manrope" ? "Manrope" : "IBM Plex Mono"}';src:url(data:font/woff2;base64,${bytes}) format('woff2');font-weight:100 900;}`;
@@ -24,7 +26,7 @@ test("two panels support ongoing private chat without flight inputs", async ({ p
   await expect(page.getByLabel("Flight budget (USD)", { exact: true })).toHaveCount(0);
   await page.getByLabel("Message your agent").fill("Actually, let’s stay an extra night.");
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByRole("status")).toContainText("Message sent");
+  await expect(page.locator(".send-receipt")).toContainText("Message sent");
   expect(await page.evaluate(() => window.planningFixture.calls.at(-1).method)).toBe("submitPrivateMessage");
   await expect(page.getByLabel("Message your agent")).toHaveValue("");
   await page.screenshot({ path: info.outputPath("planning-desktop.png"), fullPage: true });
@@ -77,6 +79,7 @@ test("proposal review binds approval to its displayed version and permits withdr
   await open(page);
   await page.evaluate(() => window.planningFixture.setTables({ room_proposals: [{ id: 40n, roomId: 1n, version: 3, termsDigest: "exact-terms", state: "AWAITING_REVIEW", isReviewer: true,
     sharedSummaryJson: '{"text":"A campsite for the group"}', termsJson: '{"selected":[]}', createdAt: 40n }] }));
+  await page.getByRole("tab", { name: "Your plan" }).click();
   await page.getByRole("button", { name: "Accept exact terms" }).click();
   const action = await page.evaluate(() => { const c = window.planningFixture.calls.at(-1); return { method: c.method, version: c.args.version, digest: c.args.termsDigest, response: c.args.response }; });
   expect(action).toEqual({ method: "respondToProposal", version: 3, digest: "exact-terms", response: "ACCEPT" });

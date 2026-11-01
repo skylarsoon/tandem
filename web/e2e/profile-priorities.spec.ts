@@ -3,9 +3,11 @@ import { buildSync } from "esbuild";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const bundle = buildSync({ entryPoints: [path.resolve("e2e/fixtures/profile-priorities.tsx")], bundle: true,
-  write: false, format: "iife", platform: "browser", jsx: "automatic" }).outputFiles[0].text;
-const css = readFileSync(path.resolve("app/globals.css"), "utf8");
+const built = buildSync({ entryPoints: [path.resolve("e2e/fixtures/profile-priorities.tsx")], bundle: true,
+  write: false, outfile: "/private/tmp/tandem-browser-fixture.js", format: "iife", platform: "browser", jsx: "automatic" }).outputFiles;
+const bundle = built.find(f => f.path.endsWith(".js"))!.text;
+const componentCss = built.filter(f => f.path.endsWith(".css")).map(f => f.text).join("\n");
+const css = readFileSync(path.resolve("app/globals.css"), "utf8") + readFileSync(path.resolve("app/product.css"), "utf8") + componentCss;
 const fonts = ["manrope", "ibm-plex-mono"].map(font => {
   const bytes = readFileSync(path.resolve(`node_modules/@fontsource/${font}/files/${font}-latin-400-normal.woff2`)).toString("base64");
   return `@font-face{font-family:'${font === "manrope" ? "Manrope" : "IBM Plex Mono"}';src:url(data:font/woff2;base64,${bytes})}`;
@@ -16,36 +18,42 @@ async function open(page: Page, initialRanking?: string[]) {
 }
 const order = (page: Page) => page.locator(".priority-list li").evaluateAll(rows => rows.map(row => (row as HTMLElement).dataset.priority));
 
-test("an older partial ranking retains its order and requires confirmation of the completed list", async ({ page }) => {
+test("an older partial ranking stays selected and can be changed within the catalog limit", async ({ page }) => {
   await open(page, ["comfort", "affordability"]);
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  expect(await order(page)).toEqual(["comfort", "affordability", "togetherness", "time_efficiency", "experience_quality", "discovery"]);
+  expect(await order(page)).toEqual(["comfort", "affordability"]);
+  await expect(page.getByLabel("This order is right")).toBeChecked();
+  await page.getByRole("button", { name: "Discovery", exact: true }).click();
   await expect(page.getByLabel("This order is right")).not.toBeChecked();
   await expect(page.getByRole("button", { name: "Save and continue" })).toBeDisabled();
   await page.getByLabel("This order is right").check();
   await expect(page.getByRole("button", { name: "Save and continue" })).toBeEnabled();
 });
 
-test("all six priorities appear immediately, support drag/keyboard ordering, and save the displayed order", async ({ page }, info) => {
+test("five priorities respect the catalog maximum and support drag, keyboard, and replacing a choice", async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 1200 });
   await open(page);
-  await expect(page.locator(".priority-list li")).toHaveCount(6);
+  await expect(page.locator(".priority-list li")).toHaveCount(5);
   await expect(page.getByRole("button", { name: /^(Add|Remove|Replace) / })).toHaveCount(0);
-  expect(await order(page)).toEqual(["affordability", "togetherness", "time_efficiency", "comfort", "experience_quality", "discovery"]);
+  expect(await order(page)).toEqual(["affordability", "togetherness", "time_efficiency", "comfort", "experience_quality"]);
   await page.getByLabel("This order is right").check();
+  await expect(page.getByRole("button", { name: "Discovery", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Comfort", exact: true }).click();
+  await page.getByRole("button", { name: "Discovery", exact: true }).click();
   const handle = page.getByRole("button", { name: "Reorder Discovery", exact: true });
+  await handle.scrollIntoViewIfNeeded();
   const from = (await handle.boundingBox())!;
   const to = (await page.locator(".priority-list li").first().boundingBox())!;
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(from.x + from.width / 2, to.y + to.height / 2, { steps: 12 });
   await page.mouse.up();
-  expect(await order(page)).toEqual(["discovery", "affordability", "togetherness", "time_efficiency", "comfort", "experience_quality"]);
+  expect(await order(page)).toEqual(["discovery", "affordability", "togetherness", "time_efficiency", "experience_quality"]);
   await expect(page.getByLabel("This order is right")).not.toBeChecked();
   await expect(page.getByRole("button", { name: "Save and continue" })).toBeDisabled();
   await handle.focus();
   await page.keyboard.press("ArrowDown");
-  const expected = ["affordability", "discovery", "togetherness", "time_efficiency", "comfort", "experience_quality"];
+  const expected = ["affordability", "discovery", "togetherness", "time_efficiency", "experience_quality"];
   expect(await order(page)).toEqual(expected);
   await page.getByLabel("This order is right").check();
   await page.screenshot({ path: info.outputPath("priorities-desktop.png"), fullPage: true });
@@ -68,13 +76,13 @@ test("touch dragging and cancellation preserve a usable mobile ranking", async (
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: endY }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  expect(await order(page)).toEqual(["togetherness", "affordability", "time_efficiency", "comfort", "experience_quality", "discovery"]);
+  expect(await order(page)).toEqual(["togetherness", "affordability", "time_efficiency", "comfort", "experience_quality"]);
   await expect(page.getByLabel("This order is right")).not.toBeChecked();
   await handle.dispatchEvent("pointerdown", { pointerId: 1, button: 0, clientY: endY });
   await handle.dispatchEvent("pointermove", { pointerId: 1, clientY: y });
   await handle.dispatchEvent("pointercancel", { pointerId: 1 });
-  expect(await order(page)).toEqual(["togetherness", "affordability", "time_efficiency", "comfort", "experience_quality", "discovery"]);
-  await expect(page.locator(".priority-list li")).toHaveCount(6);
+  expect(await order(page)).toEqual(["togetherness", "affordability", "time_efficiency", "comfort", "experience_quality"]);
+  await expect(page.locator(".priority-list li")).toHaveCount(5);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("priorities-mobile.png"), fullPage: true });
   await context.close();

@@ -28,7 +28,7 @@ function Fixture() {
   } }) as Reducers;
   window.planningFixture = { calls, failNext: window.planningFixture?.failNext, setConnected, switchRoom: setRoomId,
     setTables: (patch: Tables) => setTables(current => ({ ...current, ...patch })) };
-  return <main className="planning-app"><header className="app-header"><a className="wordmark" href="#">tandem↗</a><a href="#">Your agent profile ↗</a></header>
+  return <main className="product-app planning-app"><header className="app-header"><a className="wordmark" href="#">tandem↗</a><a href="#">Your agent profile ↗</a></header>
     <div className="planning-shell"><aside className="overview-panel" aria-label="Trip details"><TripOverview room={activeRoom} tables={tables} connected={connected} /></aside>
       <PlanningConversation key={String(roomId)} room={activeRoom} tables={tables} connected={connected} reducers={reducers} />
     </div></main>;

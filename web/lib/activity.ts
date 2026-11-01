@@ -80,7 +80,7 @@ export function liveActivity(room: Row, tables: Record<string, Row[]>, connected
     const labels: Record<string,string> = { SEARCHING: 'Researching options', THINKING: 'Considering the plan', CHECKING: 'Checking options', WRITING: 'Preparing a reply', WAITING_FOR_OWNER: 'Waiting for input', IDLE: 'Ready' };
     const time = timestamp(a.updatedAt), recent = connected && time > 0 && now - time <= 45000 && !stopped;
     return { id: String(a.agentId), name: mediator ? 'Mediator' : `${member?.displayName || 'Traveller'}’s agent`,
-      label: labels[a.activity] || 'Status received', busy: !['IDLE','WAITING_FOR_OWNER'].includes(a.activity), recent, time };
+      label: a.activity === 'WAITING_FOR_OWNER' && !member?.isMe ? 'Ready' : labels[a.activity] || 'Status received', busy: !['IDLE','WAITING_FOR_OWNER'].includes(a.activity), recent, time };
   });
   if (!events.length && connected && agents.some(a => a.recent && a.busy)) { title = 'Your agents are working on the trip details'; tone = 'live'; }
   return { title, tone, runs, agents, events, latestTime, graph, earlier: all.filter(e => !events.includes(e)),

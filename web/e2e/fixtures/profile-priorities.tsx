@@ -13,7 +13,7 @@ const client = {
   session: { subscribe: () => () => {}, getSnapshot: () => snapshot },
   connection: { reducers: { saveProfileAnswer: async (answer: { questionId: string; valueJson: string }) => { window.profileSaves.push(answer); } } },
 } as unknown as Parameters<typeof ProfileOnboarding>[0]["client"];
-createRoot(document.getElementById("root")!).render(<main>
+createRoot(document.getElementById("root")!).render(<main className="product-app">
   <header><div><p className="eyebrow">TANDEM / YOUR AGENT</p><h1>Let your agent get to know you.</h1>
     <p>Skip anything. Change it anytime. Private unless a plan needs it.</p></div><a className="badge" href="#">Your rooms →</a></header>
   <ProfileOnboarding client={client} />

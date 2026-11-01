@@ -50,7 +50,7 @@ export function AgentWelcome({ tables, connected, appearanceReady = true, save }
 export function RoomAgents({ tables, connected, room, activeTarget, speaking }: { tables: Tables; connected: boolean; room?: Row; activeTarget?: string; speaking?: boolean }) {
   const members = (tables.room_members || []).filter(m => m.active);
   const mediator = tables.room_agents?.find(a => a.kind === 'MEDIATOR');
-  const count = Math.max(4, members.length);
+  const count = Math.max(1, members.length);
   const progress = tables.room_intake_progress?.[0];
   const [copied, setCopied] = useState(false);
   return <section className="room-companions" aria-label="Agents in this trip">
@@ -62,7 +62,8 @@ export function RoomAgents({ tables, connected, room, activeTarget, speaking }: 
       </svg>
       <ul className="room-companions-list" style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}>
         {members.map(m => {
-          const activity = agentActivity(tables, m.agentId, connected);
+          const reportedActivity = agentActivity(tables, m.agentId, connected);
+          const activity = reportedActivity === 'WAITING_FOR_OWNER' && !m.isMe ? 'IDLE' : reportedActivity;
           const online = connected && tables.room_presence?.find(p => String(p.membershipId) === String(m.id))?.online;
           return <li key={String(m.id)} className={m.isMe ? 'is-your-agent' : ''} data-color={m.isMe ? myCharacter(tables) : memberCharacter(tables, m)} data-speaking={speaking && activeTarget === String(m.agentId)} data-activity={activity}>
             <AgentAvatar speechTarget={String(m.agentId)} variant={m.isMe ? myCharacter(tables) : memberCharacter(tables, m)} activity={activity} />
@@ -75,7 +76,7 @@ export function RoomAgents({ tables, connected, room, activeTarget, speaking }: 
       </ul>
       {mediator && <div className="mediator-companion crew-hub" data-speaking={speaking && activeTarget === String(mediator.id)}><AgentAvatar speechTarget={String(mediator.id)} variant="mint" size="message" animated={false} mediator activity={agentActivity(tables, mediator.id, connected)} /><div><strong>Mediator</strong><small>Bringing everyone’s needs together</small></div></div>}
     </div></div>
-    {room?.inviteCode && connected && members.length < 4 && <div className="crew-invite"><span>Bring your people <code>{room.inviteCode}</code></span><button type="button" onClick={() => {
+    {room?.inviteCode && connected && members.length < 2 && <div className="crew-invite"><span>Bring your people <code>{room.inviteCode}</code></span><button type="button" onClick={() => {
       void navigator.clipboard?.writeText(String(room.inviteCode)).then(() => setCopied(true)).catch(() => setCopied(false));
     }}>{copied ? 'Copied' : 'Copy invite code'}</button></div>}
     {connected && progress && progress.ready < progress.total && <p className="crew-readiness">Once everyone confirms their needs, your agents begin comparing options.</p>}

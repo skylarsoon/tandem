@@ -3,6 +3,8 @@ import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react
 import { connect } from '../lib/client';
 import { openTravellerApp } from '../lib/account-app';
 import styles from './invitation-gate.module.css';
+import { ProductHeader, Icon } from './product-shell';
+import { AgentAvatar } from './agent-avatar';
 type Client = ReturnType<typeof connect>;
 type Account = { email: string; mustChangePassword: boolean; admin?: boolean };
 async function api(action: string, body: object) {
@@ -25,7 +27,7 @@ export function AccountScreen({ invitation = false }: { invitation?: boolean }) 
     if (!url || !db) { setError('Tandem is not configured yet. Please try again later.'); return; }
     const c = connect(url, db); setClient(c); return () => c.close();
   }, []);
-  return <main><a className="wordmark" href="/">tandem ↗</a>{error ? <p role="alert">{error}</p> : client ? <AccountForm client={client} invitation={invitation} /> : <p role="status">Connecting securely…</p>}</main>;
+  return <main className="product-app account-app"><ProductHeader active="account"/><div className="account-layout"><aside className="account-story"><span className="eyebrow">A LITTLE COMMON GROUND</span><h1>Good company.<br/>Great possibilities.</h1><p>Your people have different ideas of the perfect trip. There’s room for all of them here.</p><div className="account-companions"><AgentAvatar variant="lavender" size="hero"/><AgentAvatar variant="mint" size="hero"/></div><div className="account-benefits"><p><Icon name="lock"/>Private preferences. Shared possibilities.</p><p><Icon name="person"/>One account, wherever you go.</p><p><Icon name="plan"/>The final say always stays yours.</p></div></aside><div className="account-form-panel">{error ? <p role="alert">{error}</p> : client ? <AccountForm client={client} invitation={invitation} /> : <p role="status">Connecting securely…</p>}</div></div></main>;
 }
 function AccountForm({ client, invitation }: { client: Client; invitation: boolean }) {
   const state = useSyncExternalStore(client.session.subscribe, client.session.getSnapshot, client.session.getSnapshot);

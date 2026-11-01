@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { connect } from "../lib/client";
 import { RankedPriorities } from "./ranked-priorities";
 import { CharacterPicker } from "./agent-companions";
+import { CompanionPortrait } from "./companion-portrait";
+import { Icon } from "./product-shell";
 import { myCharacter } from "../lib/agents";
 import {
   AVATARS,
@@ -56,9 +58,20 @@ export function ProfileOnboarding({ client }: { client: Client }) {
   const skip = (q: Question) => act(() => reducers.skipProfileQuestion({ questionId: q.id }));
   const clear = (q: Question) => act(() => reducers.clearProfileAnswer({ questionId: q.id }));
 
-  if (!ready_) return <p>Connecting…</p>;
+  if (!ready_) return <div className="connection-empty" role="status">Connecting to your profile… Your saved answers will return when the connection is ready.</div>;
   return (
-    <div className="profile">
+    <div className={`profile profile-layout profile-layout--${current}`}>
+      <aside className="profile-companion-panel">
+        <a href="/app" className="back-to-trips">← Your trips</a>
+        <p className="eyebrow">A COMPANION THAT GETS YOU</p>
+        <h1>{current === 'core' ? <>A little about you.<br/><em>A better trip for everyone.</em></> : <>Your kind of<br/><em>common ground.</em></>}</h1>
+        <p>{current === 'core' ? 'The way you like to travel. The things you won’t compromise on. Let’s start there.' : 'Your travel style isn’t set in stone. Keep your companion up to date as you grow.'}</p>
+        <div className="profile-character-stage"><div className="profile-character-orbit"/><CompanionPortrait variant={myCharacter(state.tables)} connected={ready_}/><span className="profile-character-note">Your voice in every plan.</span></div>
+        <div className="profile-promise"><Icon name="lock" size={18}/><p><strong>This stays between us.</strong>Your answers and reasons are private. You choose what your agent confirms for each trip.</p></div>
+        {current === 'core' && <span className="profile-step-caption">{step + 1} / {core.length} · Only your name is required</span>}
+      </aside>
+      <div className="profile-content">
+      <div className="profile-content-heading"><div><p className="eyebrow">{current === 'core' ? 'GETTING TO KNOW YOU' : 'YOUR PERSONAL TRAVEL PROFILE'}</p><h2>{current === 'core' ? 'Let your agent get to know you.' : current === 'more' ? 'The little details matter.' : 'This sounds like you.'}</h2></div><span className="privacy-label"><Icon name="lock" size={13}/>Private</span></div>
       <details className="card character-profile"><summary>Your agent’s look</summary>
         <p>The same companion greets you at home and represents you in every trip. People in your trips can see this character.</p>
         {state.appearanceStatus === "ready" ? <CharacterPicker value={myCharacter(state.tables)} connected={ready_} save={variant => reducers.setAgentAppearance({ variant })} /> : <p>Character customization is temporarily unavailable.</p>}
@@ -89,7 +102,7 @@ export function ProfileOnboarding({ client }: { client: Client }) {
           <p>{catalog.outro}</p>
           <Calibration client={client} calibration={calibration} act={act} disabled={pending} />
           <div className="profile-actions">
-            <button onClick={() => setMode("review")}>Finish</button>
+            <a className="primary-action" href="/app">Continue to your trips →</a><button onClick={() => setMode("review")}>Review my profile</button>
             <button onClick={() => setMode("more")}>Add more about me (optional)</button>
           </div>
         </section>
@@ -117,6 +130,7 @@ export function ProfileOnboarding({ client }: { client: Client }) {
         <Review answers={answers} disabled={pending} onSave={save} onSkip={skip} onClear={clear}
           header={
             <>
+              <a className="profile-trips-cta" href="/app">Ready for a little adventure? <span>Go to your trips →</span></a>
               <Calibration client={client} calibration={calibration} act={act} disabled={pending} />
               <div className="profile-actions">
                 <button onClick={() => setMode("more")}>Add more about me (optional)</button>
@@ -125,6 +139,7 @@ export function ProfileOnboarding({ client }: { client: Client }) {
             </>
           } />
       )}
+      </div>
     </div>
   );
 
@@ -224,7 +239,7 @@ function Review({ answers, header, disabled, onSave, onSkip, onClear }: {
       {catalog.review_groups.map((group) => {
         const shared = group.questions.filter((id) => answers[id]);
         return (
-          <details key={group.id} className="profile-group" open={group.id !== "about"}>
+          <details key={group.id} className="profile-group" open={group.id === "enjoy"}>
             <summary><h3>{group.title}</h3> <span className="hint">{shared.length ? `${shared.length} shared` : "Not shared yet"}</span></summary>
             {group.questions.map((id) => {
               const q = question(id);
@@ -260,11 +275,13 @@ function QuestionEditor({ q, answer, disabled, primary, onSave, onSkip, onClear,
   onSave: (v: unknown) => Promise<unknown>; onSkip: () => Promise<unknown>; onClear?: () => Promise<unknown>; onBack?: () => void;
 }) {
   const [draft, setDraft] = useState<any>(answer?.status === "ANSWERED" ? answer.value : undefined);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (primary.startsWith('Save and')) heading.current?.focus({ preventScroll: true }); }, [q.id]);
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSave(draft); }}>
-      <h3>{q.prompt}</h3>
+      <h3 id={`profile-question-${q.id}`} tabIndex={-1} ref={heading}>{q.prompt}</h3>
       {q.helper && <p className="hint">{q.helper}</p>}
-      <Field q={q} value={draft} onChange={setDraft} disabled={disabled} />
+      <fieldset className="profile-answer-field" disabled={disabled} aria-labelledby={`profile-question-${q.id}`}><Field q={q} value={draft} onChange={setDraft} disabled={disabled} /></fieldset>
       <div className="profile-actions">
         {onBack && <button type="button" onClick={onBack}>Back</button>}
         {!q.required && <button type="button" disabled={disabled} onClick={() => onSkip()}>Skip for now</button>}
@@ -302,9 +319,9 @@ function Field({ q, value, onChange, disabled }: { q: Question; value: any; onCh
   const options = q.options ?? [];
   switch (q.input) {
     case "text":
-      return <input value={value ?? ""} maxLength={q.max_length} onChange={(e) => onChange(e.target.value)} />;
+      return <input aria-label={q.prompt} autoComplete={q.id === "C01" ? "nickname" : "off"} disabled={disabled} value={value ?? ""} maxLength={q.max_length} onChange={(e) => onChange(e.target.value)} />;
     case "long_text":
-      return <textarea rows={4} maxLength={q.max_length} value={value ?? ""} onChange={(e) => onChange(e.target.value)} />;
+      return <textarea aria-label={q.prompt} disabled={disabled} rows={4} maxLength={q.max_length} value={value ?? ""} onChange={(e) => onChange(e.target.value)} />;
     case "single": {
       const v = value ?? {};
       const chosen = options.find((o) => o.id === v.selected);

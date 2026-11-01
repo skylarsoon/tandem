@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type FormEvent } from 'react';
 import styles from './page.module.css';
+import { ProductHeader } from '../../components/product-shell';
 type Overview = {
   email: string; mustChangePassword: boolean; asOf?: string;
   invitations?: { hash: string; label: string; expiresAt: string; status: string }[];
@@ -55,8 +56,8 @@ export default function AdminPage() {
     });
   }
   const reset = !!data && (data.mustChangePassword || passwordView);
-  return <main className={styles.page}>
-    <header className={styles.header}><a href="/" aria-label="Tandem home"><img src="/brand/tandem.svg" width="170" height="38" alt="tandem" /></a><span className={styles.eyebrow}>ADMIN WORKSPACE</span>
+  return <main className="product-app admin-app"><ProductHeader active="admin"/><div className={styles.page}>
+    <header className={styles.header}><span className={styles.eyebrow}>ADMIN WORKSPACE</span>
       {data && <div className={styles.account}><span>{data.email}</span>{!data.mustChangePassword && <button className={styles.primary} disabled={busy} onClick={() => void perform(async () => { const { openAdminApp } = await import('../../lib/admin-app'); await openAdminApp(); window.location.assign('/app'); })}>Open app ↗</button>}{!data.mustChangePassword && <button disabled={busy} onClick={() => { setPasswordView(!passwordView); setPassword(''); setConfirmation(''); setCurrentPassword(''); }}>Change password</button>}<button disabled={busy} onClick={() => void perform(async () => { await api('logout', {}); setData(null); setInvitation(''); setPassword(''); setCurrentPassword(''); setConfirmation(''); setPasswordView(false); })}>Sign out</button></div>}
     </header>
     {error && <p className={styles.error} role="alert">{error}</p>}{notice && <p className={styles.notice} role="status">{notice}</p>}
@@ -78,5 +79,5 @@ export default function AdminPage() {
       {tab === 'System health' && <><div className={styles.metrics}>{Object.entries(data.counts || {}).map(([status,count]) => <article className={styles.card} key={status}><p className={styles.eyebrow}>{words(status)}</p><strong>{count}</strong><span>jobs</span></article>)}</div><section className={styles.card}><h2>Recent job activity</h2><p>Read-only database snapshot · Updated {date(data.asOf)}. These records show job state, not a live worker uptime check.</p><div className={styles.tableWrap}><table><thead><tr><th>Job</th><th>Type</th><th>State</th><th>Attempt</th><th>Updated</th></tr></thead><tbody>{data.recentJobs?.map(j => <tr key={j.id}><td>#{j.id}</td><td>{words(j.kind)}</td><td>{words(j.status)}</td><td>{j.attempt}</td><td>{date(j.updatedAt)}</td></tr>)}</tbody></table>{!data.recentJobs?.length && <p>No jobs have been recorded.</p>}</div></section><section className={styles.card}><h2>Admin activity</h2><div className={styles.list}>{data.events?.map(e => <article className={styles.row} key={e.id}><div><strong>{words(e.action)}</strong><small>{e.email} · {date(e.at)}</small></div></article>)}</div></section></>}
     </>}
     <footer className={styles.footer}><a href="/">← Public homepage</a><span>Thoughtful access. Private conversations.</span></footer>
-  </main>;
+  </div></main>;
 }

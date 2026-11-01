@@ -3,7 +3,9 @@ import { buildSync } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createServer, type Server } from 'node:http';
-const bundle = buildSync({ entryPoints: [path.resolve('e2e/fixtures/planning.tsx')], bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' } }).outputFiles[0].text;
+const outputs = buildSync({ entryPoints: [path.resolve('e2e/fixtures/planning.tsx')], bundle: true, write: false, outfile: '/private/tmp/tandem-voice-fixture.js', format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"', 'process.env.NEXT_PUBLIC_STDB_URL': '"http://voice.test"', 'process.env.NEXT_PUBLIC_STDB_DB': '"voice-fixture"' } }).outputFiles;
+const bundle = outputs.find(f=>f.path.endsWith('.js'))!.text;
+test.use({permissions:['microphone'],launchOptions:{args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']}});
 let origin: string, server: Server;
 test.beforeAll(async () => {
   // AudioWorklet module loads bypass Playwright routing. Serve that real module
@@ -13,7 +15,7 @@ test.beforeAll(async () => {
   origin = `http://127.0.0.1:${(server.address() as {port: number}).port}`;
 });
 test.afterAll(async () => { await new Promise<void>(resolve => server.close(() => resolve())); });
-const css = readFileSync(path.resolve('app/globals.css'), 'utf8');
+const css = readFileSync(path.resolve('app/globals.css'), 'utf8') + readFileSync(path.resolve('app/product.css'), 'utf8') + outputs.filter(f=>f.path.endsWith('.css')).map(f=>f.text).join('');
 async function open(page: Page) {
   await page.route(`${origin}/**`, async route => {
     const pathname = new URL(route.request().url()).pathname;
