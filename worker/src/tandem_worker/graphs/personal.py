@@ -150,7 +150,7 @@ def build_personal(backend, claim, model, impact_of=lambda owner: None):
             decision = Decision(act=Act.OBJECT, evaluation="INCOMPLETE_EVIDENCE", blocker="BAGGAGE_UNKNOWN", research=True)
         # A concern no search can act on (no over-limit, no missing bag) goes to the
         # owner, once, instead of burning research rounds; their yes settles it.
-        if decision.act in UNRESOLVED_ACTS and decision.blocker not in ACTIONABLE_BLOCKERS:
+        if (decision.act in UNRESOLVED_ACTS or decision.evaluation == "INCOMPLETE_EVIDENCE") and decision.blocker not in ACTIONABLE_BLOCKERS:
             decision = Decision() if context["missing_fact_answered"] else Decision(
                 evaluation="NEEDS_OWNER_INPUT", blocker="MISSING_FACT",
                 owner_question=decision.owner_question.strip() or UNSURE_QUESTION)

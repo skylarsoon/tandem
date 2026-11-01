@@ -290,12 +290,13 @@ def test_asking_about_the_extra_cost_becomes_the_enforced_consultation(setup_wor
     assert settle(backend, worker, {"p4": True})["outcome"] == "AWAITING_REVIEW"
 
 
+@pytest.mark.parametrize("act", ["CLARIFY", "EVALUATE"])
 @pytest.mark.parametrize("answer,outcome", [(True, "AWAITING_REVIEW"), (False, "OWNER_DECLINED")])
-def test_a_vague_objection_becomes_one_question_to_the_owner_not_endless_research(setup_worker, answer, outcome):
+def test_a_vague_objection_becomes_one_question_to_the_owner_not_endless_research(setup_worker, answer, outcome, act):
     from tandem_worker.contracts import Act, Decision
     model = RecordingModel("trip-happy")
     original = model.decide
-    model.decide = lambda c: (Decision(act=Act.CLARIFY, evaluation="INCOMPLETE_EVIDENCE", research=True,
+    model.decide = lambda c: (Decision(act=Act(act), evaluation="INCOMPLETE_EVIDENCE", research=True,
                                        owner_question="The stay is downtown, not on the beach. Is that OK?")
                               if c["owner"] == "p3" else original(c))
     backend, worker, job, model_, research, _ = setup_worker("trip-happy", model=model)
