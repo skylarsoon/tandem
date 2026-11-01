@@ -37,3 +37,19 @@ def test_unavailable_progress_reporting_does_not_change_planning(setup_worker):
     backend.set_agent_activity = unavailable
     assert worker.run_one(job)['outcome'] == 'AWAITING_REVIEW'
     assert backend.shared_report()['consent_count'] == 0
+
+
+def test_research_context_attaches_revision_and_resets_between_rooms(setup_worker):
+    from types import SimpleNamespace
+    from tandem_worker.progress import research_reporting, research_update
+    backend, _, job, *_ = setup_worker('happy')
+    claim = backend.claim_job(job, 'worker', 'claim')
+    search = SimpleNamespace(key='search-key', gateway=SimpleNamespace(category='FLIGHT', actor_id='public-actor'), run={'run_id':'run-1','polls':1}, results=[])
+    with research_reporting(backend, claim, round=2):
+        research_update(search, 'RUNNING')
+    research_update(search, 'FAILED')  # No observer outside the claimed job.
+    events = [e for e in backend.shared_report()['events'] if e['kind'] == 'RESEARCH_ACTIVITY']
+    assert len(events) == 1
+    assert events[0]['payload']['round'] == 2
+    assert events[0]['payload']['job_ref'] == claim.job_id
+    assert events[0]['payload']['input_revision'] == backend.load_execution_context(claim).input_revision

@@ -16,7 +16,7 @@ from ..explain import explanation, owner_conflict_note, relax_prompt, requiremen
 from ..explain_rules import declined_note, on_hold_event, paused_note, rule_conflict_note
 from ..intake_policy import describe_rule
 from ..persona import persona
-from ..progress import activity, report as progress
+from ..progress import research_reporting, activity, report as progress
 from ..recovery import (check_prompt, choices, fallback_prompt, option_key, option_text, paused, rounds, rules_ref,
                         still_declined, unmet)
 from ..rules import dates_outside_trip, decisions, evaluate, remaining_stages, search_dates, stage_decisions
@@ -207,7 +207,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             "blocker_code": state.get("research_blocker_code", "NONE")}
         # No private caps, reasons or transcripts leave through ResearchPort.
         try:
-            raw = backend.operation(claim, f"research:{state['round']}", request, "research", lambda: research.search(request))
+            with research_reporting(backend, claim, round=state["round"]):
+                raw = backend.operation(claim, f"research:{state['round']}", request, "research", lambda: research.search(request))
         except ContractError as error:
             if error.code == "ROOM_NOT_ONBOARDED":
                 # Room-based research needs a confirmed trip brief and routes.

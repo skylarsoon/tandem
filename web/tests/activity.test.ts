@@ -1,0 +1,35 @@
+import { expect, it } from 'vitest';
+import { liveActivity } from '../lib/activity';
+const room = { id: 1n, inputRevision: 1n, membershipRevision: 1n, permissionRevision: 1n };
+const now = 1800000000000;
+function event(id: number, phase = 'RUNNING', extra = {}, time = now) {
+  return { id: BigInt(id), roomId: 1n, audience: 'ROOM', type: 'RESEARCH_ACTIVITY', createdAt: { microsSinceUnixEpoch: BigInt(time * 1000) }, safePayloadJson: JSON.stringify({ schema_version: 1, provider: 'APIFY', job_ref: '1', generation: '1', attempt: '1', input_revision: 1, membership_revision: 1, permission_revision: 1, category: 'FLIGHT', search_ref: 'safe-search', phase, round: 0, actor_id: 'actor', run_ref: 'run1', ...extra }) };
+}
+it('folds real run updates and distinguishes cache reuse and zero results', () => {
+  const model = liveActivity(room, { room_events: [event(1), event(2, 'COMPLETED', { result_count: 0 }), event(3, 'CACHED', { search_ref: 'another', result_count: 4 })] }, true, now);
+  expect(model.runs).toHaveLength(2);
+  expect(model.runs[0].count).toBe(0);
+  expect(model.runs[1].label).toBe('Reused recent results');
+  expect(model.runs.every(r => !r.live)).toBe(true);
+});
+it('shows simultaneous searches and never claims disconnected or stale runs are live', () => {
+  const tables = { room_events: [event(1), event(2, 'QUEUED', { search_ref: 'other' })] };
+  expect(liveActivity(room, tables, true, now).title).toBe('1 search in progress · 1 queued');
+  expect(liveActivity(room, tables, false, now).runs.every(r => !r.live)).toBe(true);
+  expect(liveActivity(room, tables, true, now + 46000).runs.every(r => r.stale)).toBe(true);
+});
+it('excludes private and unrelated room activity, fences input revisions and newer jobs', () => {
+  const tables = { room_events: [event(1), { ...event(2), audience: 'OWNER_PRIVATE' }, { ...event(3), roomId: 2n }, event(4, 'RUNNING', { job_ref: 'new' })] };
+  expect(liveActivity(room, tables, true, now).runs).toHaveLength(1);
+  expect(liveActivity(room, tables, true, now).runs[0].job_ref).toBe('new');
+  expect(liveActivity({ ...room, inputRevision: 2n }, tables, true, now).runs).toHaveLength(0);
+});
+it('unknown provider errors never become public exception text', () => {
+  const m = liveActivity(room, { room_events: [event(1, 'FAILED', { error_code: 'PRIVATE_CANARY' })] }, true, now);
+  expect(m.runs[0].detail).not.toContain('PRIVATE_CANARY');
+});
+it('stopped worker never leaves its previous provider run animated as active', () => {
+  const stop = { ...event(2), type: 'WORKFLOW_PROGRESS', safePayloadJson: JSON.stringify({ schema_version: 1, job_ref: '1', generation: '1', attempt: '1', input_revision: 1, membership_revision: 1, permission_revision: 1, stage: 'STOPPED', phase: 'FAILED', step_ref: 'stop' }) };
+  const m = liveActivity(room, { room_events: [event(1), stop] }, true, now);
+  expect(m.title).toBe('Planning needs attention'); expect(m.runs[0].live).toBe(false);
+});

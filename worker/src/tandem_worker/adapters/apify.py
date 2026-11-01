@@ -22,6 +22,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from pydantic import Field, ValidationError
+from ..progress import research_update
 
 from ..contracts import Candidate, ContractError, Record, digest
 
@@ -211,7 +212,6 @@ class ApifyResearch:
     def search(self, request):
         jobs = self.prepare(request)
         deadline = Deadline(self.monotonic, self.poll_deadline_seconds)
-        self.precheck(jobs)
         return collect_all(jobs, deadline, self.pause, self.max_concurrent_runs)
 
     def prepare(self, request):
@@ -273,6 +273,8 @@ class ApifyResearch:
                             self.ledger.write(job.key, run)
                             raise
                     try:
+                        job.run = run
+                        research_update(job, "STARTING")
                         accepted = self.client.start(self.actor_id, self.build, job.actor_input, self.max_charge_usd)
                     except ContractError as error:
                         if error.code in DEFINITE_REFUSALS:
@@ -299,6 +301,7 @@ class ApifyResearch:
         self.ledger.write(job.key, run)
         timeout = deadline.remaining()
         record = self.client.run_with_timeout(run["run_id"], timeout) if hasattr(self.client, "run_with_timeout") else self.client.run(run["run_id"])
+        research_update(job, "RUNNING")
         if record["status"] == "SUCCEEDED":
             run.update(state="COLLECTING", dataset_id=record["defaultDatasetId"], observed_at=self.clock.now())
             self.ledger.write(job.key, run)
@@ -354,34 +357,48 @@ class ApifyFlightResearch(ApifyResearch):
 
 
 def collect_all(jobs, deadline, pause, max_active=None):
-    """Start runs while there is capacity (Apify caps concurrent runs per
-    account), poll every started run in turn, and collect each as soon as it
-    succeeds; a finished run frees a slot for the next. Runs the ledger already
-    knows resume without using a slot. Each run keeps its own durable poll
-    count and ledger state."""
+    """Observe actual provider transitions, including queued capacity and reuse."""
     queue, active, cycle = list(jobs), [], 0
-    while queue or active:
-        for job in list(queue):
-            known = job.gateway.ledger.read(job.key) is not None
-            if not known and max_active is not None and len(active) >= max_active:
-                continue
-            job.gateway.launch([job], deadline)
-            queue.remove(job)
-            if job.run["state"] == "DONE":
-                job.results = [Candidate.model_validate(c) for c in job.run["candidates"]]
-            elif job.run["state"] == "COLLECTING":
-                job.gateway.collect(job, deadline)
-            else:
-                active.append(job)
-        finished = False
-        for job in list(active):
-            if job.gateway.poll(job, deadline):
-                job.gateway.collect(job, deadline)
-                active.remove(job)
-                finished = True
-        if active and not finished:
-            cycle += 1
-            pause(min(2 ** (cycle - 1), 10, deadline.remaining()))
+    current = None
+    try:
+        for job in jobs:
+            current = job
+            research_update(job, "QUEUED")
+            job.gateway.precheck([job])
+        while queue or active:
+            for job in list(queue):
+                current = job
+                known = job.gateway.ledger.read(job.key) is not None
+                if not known and max_active is not None and len(active) >= max_active:
+                    continue
+                job.gateway.launch([job], deadline)
+                queue.remove(job)
+                if job.run["state"] == "DONE":
+                    job.results = [Candidate.model_validate(c) for c in job.run["candidates"]]
+                    research_update(job, "CACHED")
+                elif job.run["state"] == "COLLECTING":
+                    research_update(job, "COLLECTING")
+                    job.gateway.collect(job, deadline)
+                    research_update(job, "COMPLETED")
+                else:
+                    research_update(job, "RUNNING")
+                    active.append(job)
+            finished = False
+            for job in list(active):
+                current = job
+                if job.gateway.poll(job, deadline):
+                    research_update(job, "COLLECTING")
+                    job.gateway.collect(job, deadline)
+                    research_update(job, "COMPLETED")
+                    active.remove(job)
+                    finished = True
+            if active and not finished:
+                cycle += 1
+                pause(min(2 ** (cycle - 1), 10, deadline.remaining()))
+    except Exception as error:
+        if current is not None and not (isinstance(error, ContractError) and error.code in {"LEASE_LOST", "STALE_SNAPSHOT"}):
+            research_update(current, "FAILED", error=error)
+        raise
     return [candidate for job in jobs for candidate in job.results]
 
 
@@ -425,6 +442,4 @@ class TripResearch:
         if gateways and refused == len(gateways):
             raise ContractError("TARGETED_SEARCH_NOT_AUTHORIZED")
         deadline = Deadline(self.monotonic, self.poll_deadline_seconds)
-        for job in jobs:
-            job.gateway.precheck([job])
         return collect_all(jobs, deadline, self.pause, self.flights.max_concurrent_runs)

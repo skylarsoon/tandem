@@ -5,6 +5,7 @@ import type { connect } from "../lib/client";
 import { json, money, proposalAction, questionAction, recoveryAction, type Row } from "../lib/state";
 import { constraintValue, describeFact, established, factStrength, label, outgoingMessage, planningStatus, preferenceDefaults,
   readable, revisionEvents, revisionText, scoped, timeline, type Preferences, type Tables, type TimelineItem } from "../lib/planning";
+import { LiveActivity } from "./live-activity";
 import { discussionTimeline } from "../lib/discussion";
 import { stages, workflow } from "../lib/workflow";
 import { AgentAvatar } from "./agent-avatar";
@@ -269,6 +270,8 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
       return ok;
     }} />
 
+    <div className="conversation-workspace">
+    <LiveActivity room={room} tables={input} connected={connected} />
     <div className="conversation-feed" role="log" aria-label="Trip messages" aria-live="polite" aria-relevant="additions" ref={scroll} onScroll={() => {
       if (scroll.current) atBottom.current = scroll.current.scrollHeight - scroll.current.scrollTop - scroll.current.clientHeight < 100;
     }}>
@@ -289,6 +292,7 @@ export function PlanningConversation({ room, tables: input, reducers, connected 
           {blocked && <small className="correction-status">{corrections.includes(item.key) ? "Correction sent · awaiting an updated response" : "Write your correction below, or cancel to keep this suggestion."}</small>}
         </article>;
       })}
+    </div>
     </div>
     {view === 'discussion' ? <div className="discussion-footer"><span>Every agent has a voice. The final decision is yours.</span><button type="button" onClick={() => setView('personal')}>Back to your agent →</button>{tables.room_proposals?.length ? <button type="button" onClick={() => { setView('personal'); atBottom.current = true; requestAnimationFrame(() => { if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; }); }}>Review the plan ↗</button> : null}</div> : <div className="composer-wrap">
       {error && <p role="alert" className="notice">{error}</p>}

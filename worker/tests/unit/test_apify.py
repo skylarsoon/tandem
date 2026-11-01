@@ -441,3 +441,44 @@ def test_runs_start_only_while_the_account_has_capacity_and_refusals_can_retry(t
         retry.search(request)
     retry.search(request)  # refused, not ambiguous: the same request may start again
     assert client.events[-2:] == [("start", "run-a"), ("done", "run-a")]
+
+
+def test_research_lifecycle_reports_real_transitions_and_cache_without_private_inputs(tmp_path):
+    from tandem_worker.progress import _research_observer
+    gateway, client, request = setup_gateway(tmp_path)
+    events = []
+    token = _research_observer.set(events.append)
+    try:
+        gateway.search(request)
+        assert [e['phase'] for e in events] == ['QUEUED', 'STARTING', 'RUNNING', 'RUNNING', 'COLLECTING', 'COMPLETED']
+        assert events[-1]['result_count'] == 1 and events[-1]['run_ref'] == 'run1'
+        assert all(not set(e) & {'owner', 'origin', 'destination', 'actor_input', 'dataset_id'} for e in events)
+        events.clear()
+        gateway.search(request)
+        assert [e['phase'] for e in events] == ['QUEUED', 'CACHED']
+        assert client.starts == 1
+    finally:
+        _research_observer.reset(token)
+
+
+def test_research_failure_is_safe_and_telemetry_does_not_break_work(tmp_path):
+    from tandem_worker.progress import _research_observer
+    class Bad(Client):
+        def run(self, run_id):
+            raise RuntimeError('PRIVATE_PROVIDER_BODY token=secret')
+    gateway, _, request = setup_gateway(tmp_path, Bad())
+    events = []
+    token = _research_observer.set(events.append)
+    try:
+        with pytest.raises(RuntimeError): gateway.search(request)
+        assert events[-1]['phase'] == 'FAILED'
+        assert events[-1]['error_code'] == 'RESEARCH_UNAVAILABLE'
+        assert 'PRIVATE_PROVIDER_BODY' not in str(events) and 'secret' not in str(events)
+    finally:
+        _research_observer.reset(token)
+    token = _research_observer.set(lambda _: (_ for _ in ()).throw(RuntimeError('offline')))
+    try:
+        gateway.client = Client()
+        assert gateway.search(request)
+    finally:
+        _research_observer.reset(token)
