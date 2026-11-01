@@ -541,3 +541,21 @@ def test_dataset_collection_has_its_own_bounded_deadline(tmp_path):
     gateway.poll_deadline_seconds = 2
     assert gateway.search(request)
     assert client.starts == 1
+
+
+def test_budget_blocked_attempt_can_resume_after_authorized_increase(tmp_path):
+    from tandem_worker.budget import ProviderBudget
+    gateway,client,request=setup_gateway(tmp_path)
+    budget=ProviderBudget(tmp_path/'budget.sqlite','serve',actor_runs=1,daily=True,day=lambda:'2026-11-01')
+    gateway.budget=budget
+    budget.reserve('apify')
+    for _ in range(2):
+        with pytest.raises(ContractError,match='ACTOR_RUN_BUDGET_EXHAUSTED'):
+            gateway.search(request)
+    assert client.starts==0
+    assert budget.report()['used']['apify']==1
+    budget.set_daily_limit('apify',2,utc_date='2026-11-01')
+    assert gateway.search(request)
+    assert gateway.search(request)
+    assert client.starts==1
+    assert budget.report()['used']['apify']==2

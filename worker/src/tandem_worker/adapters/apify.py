@@ -132,6 +132,14 @@ class RunLedger:
         with sqlite3.connect(self.path) as conn:
             conn.execute("DELETE FROM apify_runs WHERE key=?", (key,))
 
+    def retry_budget_blocked(self, key):
+        """Only a failed local reservation is retryable; no provider start occurred."""
+        with sqlite3.connect(self.path, timeout=15) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT body FROM apify_runs WHERE key=?", (key,)).fetchone()
+            if row and json.loads(row[0]).get("state") == "BUDGET_BLOCKED":
+                conn.execute("DELETE FROM apify_runs WHERE key=?", (key,))
+
     def begin(self, key, value):
         with sqlite3.connect(self.path, timeout=15) as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -263,10 +271,12 @@ class ApifyResearch:
     def precheck(self, jobs):
         """Refuse before starting anything new if an earlier start is unresolved."""
         for job in jobs:
+            self.ledger.retry_budget_blocked(job.key)
             self.refuse(self.ledger.read(job.key))
 
     def launch(self, jobs, deadline):
         for job in jobs:
+            self.ledger.retry_budget_blocked(job.key)
             run = self.ledger.read(job.key)
             if run is None:
                 run = {"state": "STARTING", "polls": 0, "category": self.category, "actor_id": self.actor_id,

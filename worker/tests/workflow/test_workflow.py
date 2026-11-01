@@ -180,3 +180,14 @@ def test_repeating_polite_dialogue_stops_without_research_or_approval(setup_work
     backend, worker, job, *_ = setup_worker(model=LoopModel())
     assert worker.run_one(job)["outcome"] == "NO_PROGRESS"
     assert not backend.shared_report()["proposals"]
+
+
+def test_expired_evidence_cannot_publish_and_is_reported_as_refreshable(setup_worker):
+    class ExpiredValidator(FlightValidator):
+        def validate(self,*args):
+            return super().validate(*args).model_copy(update={"valid":False,"checks":("EVIDENCE_EXPIRED",)})
+    backend,worker,job,*_=setup_worker(validator=ExpiredValidator())
+    assert worker.run_one(job)["outcome"]=="EVIDENCE_EXPIRED"
+    assert not backend.shared_report()["proposals"]
+    events=backend.shared_report()["events"]
+    assert any(e["kind"]=="WORKFLOW_PROGRESS" and e["payload"].get("error_code")=="EVIDENCE_EXPIRED" for e in events)

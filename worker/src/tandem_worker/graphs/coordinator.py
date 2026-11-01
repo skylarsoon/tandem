@@ -537,6 +537,8 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             # Checked against this stage of the claimed snapshot (current() narrowed it): bound to that claim.
             report = report.model_copy(update={"snapshot_ref": claim.snapshot_ref})
         if not report.valid:
+            if set(report.checks) == {"EVIDENCE_EXPIRED"}:
+                raise ContractError("EVIDENCE_EXPIRED")
             evidence_only = bool(report.checks) and set(report.checks) <= {"INCOMPLETE_COST_EVIDENCE", "BAGGAGE_UNKNOWN"}
             return {"outcome": "EXPLORATORY_ONLY" if evidence_only else "VALIDATION_FAILED", "validation_checks": list(report.checks)}
         result = solution(state)

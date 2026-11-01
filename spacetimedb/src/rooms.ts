@@ -221,7 +221,7 @@ export const retryPlanning = spacetimedb.reducer(
         'APIFY_INVALID_RESPONSE','APIFY_RUN_FAILED','EXECUTION_FAILED','INVALID_RESEARCH_REQUEST',
         // The worker rechecks its durable allowance before every provider call.
         // This also lets a trip resume after the UTC reset or an operator-approved increase.
-        'ACTOR_RUN_BUDGET_EXHAUSTED','MODEL_CALL_BUDGET_EXHAUSTED'];
+        'ACTOR_RUN_BUDGET_EXHAUSTED','MODEL_CALL_BUDGET_EXHAUSTED','EVIDENCE_EXPIRED'];
       if (!retryable.includes(latest.outcome ?? ''))
         fail('JOB_NOT_ELIGIBLE', 'this outcome needs attention before it can be retried');
       const next = createJob(ctx, r, 'PLAN', 'organizer retried an interrupted search');

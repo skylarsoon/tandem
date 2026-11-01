@@ -7,7 +7,7 @@ def finish(client, worker, room, job, outcome):
     client.call(worker,'finish_job',job_id=job,attempt=room.leases[job],request_key=key(),outcome=outcome,outcome_json='{}')
 
 
-@pytest.mark.parametrize("outcome", ["APIFY_POLL_DEADLINE_EXCEEDED", "INVALID_RESEARCH_REQUEST", "ACTOR_RUN_BUDGET_EXHAUSTED", "MODEL_CALL_BUDGET_EXHAUSTED"])
+@pytest.mark.parametrize("outcome", ["APIFY_POLL_DEADLINE_EXCEEDED", "INVALID_RESEARCH_REQUEST", "ACTOR_RUN_BUDGET_EXHAUSTED", "MODEL_CALL_BUDGET_EXHAUSTED", "EVIDENCE_EXPIRED"])
 def test_retry_is_organizer_only_idempotent_and_cannot_duplicate_active_work(ready_room,client,worker,outcome):
     room, job=ready_room
     args=dict(room_id=room.room_id,job_id=job,request_key=key())

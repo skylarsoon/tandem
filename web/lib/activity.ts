@@ -9,6 +9,8 @@ export const researchPhases: Record<string, string> = {
 export const categories: Record<string, string> = { FLIGHT: 'Flights', STAY: 'Places to stay', TRANSFER: 'Transfers', ACTIVITY: 'Things to do', DINNER: 'Places to eat' };
 export const stageLabels: Record<string, string> = { LOAD: 'Reading confirmed trip details', RESEARCH: 'Researching options', SOLVE: 'Comparing options for the group', AGENTS: 'Your agents are comparing the plan', VALIDATE: 'Checking the plan against your needs', PUBLISH: 'Preparing your proposal', REVIEW: 'Ready for your review', AGREED: 'Everyone has agreed', STOPPED: 'Planning stopped' };
 const errors: Record<string, string> = {
+  EVIDENCE_EXPIRED: 'The search results became too old to approve. Refresh the searches to check current prices and availability; your preferences and previous answers are saved.',
+  MODEL_CALL_BUDGET_EXHAUSTED: 'The agent allowance has been reached. The team needs to confirm capacity before planning can continue.',
   APIFY_POLL_DEADLINE_EXCEEDED: 'The worker stopped waiting for the search. The provider may still be running.',
   APIFY_POLL_BUDGET_EXHAUSTED: 'The search reached its status-check limit.',
   APIFY_RATE_LIMITED: 'Apify is limiting requests. The search could not continue.',
@@ -93,7 +95,7 @@ export function liveActivity(room: Row, tables: Record<string, Row[]>, connected
   let tone = 'quiet';
   if (!connected) title = 'Connection lost · showing last received activity';
   else if (retryPending) { title = 'Retry queued · waiting for the worker'; tone = 'waiting'; }
-  else if (stopped) { title = graph.last?.phase === 'FAILED' ? 'Planning needs attention' : 'Planning has stopped'; tone = graph.last?.phase === 'FAILED' ? 'error' : 'quiet'; }
+  else if (stopped) { title = graph.last?.error_code === 'EVIDENCE_EXPIRED' ? 'Search results need refreshing' : graph.last?.phase === 'FAILED' ? 'Planning needs attention' : 'Planning has stopped'; tone = graph.last?.phase === 'FAILED' ? 'error' : 'quiet'; }
   else if (running.length && !ended) { title = `${running.length} ${running.length === 1 ? 'search' : 'searches'} in progress${queued.length ? ` · ${queued.length} queued` : ''}`; tone = 'live'; }
   else if (failed.length && !ended) { title = 'A search needs attention'; tone = 'error'; }
   else if (queued.length && !ended) { title = `${queued.length} ${queued.length === 1 ? 'search' : 'searches'} queued`; tone = 'waiting'; }
@@ -116,5 +118,5 @@ export function liveActivity(room: Row, tables: Record<string, Row[]>, connected
     tone = 'live'; latestTime = Math.max(latestTime, ...activeAgents.map(a => a.time));
   }
   return { title, tone, retryPending, runs, agents, events, latestTime, graph, earlier: all.filter(e => !events.includes(e)),
-    detail: retryPending ? 'Your retry request was saved. Searches below show the previous attempt until the worker reports fresh activity.' : !events.length ? 'No worker execution has been reported for the current trip details yet.' : stopped ? 'Your saved trip is safe. This is the last reported state; a new attempt will appear here when it starts.' : 'Updates come from worker and provider events. Search results still need to be checked against the group’s needs.' };
+    detail: retryPending ? 'Your retry request was saved. Searches below show the previous attempt until the worker reports fresh activity.' : !events.length ? 'No worker execution has been reported for the current trip details yet.' : stopped ? errors[graph.last?.error_code] || 'Your saved trip is safe. This is the last reported state; a new attempt will appear here when it starts.' : 'Updates come from worker and provider events. Search results still need to be checked against the group’s needs.' };
 }

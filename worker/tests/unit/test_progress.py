@@ -87,3 +87,10 @@ def test_private_search_context_is_dropped_without_losing_progress(setup_worker)
     with research_reporting(backend,claim):research_update(search,'RUNNING')
     events=[e for e in backend.shared_report()['events'] if e['kind']=='RESEARCH_ACTIVITY']
     assert len(events)==1 and 'search_context' not in events[0]['payload']
+
+
+def test_unknown_failure_text_never_enters_shared_telemetry(setup_worker):
+    backend,_,job,*_=setup_worker('happy');claim=backend.claim_job(job,'worker','claim')
+    report(backend,claim,'STOPPED','FAILED',error_code='PRIVATE_PROVIDER_BODY')
+    event=backend.shared_report()['events'][-1]
+    assert 'error_code' not in event['payload']

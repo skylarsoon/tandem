@@ -71,3 +71,11 @@ it('a changed permission revision cannot revive an already processed retry reque
   expect(model.retryPending).toBe(false);
   expect(model.title).not.toContain('Retry queued');
 });
+
+it('explains expired quotes without treating saved findings as current or inventing exception details',()=>{
+  const stopped={...event(2),type:'WORKFLOW_PROGRESS',safePayloadJson:JSON.stringify({schema_version:1,job_ref:'1',generation:'1',attempt:'1',input_revision:1,membership_revision:1,permission_revision:1,stage:'STOPPED',phase:'FAILED',error_code:'EVIDENCE_EXPIRED'})};
+  const m=liveActivity(room,{room_events:[event(1,'COMPLETED',{result_count:10}),stopped]},true,now);
+  expect(m.title).toBe('Search results need refreshing');
+  expect(m.detail).toContain('too old to approve');
+  expect(m.runs.every(r=>!r.live)).toBe(true);
+});

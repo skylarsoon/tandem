@@ -15,7 +15,7 @@ def activity(backend, claim, owner, value):
         pass  # Observability outages must not change a planning decision.
 
 
-def report(backend, claim, stage, phase, *, round=0, cycle=0, step_ref="", draft_ref=""):
+def report(backend, claim, stage, phase, *, round=0, cycle=0, step_ref="", draft_ref="", error_code=""):
     try:
         snapshot = backend.load_execution_context(claim)
         payload = dict(schema_version=1, stage=stage, phase=phase, job_ref=claim.job_id,
@@ -23,6 +23,8 @@ def report(backend, claim, stage, phase, *, round=0, cycle=0, step_ref="", draft
                        input_revision=snapshot.input_revision, membership_revision=snapshot.membership_revision,
                        permission_revision=snapshot.permission_revision, round=round, cycle=cycle,
                        step_ref=step_ref or f"{stage}:{round}:{cycle}")
+        if stage == "STOPPED" and phase == "FAILED" and error_code in {"EVIDENCE_EXPIRED", "ACTOR_RUN_BUDGET_EXHAUSTED", "MODEL_CALL_BUDGET_EXHAUSTED"}:
+            payload["error_code"] = error_code
         if draft_ref:
             payload["draft_ref"] = draft_ref
         backend.room_event(claim, "WORKFLOW_PROGRESS", payload, "progress:" + digest(payload))

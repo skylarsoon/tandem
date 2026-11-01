@@ -123,7 +123,7 @@ class Worker:
         except ContractError as exc:
             if exc.code not in {"LEASE_LOST", "STALE_SNAPSHOT"}:
                 try:
-                    report(self.backend, claim, "STOPPED", "FAILED")
+                    report(self.backend, claim, "STOPPED", "FAILED", error_code=exc.code)
                     self.backend.finish_job(claim, exc.code)
                 except ContractError:
                     pass
