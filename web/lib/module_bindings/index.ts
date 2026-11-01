@@ -74,6 +74,7 @@ import ReplyToOwnerReducer from "./reply_to_owner_reducer";
 import RequestProfileSummaryReducer from "./request_profile_summary_reducer";
 import ResetTravellerPasswordReducer from "./reset_traveller_password_reducer";
 import RespondToProposalReducer from "./respond_to_proposal_reducer";
+import RetryPlanningReducer from "./retry_planning_reducer";
 import RevokeAppInvitationReducer from "./revoke_app_invitation_reducer";
 import SaveProfileAnswerReducer from "./save_profile_answer_reducer";
 import SetAgentActivityReducer from "./set_agent_activity_reducer";
@@ -418,6 +419,7 @@ const reducersSchema = __reducers(
   __reducerSchema("request_profile_summary", RequestProfileSummaryReducer),
   __reducerSchema("reset_traveller_password", ResetTravellerPasswordReducer),
   __reducerSchema("respond_to_proposal", RespondToProposalReducer),
+  __reducerSchema("retry_planning", RetryPlanningReducer),
   __reducerSchema("revoke_app_invitation", RevokeAppInvitationReducer),
   __reducerSchema("save_profile_answer", SaveProfileAnswerReducer),
   __reducerSchema("set_agent_activity", SetAgentActivityReducer),

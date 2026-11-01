@@ -22,7 +22,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from pydantic import Field, ValidationError
-from ..progress import research_update
+from ..progress import research_update, completed_search
 
 from ..contracts import Candidate, ContractError, Record, digest
 
@@ -157,9 +157,9 @@ DEFINITE_REFUSALS = {"APIFY_AUTH_FAILED", "APIFY_RESOURCE_UNAVAILABLE", "APIFY_R
 
 
 class Deadline:
-    """One wall-clock budget shared by every run in a research step."""
+    """A bounded wall-clock budget, started when a search gets a run slot."""
     def __init__(self, monotonic, seconds):
-        self.monotonic, self.at = monotonic, monotonic() + seconds
+        self.monotonic, self.seconds, self.at = monotonic, seconds, monotonic() + seconds
 
     def remaining(self):
         value = self.at - self.monotonic()
@@ -359,6 +359,7 @@ class ApifyFlightResearch(ApifyResearch):
 def collect_all(jobs, deadline, pause, max_active=None):
     """Observe actual provider transitions, including queued capacity and reuse."""
     queue, active, cycle = list(jobs), [], 0
+    run_deadlines = {}
     current = None
     try:
         for job in jobs:
@@ -371,30 +372,35 @@ def collect_all(jobs, deadline, pause, max_active=None):
                 known = job.gateway.ledger.read(job.key) is not None
                 if not known and max_active is not None and len(active) >= max_active:
                     continue
-                job.gateway.launch([job], deadline)
+                # Capacity waiting must not consume the actor's execution budget.
+                run_deadline = run_deadlines.setdefault(job.key, Deadline(deadline.monotonic, deadline.seconds))
+                job.gateway.launch([job], run_deadline)
                 queue.remove(job)
                 if job.run["state"] == "DONE":
                     job.results = [Candidate.model_validate(c) for c in job.run["candidates"]]
                     research_update(job, "CACHED")
+                    completed_search(job)
                 elif job.run["state"] == "COLLECTING":
                     research_update(job, "COLLECTING")
-                    job.gateway.collect(job, deadline)
+                    job.gateway.collect(job, run_deadlines[job.key])
                     research_update(job, "COMPLETED")
+                    completed_search(job)
                 else:
                     research_update(job, "RUNNING")
                     active.append(job)
             finished = False
             for job in list(active):
                 current = job
-                if job.gateway.poll(job, deadline):
+                if job.gateway.poll(job, run_deadlines[job.key]):
                     research_update(job, "COLLECTING")
-                    job.gateway.collect(job, deadline)
+                    job.gateway.collect(job, run_deadlines[job.key])
                     research_update(job, "COMPLETED")
+                    completed_search(job)
                     active.remove(job)
                     finished = True
             if active and not finished:
                 cycle += 1
-                pause(min(2 ** (cycle - 1), 10, deadline.remaining()))
+                pause(min(2 ** min(cycle - 1, 4), 10, max(0.01, min(run_deadlines[j.key].at - deadline.monotonic() for j in active))))
     except Exception as error:
         if current is not None and not (isinstance(error, ContractError) and error.code in {"LEASE_LOST", "STALE_SNAPSHOT"}):
             research_update(current, "FAILED", error=error)

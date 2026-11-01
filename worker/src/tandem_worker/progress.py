@@ -36,6 +36,23 @@ def report(backend, claim, stage, phase, *, round=0, cycle=0, step_ref="", draft
 # room research router. ContextVar prevents one concurrent room seeing another.
 
 _research_observer = ContextVar('research_observer', default=None)
+_research_results = ContextVar('research_results', default=None)
+
+
+@contextmanager
+def research_results(callback):
+    token = _research_results.set(callback)
+    try:
+        yield
+    finally:
+        _research_results.reset(token)
+
+
+def completed_search(job):
+    callback = _research_results.get()
+    if callback is not None:
+        callback(job.key, job.gateway.category, getattr(job.search, 'owner', None), tuple(job.results))
+
 RESEARCH_PHASES = {'QUEUED', 'STARTING', 'RUNNING', 'COLLECTING', 'COMPLETED', 'CACHED', 'FAILED'}
 RESEARCH_ERRORS = {'APIFY_AUTH_FAILED', 'APIFY_RESOURCE_UNAVAILABLE', 'APIFY_RATE_LIMITED',
     'APIFY_REQUEST_REFUSED', 'APIFY_REQUEST_FAILED', 'APIFY_CONNECTION_FAILED', 'APIFY_INVALID_RESPONSE',

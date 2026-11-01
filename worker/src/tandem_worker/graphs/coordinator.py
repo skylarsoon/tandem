@@ -24,6 +24,7 @@ from ..shortlist import dedupe, shortlist_choices
 from ..solver import POLICY, RELAXABLE, TripSolver, flight_violation, relax_nudge
 from .personal import build_personal, nudges, question_for, send_message
 from ..conversation import grounded_turn
+from ..research_dialogue import search_with_dialogue
 from ..policy import permitted_facts
 
 # Solver conflict → the research blocker a targeted search can act on, and what to search again.
@@ -174,7 +175,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         # Stable observation/request time across a replay, persisted in the op receipt.
         stamp = backend.operation(claim, f"research-time:{state['round']}", {}, "local", clock.now)
         trip = len(snapshot.components) > 1
-        initial = [*snapshot.components, "ACTIVITY", "DINNER"] if trip else list(snapshot.components)
+        initial = list(dict.fromkeys([*snapshot.components, "ACTIVITY", "DINNER"])) if trip else list(snapshot.components)
         # A stage searches what comes later too: what's left of each budget is held for it.
         initial += [c for c in remaining_stages(snapshot) if c not in initial]
         routes, facts = [], None
@@ -210,7 +211,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         # No private caps, reasons or transcripts leave through ResearchPort.
         try:
             with research_reporting(backend, claim, round=state["round"]):
-                raw = backend.operation(claim, f"research:{state['round']}", request, "research", lambda: research.search(request))
+                raw = backend.operation(claim, f"research:{state['round']}", request, "research", lambda: search_with_dialogue(backend, claim, model, research, request, snapshot, state["round"], clock))
         except ContractError as error:
             if error.code == "ROOM_NOT_ONBOARDED":
                 # Room-based research needs a confirmed trip brief and routes.

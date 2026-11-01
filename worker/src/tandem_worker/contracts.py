@@ -225,6 +225,7 @@ class Claim(Record):
 
 
 class Act(StrEnum):
+    RESEARCH_UPDATE = "RESEARCH_UPDATE"
     PROPOSE = "PROPOSE"
     EVALUATE = "EVALUATE"
     OBJECT = "OBJECT"
@@ -709,3 +710,4 @@ class IntakeContext(Record):
     # A question their agent is waiting on after they said no to every option:
     # {"prompt", "choices": [{id, label, ...}]}. A reply that changes nothing is pointed back to it.
     open_recovery: dict | None = None
+    planning_facts: dict[str, str] = Field(default_factory=dict)

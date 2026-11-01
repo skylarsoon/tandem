@@ -45,9 +45,13 @@ def candidate_facts(candidate: dict) -> dict[str, str]:
     if category != "FLIGHT":
         return shared_facts(candidate, complete)
     facts = {}
+    fare = (f"{candidate['leg']} one-way fare" if candidate.get('leg') else
+            'round-trip fare' if candidate.get('return_departure_epoch') else 'fare')
+    if candidate.get('departure_date'):
+        facts[f"{ref}#departure_date"] = f"The departure date is {candidate['departure_date']}."
     if candidate.get("total_cents") is not None:
-        facts[f"{ref}#price"] = (f"The fare is {money(candidate['total_cents'])} including taxes." if complete else
-                                 f"The listed fare is {money(candidate['total_cents'])}; some fees are not confirmed.")
+        facts[f"{ref}#price"] = (f"The {fare} is {money(candidate['total_cents'])} including taxes." if complete else
+                                 f"The listed {fare} is {money(candidate['total_cents'])}; some fees are not confirmed.")
     facts[f"{ref}#arrival"] = f"It lands at {local_time(candidate['arrival_epoch'], candidate.get('arrival_timezone'))}."
     bag = candidate.get("baggage_included")
     facts[f"{ref}#bag"] = ("A checked bag is included." if bag is True else
@@ -59,7 +63,7 @@ def shared_facts(candidate: dict, complete: bool) -> dict[str, str]:
     ref, price = candidate["id"], candidate.get("total_cents")
     facts = {}
     if candidate.get("title"):
-        facts[f"{ref}#title"] = f"The {'stay' if candidate['category'] == 'STAY' else 'transfer'} is {candidate['title']}."
+        facts[f"{ref}#title"] = f"The {dict(STAY='stay', TRANSFER='transfer', ACTIVITY='activity', DINNER='restaurant').get(candidate['category'], 'option')} is {candidate['title']}."
     if candidate["category"] == "STAY":
         if price is not None:
             facts[f"{ref}#price"] = (f"The stay costs {money(price)} in total, taxes included." if complete else
@@ -86,6 +90,7 @@ def permitted_facts(act: Act, payload: Payload, candidate: dict | list[dict] | N
     # headroom. Candidate facts come only from typed evidence (candidate_facts);
     # personal trade-offs are never phrased for the room.
     sentences = {
+        Act.RESEARCH_UPDATE: "These are research findings, not a selected or approved plan.",
         Act.PROPOSE: "Could you evaluate this option?",
         Act.EVALUATE: "My evaluation is complete; human review is still required.",
         Act.OBJECT: "One participant's requirements are not met by this option.",

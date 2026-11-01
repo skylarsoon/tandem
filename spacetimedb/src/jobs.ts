@@ -420,6 +420,20 @@ function buildContext(ctx: Ctx, j: JobRow) {
     threads,
     messages,
     candidates,
+    planning_activity: [...ctx.db.decisionEvent.byRoom.filter(r.id)]
+      .filter(e => e.audience === 'ROOM' && ['WORKFLOW_PROGRESS','RESEARCH_ACTIVITY'].includes(e.type))
+      .map(e => ({id: String(e.id), at: Number(e.createdAt.microsSinceUnixEpoch) / 1000000, type:e.type, payload:parsed(e.safePayloadJson)}))
+      .filter(e => { const p=e.payload as Record<string,unknown>; return String(p.input_revision)===String(r.inputRevision)
+        && String(p.membership_revision)===String(r.membershipRevision) && String(p.permission_revision)===String(r.permissionRevision); })
+      .slice(-80),
+    research_complete: [...ctx.db.decisionEvent.byRoom.filter(r.id)].some(e => {
+      if (e.type !== 'WORKFLOW_PROGRESS' || e.audience !== 'ROOM') return false;
+      const p = parsed(e.safePayloadJson) as Record<string, unknown>;
+      return p.stage === 'RESEARCH' && p.phase === 'COMPLETED'
+        && String(p.input_revision) === String(j.inputRevision)
+        && String(p.membership_revision) === String(j.membershipRevision)
+        && String(p.permission_revision) === String(j.permissionRevision);
+    }),
     proposals,
     commitments: agreed,
     compromise_history,

@@ -482,3 +482,22 @@ def test_research_failure_is_safe_and_telemetry_does_not_break_work(tmp_path):
         assert gateway.search(request)
     finally:
         _research_observer.reset(token)
+
+
+def test_queued_search_gets_its_own_deadline_after_capacity_opens(tmp_path):
+    now=[0.0]
+    class Slow(Client):
+        def __init__(self):
+            super().__init__(); self.started={}
+        def start(self,*args):
+            self.starts+=1; rid=f'run-{self.starts}'; self.started[rid]=now[0]
+            return {'id':rid,'defaultDatasetId':rid}
+        def run(self,rid):
+            return {'status':'SUCCEEDED' if now[0]-self.started[rid]>=4 else 'RUNNING','defaultDatasetId':rid}
+        def items(self,*args): return []
+    gateway,client,request=setup_gateway(tmp_path,Slow(),max_polls=20)
+    gateway.searches=[gateway.searches[0],gateway.searches[0].model_copy(update={'owner':'p2'})]
+    gateway.max_concurrent_runs=1;gateway.poll_deadline_seconds=10
+    gateway.monotonic=lambda:now[0];gateway.pause=lambda seconds:now.__setitem__(0,now[0]+seconds)
+    gateway.search({**request,'members':['p1','p2']})
+    assert client.starts==2 and now[0]>10

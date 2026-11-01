@@ -154,3 +154,21 @@ test('laptop workspaces keep the transcript, controls and plan inside the viewpo
     await expect(page.getByRole('button',{name:'Accept exact terms'})).toBeVisible();
   }
 });
+
+test('travellers can privately talk to Pip without leaving live group discussion',async({page},info)=>{
+  await page.setViewportSize({width:1366,height:768}); await open(page,'room');
+  await page.getByRole('tab',{name:'Agent discussion',exact:true}).click();
+  await page.getByRole('button',{name:'Talk to your Pip',exact:true}).click();
+  await expect(page.getByRole('tab',{name:'Agent discussion',exact:true})).toHaveAttribute('aria-selected','true');
+  await page.getByLabel('Message your agent').fill('What have the searches found so far?');
+  await page.getByRole('button',{name:'Send message ↑'}).click();
+  expect(await page.evaluate(()=>window.productFixture.calls.at(-1).method)).toBe('submitPrivateMessage');
+  await expect(page.getByRole('log',{name:'Private conversation with your Pip'})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const composer=await page.locator('.chat-composer').boundingBox();
+  expect(composer!.y+composer!.height).toBeLessThanOrEqual(768);
+  await page.screenshot({path:info.outputPath('laptop-live-private-conversation.png')});
+  await page.getByRole('button',{name:'Close private conversation'}).click();
+  await expect(page.getByRole('log',{name:'Private conversation with your Pip'})).toHaveCount(0);
+  await expect(page.getByText('Following live updates',{exact:true})).toBeVisible();
+});

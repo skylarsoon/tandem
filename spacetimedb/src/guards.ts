@@ -37,6 +37,7 @@ export const QUESTION_KINDS = [
 export const RECOVERY_CHOICES = ['change', 'accept', 'search', 'pause'] as const;
 export const GRANT_KINDS = ['OBJECTION_DISCLOSURE', 'CONCESSION_CONSULTATION', 'BROADER_EXPLORATION'];
 export const MESSAGE_TYPES = [
+  'RESEARCH_UPDATE',
   'PROPOSE',
   'EVALUATE',
   'OBJECT',

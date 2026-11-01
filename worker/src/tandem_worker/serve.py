@@ -132,6 +132,42 @@ def make_room_providers(config: ServeConfig, settings, directory, *, clock=None,
     return Providers(model, research, client, budget, ledger, settings.apify_actor_build, trip_categories=tuple(ACTORS))
 
 
+class JobScheduler:
+    """Keep the conversation lane responsive while one bounded plan runs.
+
+    No unbounded executor backlog: each scan fills only available slots, and
+    outstanding IDs remain reserved until their future is harvested.
+    """
+    def __init__(self, run, parallel=6):
+        self.run, self.parallel = run, max(1, parallel)
+        self.chats = ThreadPoolExecutor(max_workers=self.parallel, thread_name_prefix='chat')
+        self.plans = ThreadPoolExecutor(max_workers=1, thread_name_prefix='plan')
+        self.active = {}
+
+    def scan(self, jobs):
+        done = []
+        for job_id, (kind, future) in list(self.active.items()):
+            if future.done():
+                del self.active[job_id]
+                result = future.result()
+                if result:
+                    done.append(result)
+        for job in jobs:
+            if job['id'] in self.active:
+                continue
+            plan = job['kind'] == 'PLAN'
+            count = sum((kind == 'PLAN') == plan for kind, _ in self.active.values())
+            if count >= (1 if plan else self.parallel):
+                continue
+            pool = self.plans if plan else self.chats
+            self.active[job['id']] = (job['kind'], pool.submit(self.run, job))
+        return done
+
+    def close(self):
+        self.chats.shutdown(wait=True)
+        self.plans.shutdown(wait=True)
+
+
 def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, once=False, poll_seconds=3.0, max_jobs=None,
           parallel=6, settle_seconds=2.0, host="127.0.0.1", port=8080,
           clock=None, claude_client=None, apify_client=None, backend=None, providers=None, worker_id=None):
@@ -192,12 +228,19 @@ def serve(config: ServeConfig, settings, directory, *, rooms=None, kinds=None, o
                 return results
             time.sleep(poll_seconds)
 
+    scheduler = JobScheduler(run, parallel)
     def scan(*_args, **_kwargs):
-        done = sweep()
+        jobs = [j for j in backend.pending_jobs()
+                if (rooms is None or j["room_id"] in rooms or j["kind"] == "PROFILE")
+                and (kinds is None or j["kind"] in kinds)]
+        done = scheduler.scan(jobs)
         return {"result": {"outcome": ",".join(sorted({r.get("outcome", "?") for r in done})) or "NO_ELIGIBLE_WORK"}}
     service = WorkerService(None, settings, directory, None, backend=backend, run=scan, rooms=rooms,
                             kinds=set(kinds) if kinds else {"PLAN", "INTAKE", "INTERPRET", "PROFILE"},
                             poll_interval=poll_seconds, settle_seconds=settle_seconds)
     token = settings.worker_wake_token.get_secret_value() if settings.worker_wake_token else None
-    run_service(service, token, host=host, port=port, label={"mode": "ROOMS", "rooms": sorted(rooms) if rooms else "ALL"})
+    try:
+        run_service(service, token, host=host, port=port, label={"mode": "ROOMS", "rooms": sorted(rooms) if rooms else "ALL"})
+    finally:
+        scheduler.close()
     return results

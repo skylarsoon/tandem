@@ -3,6 +3,9 @@ import { t } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import {
   type Ctx,
+  createJob,
+  withReceipt,
+  OPEN_JOB_STATUSES,
   STAGES,
   emitEvent,
   fail,
@@ -194,5 +197,33 @@ export const setRoomSettings = spacetimedb.reducer(
     reopenBroken(ctx, roomId);  // new dates can leave an agreed pick outside the trip
     invalidateRoom(ctx, roomId, { input: true }, 'room settings changed');
     emitEvent(ctx, roomId, 'ROOM_SETTINGS_UPDATED', settings);
+  }
+);
+
+// A human explicitly retries the failed generation; never restart on polling or
+// a page refresh, never overwrite pending approvals or bypass provider limits.
+export const retryPlanning = spacetimedb.reducer(
+  { roomId: t.u64(), jobId: t.u64(), requestKey: t.string() },
+  (ctx, args) => {
+    requireHuman(ctx);
+    const r = requireRoom(ctx, args.roomId);
+    if (!r.organizer.isEqual(participantIdentity(ctx.db, ctx.sender)))
+      fail('NOT_AUTHORIZED', 'only the organizer can retry planning');
+    withReceipt(ctx, 'retry_planning', args.requestKey, args, () => {
+      const jobs = [...ctx.db.job.byRoom.filter(r.id)].filter(j => j.kind === 'PLAN');
+      const latest = jobs.sort((a,b) => a.id < b.id ? 1 : -1)[0];
+      if (!latest || latest.id !== args.jobId || !['FINISHED','FAILED'].includes(latest.status)
+          || latest.inputRevision !== r.inputRevision || latest.membershipRevision !== r.membershipRevision
+          || latest.permissionRevision !== r.permissionRevision || jobs.some(j => OPEN_JOB_STATUSES.includes(j.status)))
+        fail('JOB_NOT_ELIGIBLE', 'the trip already has an active or newer planning attempt');
+      const retryable = ['APIFY_POLL_DEADLINE_EXCEEDED','APIFY_POLL_BUDGET_EXHAUSTED',
+        'APIFY_RATE_LIMITED','APIFY_REQUEST_REFUSED','APIFY_REQUEST_FAILED','APIFY_CONNECTION_FAILED',
+        'APIFY_INVALID_RESPONSE','APIFY_RUN_FAILED','EXECUTION_FAILED'];
+      if (!retryable.includes(latest.outcome ?? ''))
+        fail('JOB_NOT_ELIGIBLE', 'this outcome needs attention before it can be retried');
+      const next = createJob(ctx, r, 'PLAN', 'organizer retried an interrupted search');
+      emitEvent(ctx, r.id, 'PLANNING_RETRY_REQUESTED', {previous_job_id: String(latest.id), job_id: String(next.id)});
+      return {};
+    });
   }
 );

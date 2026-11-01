@@ -351,9 +351,13 @@ class SpacetimeBackend:
 
     def reusable_candidates(self, claim):
         ctx = self._context(claim)
+        if not ctx.get("research_complete", False):
+            return []
         job, now = ctx["job"], self.clock.now()
         result = []
         for c in ctx["candidates"]:
+            if c['candidate_ref'].startswith('research-only:'):
+                continue
             if (c["input_revision"], c["membership_revision"]) != (job["input_revision"], job["membership_revision"]):
                 continue
             facts = {k: v for k, v in c["facts"].items() if k != "owner_member_id"}
@@ -616,7 +620,10 @@ class SpacetimeBackend:
             intake_state=intake.get("state"), coverage=intake.get("coverage") or {},
             question_count=intake.get("question_count", 0),
             preferences_confirmed=me["participation_preferences"]["confirmed"],
-            profile=subject.get("profile") or {}, open_recovery=subject.get("open_recovery"))
+            profile=subject.get("profile") or {}, open_recovery=subject.get("open_recovery"),
+            planning_facts={**planning_facts(ctx.get("planning_activity", []), self.clock.now()),
+                **{f"own:{c['constraint_id']}": f"Your confirmed {c['hardness'].lower()} {c['key']} is {json.dumps(c['value'])} {c['unit']}."
+                   for c in ctx['constraints'] if c['member_id'] == me['member_id']}})
 
     def _member_id(self, claim, owner):
         member = self._members(self._context(claim)).get(owner)
@@ -686,3 +693,33 @@ def seed_room(http: StdbHttp, briefs, goal: str = "Group trip", settings: dict |
     if settings:
         http.call(tokens[organizer], "set_room_settings", room_id=room["id"], settings_json=json.dumps(settings))
     return {"room_id": room["id"], "invite_code": room["invite_code"], "owner_tokens": tokens}
+
+
+def planning_facts(events, now):
+    """Only recorded shared telemetry reaches a private status answer. No other
+    traveller's profile, rules, conversation, cap, job outcome body or prompt."""
+    if not events:
+        return {'status': 'No execution updates have been reported for the current trip details yet.'}
+    latest = events[-1]['payload'].get('job_ref')
+    selected = {}
+    for event in events:
+        p = event['payload']
+        if p.get('job_ref') != latest:
+            continue
+        key = p.get('search_ref') if event['type'] == 'RESEARCH_ACTIVITY' else 'workflow'
+        if key:
+            selected[key] = event
+    facts = {}
+    for key, event in selected.items():
+        p = event['payload']; age = max(0, int(now-event['at']))
+        if event['type'] == 'RESEARCH_ACTIVITY':
+            context = p.get('search_context') or {}
+            detail = ', '.join(f'{k}: {v}' for k,v in context.items()
+                if k in {'origin','destination','departure_date','locations','check_in','check_out','leg','queries','location'})
+            count = p.get('result_count')
+            facts[f"search:{event['id']}"] = (f"{p.get('category')} search ({detail}): last reported {p.get('phase')} "
+                f"{age} seconds ago." + (f" Returned {count} usable options." if isinstance(count,int) else '')
+                + ' This is a provider observation, not a selected or booked option.')
+        else:
+            facts['workflow'] = f"Planning last reported {p.get('stage')} / {p.get('phase')}, {age} seconds ago."
+    return facts

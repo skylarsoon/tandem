@@ -285,11 +285,18 @@ class LocalBackend:
         with self._tx() as state:
             self._checked(state, claim)
             revisions = [state["snapshot"]["input_revision"], state["snapshot"]["membership_revision"]]
+            complete = any(e['kind'] == 'WORKFLOW_PROGRESS' and e['payload'].get('stage') == 'RESEARCH'
+                           and e['payload'].get('phase') == 'COMPLETED'
+                           and all(e['payload'].get(k) == state['snapshot'][k]
+                                   for k in ('input_revision', 'membership_revision', 'permission_revision'))
+                           for e in state['events'])
+            if not complete:
+                return []
             # This local backend only supports preference permission edits;
             # all fixture evidence is already public. A real projection must
             # additionally check current source/sharing/search authorization.
             return [Candidate.model_validate(c) for ref, c in state["candidates"].items()
-                    if state["candidate_context"].get(ref) == revisions and c["valid_until"] > self.clock.now()]
+                    if not ref.startswith('research-only:') and state["candidate_context"].get(ref) == revisions and c["valid_until"] > self.clock.now()]
 
     def ask_owner(self, claim, question):
         with self._tx() as state:

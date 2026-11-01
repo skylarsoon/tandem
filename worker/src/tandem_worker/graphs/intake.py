@@ -15,7 +15,7 @@ from datetime import date
 
 from pydantic import ValidationError
 
-from ..contracts import BriefDraft, ContractError, IntakeContext, IntakeExtraction, digest
+from ..contracts import Act, BriefDraft, ContractError, IntakeContext, IntakeExtraction, digest
 from ..intake_policy import (MAX_QUESTIONS, describe, fallback_question, open_topics, opening_question, patch_json, summary_text,
                              verify)
 from ..profile_suggest import asks_first, suggestions
@@ -66,8 +66,19 @@ def _change(backend, claim, model, ctx) -> str:
         backend.notify_owner(claim, ctx.owner, "\n".join(lines), f"{step}:recovery")
         return "NO_CHANGE"
     if not changes:
-        backend.notify_owner(claim, ctx.owner, "Noted. I didn't catch a change to your dates, budget or limits there; "
-                             "if something changed, tell me what it is now.", f"{step}:none")
+        # A question during planning deserves an answer, not another demand for
+        # intake details. Only real room telemetry is available as evidence here.
+        from ..conversation import grounded_turn
+        facts = {"act:RESEARCH_UPDATE": "Your confirmed trip details have not changed. You can ask questions while planning continues; only you can approve changes or a final proposal.",
+                 **(ctx.planning_facts or {"status": "No verified planning status is available in this response."})}
+        question = next((m.body for m in reversed(ctx.messages) if m.id in new), "")
+        if hasattr(model, 'converse'):
+            reply, _, _ = grounded_turn(backend, claim, model, act=Act.RESEARCH_UPDATE, facts=facts,
+                operation_ref=step+':answer', role="The traveller's private agent. Answer their question using only the recorded facts. Question: " + question,
+                evaluation='STATUS_ONLY', blocker='NONE', audience='OWNER_PRIVATE')
+        else:
+            reply = "Your details haven't changed. I don't have a verified planning update to add yet."
+        backend.notify_owner(claim, ctx.owner, reply, f"{step}:none")
         return "NO_CHANGE"
     for n, item in enumerate(changes):
         backend.propose_patch(claim, ctx.owner, patch_json(item), item.source_message_id, f"{step}:{n}")

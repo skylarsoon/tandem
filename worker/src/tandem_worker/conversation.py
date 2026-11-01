@@ -30,10 +30,12 @@ def check_draft(draft, facts, act):
 
 
 def grounded_turn(backend, claim, model, *, act, facts, operation_ref, role,
-                  evaluation, blocker, recent_turns=()):
+                  evaluation, blocker, recent_turns=(), audience="ROOM"):
     # Never pass the private decision rationale, profile, rules or owner limits.
     context = {"act": act.value, "evaluation": evaluation, "blocker": blocker,
                "role": role, "facts": facts, "recent_turns": list(recent_turns[-6:])}
+    if audience == "OWNER_PRIVATE":
+        context["audience"] = audience
     for attempt in range(2):
         try:
             key = f"conversation:{operation_ref}:{digest(context)}:{attempt}"
@@ -43,6 +45,8 @@ def grounded_turn(backend, claim, model, *, act, facts, operation_ref, role,
             review_context = {"act": act.value, "evaluation": evaluation, "blocker": blocker,
                               "facts": {ref: facts[ref] for ref in draft.claim_refs},
                               "draft": draft.model_dump(mode="json")}
+            if audience == "OWNER_PRIVATE":
+                review_context["audience"] = audience
             review_raw = backend.operation(claim, key + ":review:" + digest(review_context), review_context,
                                            "model", lambda: model.review_conversation(review_context))
             review = ConversationReview.model_validate(review_raw)
