@@ -129,7 +129,9 @@ export function established(room: Row, tables: Tables): [string, string][] {
   if (facts.start_date) rows.push(["Dates", `${facts.start_date}${facts.end_date ? ` → ${facts.end_date}` : ""}`]);
   if (facts.destination_airport) rows.push(["Arrival airport", facts.destination_airport]);
   // Default room components are not evidence that the user chose to fly.
-  if (confirmed && Array.isArray(facts.components) && facts.components.length)
+  if (confirmed && Array.isArray(facts.stages) && facts.stages.length)
+    rows.push(["Planning in order", facts.stages.map(label).join(" → ")]);
+  else if (confirmed && Array.isArray(facts.components) && facts.components.length)
     rows.push(["Planning", facts.components.map(label).join(", ")]);
   return rows;
 }

@@ -96,7 +96,7 @@ function MessageCard({ item, tables, room, disabled, act, reducers, prefs, setPr
       <h3>{row.state === "CONFIRMED" ? "Confirmed trip brief" : "Does this sound right?"}</h3>
       {brief.destination && <p>{brief.destination}{brief.destination_airport ? ` (${brief.destination_airport})` : ""}</p>}
       {brief.start_date && <p>{brief.start_date}{brief.end_date ? ` → ${brief.end_date}` : ""}</p>}
-      {Array.isArray(brief.components) && <p>{brief.components.map(label).join(", ")}</p>}
+      {Array.isArray(brief.stages) && brief.stages.length > 0 ? <p><strong>Planning in order:</strong> {brief.stages.map(label).join(" → ")}</p> : Array.isArray(brief.components) && <p>{brief.components.map(label).join(", ")}</p>}
       {brief.vibe && <p>{brief.vibe}</p>}
       {row.state === "PROPOSED" && organizer && <div className="actions">
         <button disabled={disabled} onClick={() => void act(item.key, () => reducers.confirmTripBrief({ roomId: room.id, revision: row.revision }))}>Confirm trip brief</button>

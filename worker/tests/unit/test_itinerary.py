@@ -47,3 +47,13 @@ def test_a_route_with_a_return_date_searches_the_way_home_too():
                                            "return_date": "2026-11-24", "max_stops": None}]}, "dinner")
     assert [(f.origin, f.destination, f.departure_date.isoformat(), f.leg) for f in flights] == [
         ("SMF", "HNL", "2026-11-21", "outbound"), ("HNL", "SMF", "2026-11-24", "return")]
+
+
+def test_later_trip_stages_keep_destination_context_without_researching_flights():
+    flights,trip=searches_for({'routes':[], 'trip':{'destination':'San Diego', 'destination_airport':'SAN',
+        'check_in':'2026-11-20','check_out':'2026-11-22','party_size':2,'pickup_time':'14:00'}},'restaurants')
+    assert flights==[]
+    assert set(trip.by_category())=={'STAY','TRANSFER','ACTIVITY','DINNER'}
+    assert trip.activities.destination=='San Diego, us'
+    assert trip.dinner.location=='San Diego, California, US'
+    assert trip.transfer.passengers==2

@@ -180,7 +180,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
         initial += [c for c in remaining_stages(snapshot) if c not in initial]
         routes, facts = [], None
         if snapshot.onboarding and "FLIGHT" not in initial:
-            facts = {"destination": snapshot.destination, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
+            facts = {"destination": snapshot.destination, "destination_airport": snapshot.destination_airport, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
                      "party_size": len(snapshot.members), "pickup_time": state.get("pickup_time")}
         elif snapshot.onboarding:
             # Search from what people confirmed; wait until everyone has said where they fly from.
@@ -195,7 +195,7 @@ def build_coordinator(backend, claim, model, research, solver, validator, clock,
             dates = {o: (later(d[0], shift.get(o, 0)), d[1]) for o, d in dates.items()}
             routes = [{"owner": o, "origin": b.origin_airport, "destination": snapshot.destination_airport,
                        "date": dates[o][0], "return_date": dates[o][1], "max_stops": b.max_stops} for o, b in briefs.items()]
-            facts = {"destination": snapshot.destination, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
+            facts = {"destination": snapshot.destination, "destination_airport": snapshot.destination_airport, "check_in": snapshot.start_date, "check_out": snapshot.end_date,
                      "party_size": len(snapshot.members), "pickup_time": state.get("pickup_time")}
             # The airport transfer is searched once flights are chosen, for the group's latest landing.
             initial = [c for c in initial if c != "TRANSFER"]

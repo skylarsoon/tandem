@@ -207,9 +207,9 @@ def _brief(backend, claim, model, ctx: IntakeContext) -> str:
             raise
         return "NOT_HANDLED"
     b = draft.brief
-    plan = {"FLIGHT": "flights", "STAY": "a place to stay", "TRANSFER": "an airport transfer"}
+    plan = {"FLIGHT": "flights", "STAY": "a place to stay", "TRANSFER": "an airport transfer", "ACTIVITY": "activities", "DINNER": "dinner"}
     backend.notify_owner(claim, ctx.owner,
         f"Here's the trip as I understand it: {b.destination} ({b.destination_airport}), {b.start_date} to {b.end_date}, "
-        f"planning {', '.join(plan[c] for c in b.components)}." + (f" Vibe: {b.vibe}." if b.vibe else "") +
+        f"planning {', then '.join(plan[c] for c in b.stages) if b.stages else ', '.join(plan[c] for c in b.components)}." + (f" Vibe: {b.vibe}." if b.vibe else "") +
         " Confirm it and everyone's agents will start getting to know them.", f"{step}:summary")
     return "BRIEF_PROPOSED"

@@ -74,7 +74,8 @@ def searches_for(request: dict, dinner_query: str) -> tuple[list[MemoSearch], Tr
                 targeted_filters=targeted, leg="return"))
     trip, shared = request.get("trip"), {}
     if trip:
-        airport = _airport(request["routes"][0]["destination"]) if request.get("routes") else None
+        airport_code = request["routes"][0]["destination"] if request.get("routes") else trip.get("destination_airport")
+        airport = _airport(airport_code) if airport_code else None
         check_in = date.fromisoformat(trip["check_in"])
         shared["stay"] = StaySearch(destination=trip["destination"], check_in=check_in,
                                     check_out=date.fromisoformat(trip["check_out"]), adults=trip["party_size"])
