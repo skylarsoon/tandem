@@ -218,7 +218,7 @@ export const retryPlanning = spacetimedb.reducer(
         fail('JOB_NOT_ELIGIBLE', 'the trip already has an active or newer planning attempt');
       const retryable = ['APIFY_POLL_DEADLINE_EXCEEDED','APIFY_POLL_BUDGET_EXHAUSTED',
         'APIFY_RATE_LIMITED','APIFY_REQUEST_REFUSED','APIFY_REQUEST_FAILED','APIFY_CONNECTION_FAILED',
-        'APIFY_INVALID_RESPONSE','APIFY_RUN_FAILED','EXECUTION_FAILED'];
+        'APIFY_INVALID_RESPONSE','APIFY_RUN_FAILED','EXECUTION_FAILED','INVALID_RESEARCH_REQUEST'];
       if (!retryable.includes(latest.outcome ?? ''))
         fail('JOB_NOT_ELIGIBLE', 'this outcome needs attention before it can be retried');
       const next = createJob(ctx, r, 'PLAN', 'organizer retried an interrupted search');

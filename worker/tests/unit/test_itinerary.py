@@ -57,3 +57,22 @@ def test_later_trip_stages_keep_destination_context_without_researching_flights(
     assert trip.activities.destination=='San Diego, us'
     assert trip.dinner.location=='San Diego, California, US'
     assert trip.transfer.passengers==2
+
+
+def test_later_stage_context_crosses_the_production_research_boundary():
+    from tandem_worker.live import CheckedResearch
+    from tandem_worker.contracts import ContractError
+    import pytest
+    class Gateway:
+        def search(self,request):
+            flights,trip=searches_for(request,'restaurants')
+            assert not flights and trip.activities is not None and trip.dinner is not None
+            return []
+    checked=CheckedResearch(Gateway());checked.verified=True
+    request={'purpose':'INITIAL','members':['a','b'],'target_owners':['a','b'],'scope':'TRIP',
+        'room_id':'demo','input_revision':1,'permission_revision':1,'observed_at':1,
+        'categories':['ACTIVITY','DINNER'],'routes':[], 'trip':{'destination':'San Diego','destination_airport':'SAN',
+        'check_in':'2026-11-20','check_out':'2026-11-22','party_size':2}}
+    assert checked.search(request)==[]
+    with pytest.raises(ContractError,match='INVALID_RESEARCH_REQUEST'):
+        checked.search({**request,'trip':{**request['trip'],'private_limit':65000}})

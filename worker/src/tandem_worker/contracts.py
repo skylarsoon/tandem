@@ -502,6 +502,7 @@ class Route(Record):
 class TripFacts(Record):
     """What the shared searches need, from the confirmed brief."""
     destination: str
+    destination_airport: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     check_in: str
     check_out: str
     party_size: int = Field(ge=1, le=20)
