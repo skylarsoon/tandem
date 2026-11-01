@@ -6,6 +6,7 @@ import { PlanningConversation, TripOverview } from "../../components/planning-ro
 import { AgentSetup } from "../../components/agent-setup";
 import { AgentAvatar } from "../../components/agent-avatar";
 import { ProductHeader, Icon } from "../../components/product-shell";
+import { readTripLocation, tripLocation, type TripView } from "../../lib/trip-location";
 import { scoped, readable } from "../../lib/planning";
 import { myCharacter } from "../../lib/agents";
 import type { Row } from "../../lib/state";
@@ -29,6 +30,8 @@ export default function Page() {
 export function Dashboard({ client }: { client: Client }) {
   const state = useSyncExternalStore(client.session.subscribe, client.session.getSnapshot, client.session.getSnapshot);
   const [roomId, setRoomId] = useState<string>();
+  const [roomView, setRoomView] = useState<TripView>("personal");
+  const [locationError, setLocationError] = useState("");
   const [setupRoom, setSetupRoom] = useState<string>();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -44,14 +47,34 @@ export function Dashboard({ client }: { client: Client }) {
   const current = rooms.find(r => String(r.id) === roomId);
   const sharedRoom = useRef<Row | undefined>(undefined);
   useEffect(() => { if (ready && current) sharedRoom.current = current; }, [ready, current]);
-  const room = current || (sharedRoom.current && String(sharedRoom.current.id) === roomId ? sharedRoom.current : undefined);
+  const room = current || (!ready && sharedRoom.current && String(sharedRoom.current.id) === roomId ? sharedRoom.current : undefined);
   const tables = room ? scoped(state.tables, room) : {};
   const disabled = !ready || pending;
   const displayName = state.tables.my_profile?.[0]?.displayName || '';
   useEffect(() => { if (displayName) setName(current => current || displayName); }, [displayName]);
-  function select(id: string) {
+  function select(id: string, view: TripView = 'personal', updateHistory = true) {
+    if (updateHistory) window.history.pushState(null, '', tripLocation(window.location.pathname, id, view));
+    setRoomView(view); setLocationError('');
     setRoomId(id || undefined); sharedRoom.current = undefined; client.session.select(id);
     setSetupRoom(id && sessionStorage.getItem(`tandem:setup:${id}`) === 'pending' ? id : undefined);
+  }
+  useEffect(() => {
+    if (!ready) return;
+    const restore = () => {
+      const location = readTripLocation(window.location.search);
+      if (location.trip && !rooms.some(r => String(r.id) === location.trip)) {
+        select('', 'personal', false);
+        window.history.replaceState(null, '', window.location.pathname);
+        setLocationError('This trip isn’t available to this account. Choose one of your trips or ask the organizer for an invitation.');
+      } else if (location.trip !== roomId) select(location.trip || '', location.view, false);
+      else setRoomView(location.view);
+    };
+    restore(); window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, [ready, rooms, roomId]);
+  function changeView(view: TripView) {
+    setRoomView(view);
+    if (view !== roomView) window.history.pushState(null, '', tripLocation(window.location.pathname, roomId, view));
   }
   useEffect(() => {
     if (!ready || !awaitingRoom.current) return;
@@ -74,7 +97,8 @@ export function Dashboard({ client }: { client: Client }) {
   }
   function open(mode: 'create' | 'join') { setMode(mode); setError(''); dialog.current?.showModal(); }
   return <>
-    <div id="trip-workspace" className={room ? 'planning-shell' : 'trips-home'}>
+    {locationError && <p role="alert" className="notice route-notice">{locationError}</p>}
+    <div id="trip-workspace" data-has-trips={rooms.length > 0} className={room ? 'planning-shell' : 'trips-home'}>
       {room ? <>
         <aside className="overview-panel" aria-label="Trip details">
           <button className="back-to-trips" onClick={() => select('')}>← All your trips</button>
@@ -83,7 +107,7 @@ export function Dashboard({ client }: { client: Client }) {
           <button className="new-trip-rail" onClick={() => open('create')}><Icon name="plus" size={16}/>Create or join a trip</button>
           <p className="connection"><span className={`dot ${ready ? 'online' : ''}`}/>{ready ? 'All changes synced' : 'Reconnecting…'}</p>
         </aside>
-        {setupRoom === String(room.id) ? <AgentSetup key={String(room.id)} room={room} tables={tables} connected={ready} appearanceReady={state.appearanceStatus === 'ready'} save={variant => client.connection.reducers.setAgentAppearance({ variant })} onComplete={() => { sessionStorage.setItem(`tandem:setup:${room.id}`, 'done'); setSetupRoom(undefined); }} /> : <PlanningConversation key={String(room.id)} room={room} tables={tables} reducers={client.connection.reducers} connected={ready} />}
+        {setupRoom === String(room.id) ? <AgentSetup key={String(room.id)} room={room} tables={tables} connected={ready} appearanceReady={state.appearanceStatus === 'ready'} save={variant => client.connection.reducers.setAgentAppearance({ variant })} onComplete={() => { sessionStorage.setItem(`tandem:setup:${room.id}`, 'done'); setSetupRoom(undefined); }} /> : <PlanningConversation key={String(room.id)} room={room} tables={tables} reducers={client.connection.reducers} connected={ready} selectedView={roomView} onViewChange={changeView} />}
       </> : <>
         <section className="home-heading"><div><p className="eyebrow">A LITTLE COMMON GROUND</p><h1>{displayName ? `Good to see you, ${displayName}.` : 'Your next chapter starts here.'}</h1><p>Different people. Shared adventures. A plan that feels right for everyone.</p></div><span className="sync-status"><span className={`dot ${ready ? 'online' : ''}`}/>{ready ? 'Synced to your account' : 'Connecting…'}</span></section>
         <section className="home-invitation"><div className="home-invitation-copy"><span className="eyebrow">MAKE ROOM FOR A LITTLE ADVENTURE</span><h2>Somewhere new.<br/>Together.</h2><p>Bring your people and a rough idea.<br/>Your companions will help with the rest.</p><div className="home-actions"><button className="primary-action" onClick={() => open('create')}><Icon name="plus" size={18}/>Start a trip</button><button className="text-action" onClick={() => open('join')}>Join with a code <Icon name="arrow" size={18}/></button></div></div>

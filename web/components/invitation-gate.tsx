@@ -6,12 +6,15 @@ import styles from "./invitation-gate.module.css";
 export function InvitationGate({ client, children }: { client: ReturnType<typeof connect>; children: ReactNode }) {
   const state = useSyncExternalStore(client.session.subscribe, client.session.getSnapshot, client.session.getSnapshot);
   const attemptedAccountAccess = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const admitted = useRef(false);
   const owner = useRef<string | undefined>(undefined);
   const accountEpoch = useRef(0);
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const allowed = state.status === "ready" && state.tables.my_app_access?.[0]?.allowed === true;
   useEffect(() => {
     // URL fragments never reach Vercel access logs or HTTP referrers.
@@ -23,13 +26,12 @@ export function InvitationGate({ client, children }: { client: ReturnType<typeof
   }, []);
   useEffect(() => { if (allowed) setToken(""); }, [allowed]);
   useEffect(() => {
-    if (allowed || state.status !== 'ready' || attemptedAccountAccess.current) return;
+    if (allowed) { setRestoring(false); return; }
+    if (state.status !== 'ready' || attemptedAccountAccess.current) return;
     attemptedAccountAccess.current = true;
-    let active = true;
     void import('../lib/account-app').then(({ restoreSignedInAccount }) => restoreSignedInAccount(client)).catch(e => {
-      if (active) setError(e instanceof Error ? e.message : 'Could not restore your account.');
-    });
-    return () => { active = false; };
+      if (mounted.current) setError(e instanceof Error ? e.message : 'Could not restore your account.');
+    }).finally(() => { if (mounted.current) setRestoring(false); });
   }, [allowed, state.status, client]);
   // Selecting a room resubscribes and briefly enters synchronizing. Keep the
   // dashboard mounted (but hidden) so its selected trip/setup state survives.
@@ -46,6 +48,7 @@ export function InvitationGate({ client, children }: { client: ReturnType<typeof
     {!allowed && <p role="status">Synchronizing your trip…</p>}
     <div key={accountEpoch.current} style={{ display: allowed ? 'contents' : 'none' }}>{children}</div>
   </>;
+  if (restoring && !error && !state.error) return <div className="connection-empty" role="status"><div><span className="connection-orbit" aria-hidden="true"/><p>Opening your space…</p><small>Restoring your profile and saved trips.</small></div></div>;
   const connected = state.status === "ready";
   return <section className={styles.gate} aria-labelledby="invite-title">
     <div className={styles.icon} aria-hidden="true">✳</div>

@@ -159,7 +159,7 @@ function MessageCard({ item, tables, room, disabled, act, reducers, prefs, setPr
 
 export function TripOverview({ room, tables, connected }: { room: Row; tables: Tables; connected: boolean }) {
   tables = connected ? scoped(tables, room) : {};
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     const mobile = window.matchMedia("(max-width: 760px)");
     const update = () => setExpanded(!mobile.matches);
@@ -194,13 +194,16 @@ export function TripOverview({ room, tables, connected }: { room: Row; tables: T
   </>;
 }
 
-export function PlanningConversation({ room, tables: input, reducers, connected }: {
+export function PlanningConversation({ room, tables: input, reducers, connected, selectedView, onViewChange }: {
   room: Row; tables: Tables; reducers: Reducers; connected: boolean;
+  selectedView?: 'personal' | 'discussion' | 'plan' | 'limits';
+  onViewChange?: (view: 'personal' | 'discussion' | 'plan' | 'limits') => void;
 }) {
   const tables = connected ? scoped(input, room) : {}, items = timeline(room, tables);
   const sharedSetup = tables.room_members?.some(m => m.isMe && m.role === "ORGANIZER") && !tables.room_trip_brief?.length;
   type View = 'personal' | 'discussion' | 'plan' | 'limits';
-  const [view, setView] = useState<View>('personal');
+  const [localView, setLocalView] = useState<View>('personal');
+  const view = selectedView ?? localView, setView = onViewChange ?? setLocalView;
   const [followLive, setFollowLive] = useState(true), [unread, setUnread] = useState(0);
   const [incoming, setIncoming] = useState<{key:string;target?:string}>();
   const knownDiscussion = useRef<Set<string> | undefined>(undefined);

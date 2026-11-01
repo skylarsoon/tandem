@@ -15,7 +15,7 @@ export function LiveActivity({ room, tables, connected }: { room: Row; tables: R
   }, []);
   const model = liveActivity(room, tables, connected && online, now);
   const time = (value: number) => ageLabel(value, now);
-  return <section className={styles.activity} aria-label="Live agent activity" data-tone={model.tone}>
+  return <section className={styles.activity} aria-label="Live agent activity" data-expanded={open} data-tone={model.tone}>
     <button type="button" className={styles.summary} aria-expanded={open} onClick={() => setOpen(!open)}>
       <span className={styles.indicator} aria-hidden="true" /><span className={styles.heading}><small>BEHIND THE PLAN</small><strong aria-live="polite">{model.title}</strong></span>
       <span className={styles.updated}>{model.latestTime ? time(model.latestTime) : 'Waiting'}</span><span className={styles.toggle}>{open ? 'Hide activity −' : 'View activity +'}</span>

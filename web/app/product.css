@@ -186,3 +186,133 @@
 }
 
 .discussion-live-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0;margin:9px 28px 0;padding:0 2px;font-size:10px;color:#7b8573}.discussion-live-bar>span{display:flex;gap:7px;align-items:center}.discussion-live-bar i{width:5px;height:5px;border-radius:50%;background:#aeae9b}.discussion-live-bar i[data-connected=true]{background:#62967b}.product-app .discussion-live-bar button{border:0;background:transparent;min-height:30px;padding:4px 0;font-size:10px;color:#6e5a84}.product-app .message-meta .message-recipient{background:none;color:#839178;padding:0;font-family:var(--font-main);font-size:10px}.message-time{margin-left:auto;color:#8e9786;font:9px var(--font-detail);white-space:nowrap}.product-app .chat-item[data-new=true]{animation:arrive .38s cubic-bezier(.2,.7,.3,1) both;border-color:#a9bea1}.product-app .room-companions-list>li[data-updated=true]{box-shadow:0 0 0 2px #b7c9a4 inset;background:#f3f8ed}.product-app .chat-item[data-speaking=true]{transition:background .25s,border-color .25s;box-shadow:0 8px 24px #5d7a5910}@keyframes arrive{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}@media(max-width:760px){.discussion-live-bar{margin:5px 14px 0;font-size:9px}.product-app .discussion-live-bar button{min-height:34px;font-size:9px}.message-time{font-size:8px}.product-app .voice-actions button{min-height:40px}.product-app .discussion-footer button{min-height:40px}}@media(prefers-reduced-motion:reduce){.product-app .chat-item[data-new=true]{animation:none}}
+
+
+/* Production design review: readable content, contained layouts, deliberate recovery. */
+.product-app :is(h1,h2,h3,p,dd,strong,.utterance) { overflow-wrap:anywhere; }
+.product-app .account-link { width:44px; height:44px; flex-shrink:0; }
+.product-app .chat-item .utterance { font-size:15px; line-height:1.75; color:#3e4945; }
+.product-app .message-meta strong { font-size:12px; color:#314b40; }
+.product-app .message-meta .message-recipient,.product-app .message-time { color:#60705e; font-size:11px; }
+.product-app .discussion-source { font-size:11px; color:#65715f; border-top:1px solid var(--line); padding-top:10px; }
+.product-app .conversation-tabs button { min-height:46px; font-size:12px; }
+.product-app .voice-actions button,.product-app .discussion-footer button { min-height:44px; font-size:12px; }
+.product-app .discussion-live-bar { color:#5e705d; font-size:11px; }
+.product-app .discussion-live-bar button { font-size:11px; min-height:36px; }
+.product-app .conversation-workspace>section[aria-label="Live agent activity"][data-expanded=true] { max-height:60%; flex-shrink:1; }
+.product-app .overview-panel .trip-heading h1 { text-wrap:pretty; }
+.product-app .route-notice { margin:20px auto; max-width:1160px; }
+.recovery-page { max-width:680px; margin:auto; padding:clamp(64px,12vh,140px) 24px; text-align:center; }
+.recovery-page h1 { margin:24px 0 16px; }.recovery-page>p:not(.eyebrow) { max-width:470px; margin:0 auto; color:var(--muted); font-size:16px; }
+.recovery-mark { display:grid;place-items:center;width:90px;height:90px;margin:0 auto 24px;border:1px solid #dcd5e8;border-radius:28px;background:var(--lavender);color:var(--purple);transform:rotate(-6deg); }
+.recovery-mark svg { transform:rotate(6deg); }.recovery-actions { display:flex;gap:24px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:32px; }
+.connection-empty small { color:var(--muted); }.connection-orbit { display:block;width:32px;height:32px;border:2px solid #dfe6d8;border-top-color:#63856b;border-radius:50%;margin:0 auto 20px; }
+@media(prefers-reduced-motion:no-preference) { .connection-orbit { animation:connection-turn 1.4s linear infinite; } @keyframes connection-turn { to { transform:rotate(360deg); } } }
+@media(max-width:760px) {
+  .product-app input,.product-app textarea,.product-app select { font-size:16px; }
+  .product-app .account-layout { min-height:0; display:flex; flex-direction:column; }
+  .product-app .account-story { padding:20px 24px; }.product-app .account-story .eyebrow { margin:0; }
+  .product-app .account-story h1 { font-size:25px; letter-spacing:-1px; margin:8px 0 0; }
+  .product-app .account-story h1 br { display:none; }.product-app .account-story>p { display:none; }
+  .product-app .account-form-panel { padding:24px; align-items:flex-start; }
+  .product-app .account-form-panel>section { margin:0; padding:0 0 24px; }
+  .product-app .account-form-panel>section>.eyebrow { margin-top:0; }
+  .product-app .account-form-panel>section h2 { margin:16px 0; }
+  .product-app .profile-companion-panel { align-self:stretch; width:100%; display:grid; grid-template-columns:minmax(0,1fr) 100px; gap:0 12px; padding:20px; }
+  .product-app .profile-companion-panel>.back-to-trips,.product-app .profile-companion-panel>.eyebrow,.product-app .profile-step-caption { grid-column:1/-1; }
+  .product-app .profile-companion-panel>.back-to-trips { margin-bottom:8px; }
+  .product-app .profile-companion-panel h1 { grid-column:1; margin:8px 0 12px; font-size:26px; letter-spacing:-1px; }
+  .product-app .profile-companion-panel>p:not(.eyebrow) { grid-column:1/-1; font-size:13px; max-width:none; margin:8px 0 0; }
+  .product-app .profile-character-stage { position:relative; inset:auto; grid-column:2; grid-row:3; width:100px; height:100px; align-self:center; }
+  .product-app .profile-character-stage .companion-portrait { width:100px;height:110px; }
+  .product-app .profile-character-stage .eye-contact-control { bottom:-2px; right:0; }
+  .product-app .profile-character-stage .camera-icon-button { width:44px;height:44px;min-height:44px; }
+  .product-app .profile .chips button { font-size:13px; min-height:48px; }
+  .product-app .profile .profile-actions button { font-size:13px;min-height:44px; }
+  .product-app .overview-panel { padding:8px 16px; }
+  .product-app .overview-panel .back-to-trips { margin:0; min-height:40px; }
+  .product-app .overview-panel .trip-navigation { margin:0; max-width:170px; }
+  .product-app .overview-panel .trip-navigation select { min-height:40px;font-size:16px; }
+  .product-app .overview-panel .trip-heading h1 { font-size:15px; margin:4px 0; }
+  .product-app .overview-sections { margin:0; }
+  .product-app .overview-sections>summary { margin:0; min-height:36px; padding:8px 0; font-size:12px; }
+  .product-app .conversation-heading,.product-app .conversation-panel--discussion .conversation-heading { padding:10px 16px 4px; }
+  .product-app .journey-strip { margin:0 16px 2px; }
+  .product-app .conversation-tabs,.product-app .conversation-panel--discussion .conversation-tabs { gap:0;justify-content:space-between; padding:0 10px; }
+  .product-app .conversation-tabs button { font-size:11px; min-height:44px; padding:8px 6px; }
+  .product-app .conversation-panel--discussion .room-companions { max-height:74px; padding:6px 12px; }
+  .product-app .conversation-panel--discussion .room-companions-heading { display:none; }
+  .product-app .conversation-panel--discussion .room-companions-list>li { flex-basis:120px; }
+  .product-app .conversation-panel--discussion .room-companions-list strong { font-size:11px; }
+  .product-app .conversation-panel--discussion .room-companions-list .agent-status { font-size:10px; }
+  .product-app .conversation-panel--discussion .chat-item .utterance { font-size:14px;line-height:1.7; }
+  .product-app .conversation-panel--discussion .message-meta strong { font-size:12px; }
+  .product-app .message-meta .message-recipient,.product-app .message-time { font-size:10px; }
+  .product-app .discussion-live-bar { margin-top:2px; }
+  .product-app .conversation-feed { overscroll-behavior:contain; }
+  .product-app .voice-actions { gap:6px; }.product-app .voice-actions button { font-size:11px; padding:8px; }
+  .product-app .discussion-footer { padding:6px 12px; }.product-app .discussion-footer button { font-size:11px; }
+  .product-app .plan-view,.product-app .limits-view { padding-top:20px; }
+}
+
+@media(min-width:761px) {
+  .product-app .planning-shell { grid-template-columns:220px minmax(0,1fr); }
+  .product-app .overview-panel { padding:22px 18px; }
+  .product-app .overview-panel .trip-heading h1 { font-size:22px; }
+  .product-app .conversation-panel--discussion .room-view { grid-template-columns:220px minmax(0,1fr); }
+  .product-app .conversation-panel--discussion .room-companions { padding:22px 14px; }
+  .product-app .conversation-panel--discussion .room-companions-list { grid-template-columns:repeat(2,minmax(0,1fr))!important; gap:8px; }
+  .product-app .conversation-panel--discussion .room-companions-list>li { padding:10px 5px; }
+  .product-app .conversation-panel--discussion .room-companions-list .agent-avatar--room { width:78px;height:88px; }
+  .product-app .conversation-panel--discussion .room-companions-list strong { font-size:11px; }
+  .product-app .conversation-panel--discussion .crew-hub { padding:10px; }
+  .product-app .conversation-panel--discussion .crew-hub small { line-height:1.6; }
+  .product-app .conversation-panel--discussion .chat-item .utterance { font-size:15px;line-height:1.75; }
+  .product-app .conversation-panel--discussion .message-meta strong { font-size:12px; }
+  .product-app .plan-view,.product-app .limits-view { padding:20px 28px 40px; }
+  .product-app .view-intro { margin:0 0 20px; }
+  .product-app .view-intro h2 { margin:8px 0;font-size:28px; }
+  .product-app .view-intro p { margin:8px 0;font-size:14px; }
+  .product-app .profile-content-heading { animation:none; }
+  .product-app .next-step-banner { padding:12px 16px; }
+  .product-app .next-step-banner small { font:11px/1.5 var(--font-main); }
+}
+@media(min-width:761px) and (max-height:850px) {
+  .product-app .conversation-heading,.product-app .conversation-panel--discussion .conversation-heading { padding:14px 28px 8px; }
+  .product-app .conversation-heading .eyebrow { margin:0 0 6px; }
+  .product-app .conversation-heading h2,.product-app .conversation-panel--discussion .conversation-heading h2 { margin:0;font-size:25px; }
+  .product-app .conversation-heading>.agent-avatar { width:42px;height:42px; }
+  .product-app .journey-strip { margin:0 28px 6px; }
+  .product-app .journey-strip li { padding-top:8px;padding-bottom:8px; }
+  .product-app .conversation-tabs { padding:0 28px; }
+  .product-app .composer-wrap { padding:8px 24px; }
+  .product-app .chat-composer textarea { min-height:42px;height:48px; }
+}
+@media(min-width:761px) and (max-width:1150px) {
+  .product-app .planning-shell { grid-template-columns:190px minmax(0,1fr); }
+  .product-app .conversation-panel--discussion .room-view { grid-template-columns:170px minmax(0,1fr); }
+  .product-app .conversation-panel--discussion .room-companions-list { grid-template-columns:1fr!important; }
+  .product-app .conversation-panel--discussion .room-companions-list>li { display:grid;grid-template-columns:48px minmax(0,1fr);text-align:left;gap:2px 8px;align-items:center; }
+  .product-app .conversation-panel--discussion .room-companions-list .agent-avatar--room { width:48px;height:56px;grid-row:1/4; }
+}
+
+/* Returning travellers should see their trips before a large welcome illustration. */
+@media(min-width:761px) and (max-height:850px) {
+  .product-app .trips-home[data-has-trips=true] { padding-top:26px; }
+  .trips-home[data-has-trips=true] .home-heading { margin-bottom:20px; }
+  .trips-home[data-has-trips=true] .home-invitation { min-height:0; }
+  .trips-home[data-has-trips=true] .home-invitation-copy { padding:18px 30px; }
+  .trips-home[data-has-trips=true] .home-invitation-copy h2 { font-size:32px;letter-spacing:-1.3px;margin:8px 0; }
+  .trips-home[data-has-trips=true] .home-invitation-copy p { margin:8px 0; }
+  .trips-home[data-has-trips=true] .home-actions { margin-top:12px; }
+  .trips-home[data-has-trips=true] .home-crew-art .agent-avatar { width:110px;height:140px; }
+  .trips-home[data-has-trips=true] .home-crew-art .art-label { top:20px; }
+  .trips-home[data-has-trips=true] .trip-collection { margin-top:0; }
+  .trips-home[data-has-trips=true] .section-title { margin:16px 0 12px; }
+  .trips-home[data-has-trips=true] .trip-home-card { display:grid;grid-template-columns:90px minmax(0,1fr); }
+  .trips-home[data-has-trips=true] .trip-card-art { height:100%;min-height:140px; }
+  .trips-home[data-has-trips=true] .trip-card-art>svg { width:25px;height:25px;padding:10px; }
+  .trips-home[data-has-trips=true] .trip-card-number { left:10px;font-size:7px; }
+  .trips-home[data-has-trips=true] .trip-card-copy { padding:16px; }
+  .trips-home[data-has-trips=true] .trip-card-copy h3 { font-size:17px;margin:8px 0 14px; }
+}

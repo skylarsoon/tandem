@@ -25,7 +25,8 @@ export function AccountScreen({ invitation = false }: { invitation?: boolean }) 
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_STDB_URL, db = process.env.NEXT_PUBLIC_STDB_DB;
     if (!url || !db) { setError('Tandem is not configured yet. Please try again later.'); return; }
-    const c = connect(url, db); setClient(c); return () => c.close();
+    try { const c = connect(url, db); setClient(c); return () => c.close(); }
+    catch { setError('We couldn’t connect to Tandem. Refresh to try again.'); }
   }, []);
   return <main className="product-app account-app"><ProductHeader active="account"/><div className="account-layout"><aside className="account-story"><span className="eyebrow">A LITTLE COMMON GROUND</span><h1>Good company.<br/>Great possibilities.</h1><p>Your people have different ideas of the perfect trip. There’s room for all of them here.</p><div className="account-companions"><AgentAvatar variant="lavender" size="hero"/><AgentAvatar variant="mint" size="hero"/></div><div className="account-benefits"><p><Icon name="lock"/>Private preferences. Shared possibilities.</p><p><Icon name="person"/>One account, wherever you go.</p><p><Icon name="plan"/>The final say always stays yours.</p></div></aside><div className="account-form-panel">{error ? <p role="alert">{error}</p> : client ? <AccountForm client={client} invitation={invitation} /> : <p role="status">Connecting securely…</p>}</div></div></main>;
 }
@@ -99,6 +100,7 @@ function AccountForm({ client, invitation }: { client: Client; invitation: boole
         <div className={styles.actions}><button disabled={busy} onClick={() => void perform(() => openTravellerApp())}>Open my trips →</button>
         <button disabled={busy} onClick={() => void perform(() => openTravellerApp('/profile'))}>Your profile</button>
         <button disabled={busy} onClick={() => { setChanging(true); setPassword(''); setConfirmation(''); }}>Change password</button></div></>}
+      {changing && !account.mustChangePassword && <button className={styles.secondary} disabled={busy} onClick={() => { setChanging(false); setPassword(''); setConfirmation(''); setCurrentPassword(''); setError(''); }}>Cancel password change</button>}
       <button className={styles.secondary} disabled={busy} onClick={() => void perform(async () => { await api('logout', {}); setAccount(null); setPassword(''); setConfirmation(''); setCurrentPassword(''); setChanging(false); setMode('login'); })}>Sign out</button>
     </> : <>
       <h2>{mode === 'register' ? 'Good company.\nYour own account.' : 'Welcome back.\nPick up your plans.'}</h2>
@@ -114,7 +116,8 @@ function AccountForm({ client, invitation }: { client: Client; invitation: boole
         <button disabled={busy || (mode === 'register' && (state.status !== 'ready' || (!legacyAccess && !/^[A-Za-z0-9_-]{43}$/.test(token.trim()))))}>{busy ? 'One moment…' : mode === 'register' ? 'Create account →' : 'Sign in →'}</button>
       </form>
       <button className={styles.secondary} disabled={busy} onClick={() => { setMode(mode === 'register' ? 'login' : 'register'); setPassword(''); setConfirmation(''); setError(''); }}>{mode === 'register' ? 'Already have an account? Sign in' : 'Have an invitation? Create an account'}</button>
-      <p className={styles.fine}>Already used an invitation in this browser? Create an account here to keep your existing profile and trips. If you forget your password, contact the project owner for a reset.</p>
+      {legacyAccess && <p className={styles.fine}>Used an invitation before accounts were introduced? Create your login here to keep your existing profile and trips.</p>}
+      <p className={styles.fine}>Need an invitation or a password reset? Contact the person who invited you.</p>
       <a href="/admin">Admin sign-in →</a>
     </>}
     {error && <p className={styles.error} role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
