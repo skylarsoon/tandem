@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tandem product demonstration</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#151c17;overflow:hidden}video{display:block;width:100%;height:100%;object-fit:contain;background:#151c17}button{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:10px;min-height:50px;border:1px solid #ffffff70;border-radius:40px;padding:14px 22px;background:#293d32f5;color:white;font:14px system-ui,sans-serif;white-space:nowrap;cursor:pointer;touch-action:manipulation}button:focus-visible{outline:3px solid #c1b5e1;outline-offset:4px}button[hidden]{display:none}#notice{position:absolute;bottom:48px;left:12px;right:12px;margin:0;padding:10px;border-radius:8px;background:#142018e8;color:white;font:12px/1.5 system-ui,sans-serif}#notice:empty{display:none}
+</style>
+</head>
+<body>
+<video id="demo" src="/media/tandem-demo-compatible.mp4" controls playsinline webkit-playsinline preload="none" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><track kind="captions" src="/media/tandem-demo-narration.vtt" srclang="en" label="English narration"></video>
+<button id="play" type="button" aria-label="Play demo inline with sound"><svg viewBox="0 0 24 24" width="25" height="25" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7Z"/></svg>Play the demo</button>
+<p id="notice" role="status"></p>
+<script>
+const video=document.getElementById('demo'),button=document.getElementById('play'),notice=document.getElementById('notice');
+function send(type){if(parent!==window)parent.postMessage({source:'tandem-demo-player',type,time:video.currentTime,paused:video.paused},location.origin)}
+button.addEventListener('click',()=>{notice.textContent='';video.muted=false;if(video.error)video.load();video.play().catch(()=>{notice.textContent='Tap the video’s native Play control to try again.';button.hidden=true;send('error')})});
+video.addEventListener('play',()=>{button.hidden=true;send('play')});
+video.addEventListener('playing',()=>{notice.textContent='';button.hidden=true;send('playing')});
+video.addEventListener('pause',()=>send('pause'));
+video.addEventListener('ended',()=>{button.hidden=false;send('ended')});
+video.addEventListener('timeupdate',()=>send('time'));
+video.addEventListener('error',()=>{notice.textContent='The video could not load. Use Open video directly below to continue.';button.hidden=false;send('error')});
+</script>
+</body></html>

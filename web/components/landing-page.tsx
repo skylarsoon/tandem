@@ -26,9 +26,11 @@ const Spark = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" 
 export function LandingPage() {
   const root = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
+  const videoFrame = useRef<HTMLIFrameElement>(null);
+  const [videoInView, setVideoInView] = useState(false);
   const pendingSeek = useRef<number | null>(null);
   const [videoPlaying, setVideoPlaying] = useState(false);
-  const [videoStarted, setVideoStarted] = useState(false);
+
   const [destination, setDestination] = useState(0), [activity, setActivity] = useState(0);
   const [videoTime, setVideoTime] = useState(0), [videoNotice, setVideoNotice] = useState('');
   const [pageVisible, setPageVisible] = useState(true);
@@ -53,6 +55,21 @@ export function LandingPage() {
     root.current?.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
     return () => { observer.disconnect(); media.removeEventListener('change', update); document.removeEventListener('visibilitychange', visibility); };
   }, []);
+  useEffect(() => {
+    const frame = videoFrame.current;
+    const observer = new IntersectionObserver(entries => setVideoInView(entries[0]?.isIntersecting ?? false), { threshold: .15 });
+    if (frame) observer.observe(frame);
+    const update = (event: MessageEvent) => {
+      if (event.origin !== location.origin || event.source !== frame?.contentWindow || event.data?.source !== 'tandem-demo-player') return;
+      const value = event.data;
+      if (typeof value.time === 'number' && Number.isFinite(value.time)) setVideoTime(value.time);
+      if (['play','playing'].includes(value.type)) { setVideoPlaying(true); setVideoNotice(''); }
+      if (['pause','ended','error'].includes(value.type)) setVideoPlaying(false);
+      if (value.type === 'error') setVideoNotice('The embedded player could not start. You can open the video directly below.');
+    };
+    window.addEventListener('message', update);
+    return () => { observer.disconnect(); window.removeEventListener('message', update); video.current = null; };
+  }, []);
   function playInline() {
     const player = video.current; if (!player) return;
     pendingSeek.current = null; setVideoNotice('');
@@ -71,7 +88,7 @@ export function LandingPage() {
     void player.play().catch(() => setVideoNotice('Tap Play demo to try again, or open the video directly below.'));
   }
   return <div ref={root} className={`${styles.landing} ${!motion ? styles.paused : ''}`}>
-    <WaterBackground active={motion && pageVisible && !videoPlaying} className={styles.water}/><div className={styles.waterVeil} aria-hidden="true"/>
+    <WaterBackground active={motion && pageVisible && !videoPlaying && !videoInView} className={styles.water}/><div className={styles.waterVeil} aria-hidden="true"/>
     <a href="#content" className={styles.skip}>Skip to content</a>
     <nav className={styles.nav} aria-label="Main navigation">
       <a href="/" aria-label="Tandem home" className={styles.logo}><img src="/brand/tandem.svg" alt="tandem" width="215" height="46" /></a>
@@ -93,7 +110,7 @@ export function LandingPage() {
           <div className={styles.orbit} /><div className={styles.orbitTwo} />
           <svg className={styles.connections} viewBox="0 0 620 580" aria-hidden="true">{['M150 130 Q310 180 310 300','M480 130 Q400 230 310 300','M140 450 Q230 350 310 300','M490 440 Q420 340 310 300'].map((d,i) => <path key={d} d={d} className={selected === i ? styles.activePath : ''}/>)}</svg>
           <div className={styles.tripCard}><div className={styles.postcardImage}><img key={place.image} src={`/destinations/${place.image}.jpg`} alt={place.alt} width="380" height="240" fetchPriority="high"/><span>{place.country} / WITH YOUR PEOPLE</span></div><div className={styles.postcardCopy} aria-live="polite"><div className={styles.ticketTop}><span>{place.theme}</span><span><Arrow /></span></div><h2>{place.name},<br/>together.</h2><div className={styles.ticketLine}/><div className={styles.ticketBottom}><span>4 PERSPECTIVES · 1 GETAWAY</span><span className={styles.check}><Spark /></span></div></div></div>
-          {crew.map((p,i) => <button key={p.color} className={`${styles.pip} ${styles[p.className]} ${selected === i ? styles.selected : ''}`} onClick={() => { setSelected(i); setWave(v => v + 1); }} aria-pressed={selected === i} aria-label={`Meet ${p.name}`}><span className={styles.pipVisual}><PipCompanion active={motion && pageVisible && !videoPlaying} waveToken={selected === i ? wave : 0} variant={p.color} /></span><span className={styles.pipName}>{p.name}</span></button>)}
+          {crew.map((p,i) => <button key={p.color} className={`${styles.pip} ${styles[p.className]} ${selected === i ? styles.selected : ''}`} onClick={() => { setSelected(i); setWave(v => v + 1); }} aria-pressed={selected === i} aria-label={`Meet ${p.name}`}><span className={styles.pipVisual}><PipCompanion active={motion && pageVisible && !videoPlaying && !videoInView} waveToken={selected === i ? wave : 0} variant={p.color} /></span><span className={styles.pipName}>{p.name}</span></button>)}
           <div key={selected} className={styles.bubble} aria-live="polite"><span className={styles.bubbleDot} />{crew[selected].note}</div>
           <span className={styles.sparkOne}><Spark /></span><span className={styles.sparkTwo}>✧</span>
           </div><div className={styles.sceneBottom}><span>ILLUSTRATIVE TRIP · TAP A PIP TO SAY HELLO</span><button onClick={() => setMotion(m => !m)} aria-label={motion ? 'Pause animations' : 'Play animations'}>{motion ? 'Ⅱ' : '▷'} Motion {motion ? 'on' : 'off'}</button></div>
@@ -109,8 +126,8 @@ export function LandingPage() {
       <section id="how-it-works" className={styles.how} data-reveal>
         <div className={styles.sectionHead}><div><div className={styles.eyebrow}>LESS BACK-AND-FORTH. MORE LOOKING FORWARD.</div><h2>From “we should go”<br />to “see you there.”</h2></div><p>Let your companions handle the coordination.<br />Keep the part you actually came for.</p></div>
         <div className={styles.steps}>
-          <article><div className={`${styles.stepArt} ${styles.chatArt}`}><div className={styles.smallPip}><PipCompanion active={motion && pageVisible && !videoPlaying} variant="lavender" /></div><div className={styles.privateNote}><span>PRIVATE CHAT · EXAMPLE</span>“Let’s keep it<br />under ${budget}.”<i>✓ Only you and Pip</i></div><div className={styles.budgetChoices} aria-label="Try a private budget preference"><button aria-pressed={budget === 350} onClick={() => setBudget(350)}>$350</button><button aria-pressed={budget === 500} onClick={() => setBudget(500)}>$500</button><span aria-live="polite">Pip remembers.</span></div></div><span className={styles.stepNumber}>01 / TRY A PRIVATE CONVERSATION</span><h3>A companion who gets you.</h3><p>Tell Pip what matters, by voice or text. Your personal reasons stay private; you decide what your agent can act on.</p></article>
-          <article><div className={`${styles.stepArt} ${styles.discussionArt}`}><span className={styles.exampleLabel}>AGENT DISCUSSION · EXAMPLE</span><div className={styles.turnHead}><div className={styles.turnPip}><PipCompanion active={motion && pageVisible && !videoPlaying} variant={turns[discussion].color} /></div><span>{turns[discussion].name}</span><i>•••</i></div><div className={styles.turnText} aria-live="polite">{turns[discussion].line}</div><div className={styles.turnReply}>{turns[discussion].reply}</div><button className={styles.nextTurn} onClick={() => setDiscussion(v => (v + 1) % turns.length)}>Follow the conversation <span>→</span></button></div><span className={styles.stepNumber}>02 / FOLLOW THE GIVE-AND-TAKE</span><h3>Many voices. Common ground.</h3><p>Your companions research options and compare needs together. If a compromise needs your say, Pip asks you privately.</p></article>
+          <article><div className={`${styles.stepArt} ${styles.chatArt}`}><div className={styles.smallPip}><PipCompanion active={motion && pageVisible && !videoPlaying && !videoInView} variant="lavender" /></div><div className={styles.privateNote}><span>PRIVATE CHAT · EXAMPLE</span>“Let’s keep it<br />under ${budget}.”<i>✓ Only you and Pip</i></div><div className={styles.budgetChoices} aria-label="Try a private budget preference"><button aria-pressed={budget === 350} onClick={() => setBudget(350)}>$350</button><button aria-pressed={budget === 500} onClick={() => setBudget(500)}>$500</button><span aria-live="polite">Pip remembers.</span></div></div><span className={styles.stepNumber}>01 / TRY A PRIVATE CONVERSATION</span><h3>A companion who gets you.</h3><p>Tell Pip what matters, by voice or text. Your personal reasons stay private; you decide what your agent can act on.</p></article>
+          <article><div className={`${styles.stepArt} ${styles.discussionArt}`}><span className={styles.exampleLabel}>AGENT DISCUSSION · EXAMPLE</span><div className={styles.turnHead}><div className={styles.turnPip}><PipCompanion active={motion && pageVisible && !videoPlaying && !videoInView} variant={turns[discussion].color} /></div><span>{turns[discussion].name}</span><i>•••</i></div><div className={styles.turnText} aria-live="polite">{turns[discussion].line}</div><div className={styles.turnReply}>{turns[discussion].reply}</div><button className={styles.nextTurn} onClick={() => setDiscussion(v => (v + 1) % turns.length)}>Follow the conversation <span>→</span></button></div><span className={styles.stepNumber}>02 / FOLLOW THE GIVE-AND-TAKE</span><h3>Many voices. Common ground.</h3><p>Your companions research options and compare needs together. If a compromise needs your say, Pip asks you privately.</p></article>
           <article><div className={`${styles.stepArt} ${styles.approvalArt}`}><div className={styles.approvalCard}><span>YOUR FINAL SAY · EXAMPLE</span><strong>{approvals === 4 ? 'Everyone is on board.' : 'A plan for all of us.'}</strong><div className={styles.approvalDots}>{colors().map((c,i)=><i key={c} style={{background:i < approvals ? c : '#efeee7',color:i < approvals ? '#354f34' : '#b9beb0'}}>{i < approvals ? '✓' : '·'}</i>)}</div><small aria-live="polite">{approvals} of 4 people approved.</small><button className={styles.approveExample} onClick={() => setApprovals(v => v === 4 ? 0 : v + 1)}>{approvals === 4 ? 'Try again ↺' : 'Add an approval ✓'}</button></div></div><span className={styles.stepNumber}>03 / GIVE EVERYONE A SAY</span><h3>Nothing agreed without you.</h3><p>Review the exact plan and give your own approval. Your agent helps you decide. It never makes the final decision for you.</p></article>
         </div>
       </section>
@@ -119,12 +136,16 @@ export function LandingPage() {
         <div className={styles.activityExample} aria-label="Interactive activity preview, not a live search"><div className={styles.activityExampleTop}><span>BEHIND THE PLAN</span><small>INTERACTIVE EXAMPLE</small></div><div className={styles.activityTabs} aria-label="Explore planning stages">{activitySteps.map((s,i) => <button key={s.label} aria-pressed={activity === i} onClick={() => setActivity(i)}><span>0{i+1}</span>{s.label}</button>)}</div><div key={activity} className={styles.activityPreview} aria-live="polite"><div className={styles.previewDetail}><span className={styles.previewIcon} aria-hidden="true">{stage.icon}</span><div><small>{stage.meta}</small><strong>{stage.detail}</strong></div></div><h3>{stage.title}</h3><p>{stage.description}</p><ul>{stage.rows.map(row => <li key={row}><span><Arrow /></span>{row}</li>)}</ul></div><p className={styles.exampleFoot}>A guided preview. The app shows actual searches and agent messages.</p></div>
       </section>
       <section id="meet-pip" className={styles.manifesto} data-reveal>
-        <PipShowcase motion={motion && pageVisible && !videoPlaying}/>
+        <PipShowcase motion={motion && pageVisible && !videoPlaying && !videoInView}/>
         <div className={styles.manifestoCopy}><div className={styles.eyebrow}>SMALL COMPANION. BIG DIFFERENCE.</div><h2>For the things<br />you don’t want<br />to say in the<br /><span>group chat.</span></h2><p>Maybe the budget’s a stretch. Maybe you need a slower pace. Pip helps your needs be heard, without making you explain yourself to everyone.</p><a href="/profile">Meet your Pip <Arrow /></a></div>
       </section>
       <section id="demo" className={styles.demo}>
         <div className={styles.sectionHead}><div><div className={styles.eyebrow}>REAL PEOPLE’S NEEDS. A REAL WORKFLOW.</div><h2>Watch a little<br />common ground happen.</h2></div><p>From the first hello to everyone’s yes.<br />A real trip: flights, stays, activities, and dinner.</p></div>
-        <div className={styles.videoFrame}><video ref={video} src="/media/tandem-demo-compatible.mp4" onPlaying={() => { setVideoStarted(true); setVideoPlaying(true); setVideoNotice(''); }} onPlay={() => { setVideoPlaying(true); setVideoNotice(''); }} onPause={() => setVideoPlaying(false)} onEnded={() => { setVideoPlaying(false); setVideoStarted(false); }} onError={() => { setVideoPlaying(false); setVideoNotice('The video could not load. Try opening it directly below.'); }} onLoadedMetadata={event => { if (pendingSeek.current !== null) { event.currentTarget.currentTime = pendingSeek.current; pendingSeek.current = null; } }} onTimeUpdate={event => setVideoTime(event.currentTarget.currentTime)} controls playsInline preload="metadata" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><track kind="captions" src="/media/tandem-demo-narration.vtt" srcLang="en" label="English narration" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>{!videoStarted && <button className={styles.videoPlay} onClick={playInline} aria-label="Play demo inline with sound"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7Z"/></svg><span>Play the demo</span></button>}</div>
+        <iframe ref={videoFrame} className={styles.videoFrame} src="/demo-player.html?v=3" title="Tandem demo video player" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen onLoad={event => {
+          const player = event.currentTarget.contentDocument?.querySelector('video');
+          if (player) { video.current = player; player.addEventListener('loadedmetadata', () => { if (pendingSeek.current !== null) { player.currentTime = pendingSeek.current; pendingSeek.current = null; } }); }
+        }}/>
+
         <div className={styles.videoActions}><button onClick={() => { if (videoPlaying) video.current?.pause(); else playInline(); }}>{videoPlaying ? 'Pause demo' : 'Play demo with sound'}</button><a href="/media/tandem-demo-compatible.mp4" target="_blank" rel="noopener noreferrer">Open video directly <Arrow /></a></div>
         <div className={styles.chapters} aria-label="Video chapters">{chapters.map((chapter,i) => <button key={chapter.time} aria-current={videoTime >= chapter.time && (i === chapters.length-1 || videoTime < chapters[i+1].time) ? 'true' : undefined} onClick={() => playChapter(chapter.time)}><span>{chapter.stamp}</span>{chapter.label}<i aria-hidden="true"><Arrow /></i></button>)}</div>{videoNotice && <p role="status">{videoNotice}</p>}
         <div className={styles.demoCaption}><span>05:26 / REAL END-TO-END WALKTHROUGH</span><span>Edited production recording · added narration · <a href="/media/tandem-demo-transcript.txt">Narration transcript <Arrow /></a></span></div>
