@@ -1,0 +1,15 @@
+**/.env
+**/.env.*
+**/.git
+**/.venv
+**/node_modules
+**/live-state
+**/*.sqlite*
+**/__pycache__
+**/*.egg-info
+**/tests
+**/build
+**/dist
+web
+prototypes
+.git

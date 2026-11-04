@@ -32,7 +32,7 @@ tandem-optimizer = { path = "../optimizer", editable = true }
 where = ["src"]
 
 [tool.setuptools.package-data]
-tandem_worker = ["personas/*.json"]
+tandem_worker = ["*.json", "personas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,36 @@
+[Unit]
+Description=Tandem bounded planning worker
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+ConditionPathExists=/var/lib/tandem/state/migration.json
+ConditionPathExists=/etc/tandem/worker.env
+
+[Service]
+Type=simple
+User=tandem
+Group=tandem
+WorkingDirectory=/opt/tandem
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TANDEM_ENV_FILE=/etc/tandem/worker.env
+Environment=TANDEM_STATE_DIR=/var/lib/tandem/state
+Environment=TANDEM_CLOUD_ENABLED=0
+EnvironmentFile=-/etc/tandem/activation.env
+ExecStart=/opt/tandem/venv/bin/python -m tandem_worker.cloud
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=900
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tandem
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
