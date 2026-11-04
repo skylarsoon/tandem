@@ -15,10 +15,10 @@ export function Icon({ name, size = 20 }: { name: 'trips' | 'person' | 'lock' | 
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
-export function ProductHeader({ active, children }: { active?: 'trips' | 'profile' | 'account' | 'admin'; children?: ReactNode }) {
+export function ProductHeader({ active, children }: { active?: 'trips' | 'profile' | 'account' | 'admin' | 'simulation'; children?: ReactNode }) {
   return <header className="product-header">
     <a className="product-logo" href="/" aria-label="Tandem home"><img src="/brand/tandem.svg" width="150" height="38" alt="tandem" /></a>
-    <nav aria-label="App navigation"><a href="/app" aria-label="Your trips" aria-current={active === 'trips' ? 'page' : undefined}><Icon name="trips" size={17}/>Your trips</a><a href="/profile" aria-label="Your companion" aria-current={active === 'profile' ? 'page' : undefined}><Icon name="spark" size={17}/>Your companion</a></nav>
+    <nav aria-label="App navigation"><a href="/app" aria-label="Your trips" aria-current={active === 'trips' ? 'page' : undefined}><Icon name="trips" size={17}/>Your trips</a><a href="/profile" aria-label="Your companion" aria-current={active === 'profile' ? 'page' : undefined}><Icon name="spark" size={17}/>Your companion</a><a href="/simulation" aria-label="Planning simulation" aria-current={active === 'simulation' ? 'page' : undefined}><Icon name="plan" size={17}/>Simulation</a></nav>
     <div className="product-header-end">{children}<a className="account-link" href="/account" aria-label="Your account" aria-current={active === 'account' ? 'page' : undefined}><Icon name="person" size={18}/></a></div>
   </header>;
 }
