@@ -2,7 +2,7 @@
 
 import type { Character } from '../lib/agents';
 import type { Gaze } from '../lib/face-presence';
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 const artwork = '/agents/pip-resting.png';
 
@@ -11,6 +11,17 @@ export function PipCompanion({ active, waveToken = 0, gaze, variant = 'lavender'
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const stage = useRef<SVGSVGElement>(null);
   const turn = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(true);
+  const animating = active && visible;
+  const gazeEnabled = gaze !== undefined;
+  useEffect(() => {
+    let inView = true;
+    const update = () => setVisible(inView && !document.hidden);
+    const observer = new IntersectionObserver(entries => { inView = entries[0]?.isIntersecting ?? false; update(); });
+    if (turn.current) observer.observe(turn.current);
+    document.addEventListener('visibilitychange', update); update();
+    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', update); };
+  }, []);
   const arm = useRef<SVGGElement>(null);
   const lids = useRef<SVGGElement>(null);
   const wave = useRef<() => void>(() => {});
@@ -55,7 +66,7 @@ export function PipCompanion({ active, waveToken = 0, gaze, variant = 'lavender'
     };
     const start = () => {
       stop();
-      if (!active || media.matches) return;
+      if (!animating || media.matches) return;
       let waving = false;
       wave.current = () => {
         if (waving) return;
@@ -84,7 +95,7 @@ export function PipCompanion({ active, waveToken = 0, gaze, variant = 'lavender'
     };
     start(); media.addEventListener('change', start);
     return () => { stop(); media.removeEventListener('change', start); };
-  }, [active]);
+  }, [animating]);
 
   useEffect(() => {
     if (waveToken !== lastWaveToken.current) {
@@ -135,11 +146,12 @@ export function PipCompanion({ active, waveToken = 0, gaze, variant = 'lavender'
       cancelAnimationFrame(frame); previous = 0;
       stage.current?.style.setProperty('--pip-smile', '1');
       eye.x = eye.y = body.x = body.y = velocity.x = velocity.y = 0; paint();
-      if (active && !media.matches) frame = requestAnimationFrame(tick);
+      // Static companions do not need a 60fps camera-follow loop.
+      if (animating && gazeEnabled && !media.matches) frame = requestAnimationFrame(tick);
     };
     restart(); media.addEventListener('change', restart);
     return () => { cancelAnimationFrame(frame); media.removeEventListener('change', restart); };
-  }, [active]);
+  }, [animating, gazeEnabled]);
 
   return <span ref={turn} className="pip-turn"><svg ref={stage} className="pip-companion" viewBox="0 0 1254 1254" aria-hidden="true" focusable="false">
     <defs>

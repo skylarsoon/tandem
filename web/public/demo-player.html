@@ -8,11 +8,13 @@
 </style>
 </head>
 <body>
-<video id="demo" src="/media/tandem-demo-compatible.mp4" controls playsinline webkit-playsinline preload="none" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><track kind="captions" src="/media/tandem-demo-narration.vtt" srclang="en" label="English narration"></video>
+<video id="demo" controls playsinline webkit-playsinline preload="none" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><track kind="captions" src="/media/tandem-demo-narration.vtt" srclang="en" label="English narration"></video>
 <button id="play" type="button" aria-label="Play demo inline with sound"><svg viewBox="0 0 24 24" width="25" height="25" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7Z"/></svg>Play the demo</button>
 <p id="notice" role="status"></p>
 <script>
 const video=document.getElementById('demo'),button=document.getElementById('play'),notice=document.getElementById('notice');
+// Safari uses native HLS; other browsers keep the MP4 fallback.
+video.src=video.canPlayType('application/vnd.apple.mpegurl')?'/media/demo-stream/playlist.m3u8':'/media/tandem-demo-compatible.mp4';
 function send(type){if(parent!==window)parent.postMessage({source:'tandem-demo-player',type,time:video.currentTime,paused:video.paused},location.origin)}
 button.addEventListener('click',()=>{notice.textContent='';video.muted=false;if(video.error)video.load();video.play().catch(()=>{notice.textContent='Tap the video’s native Play control to try again.';button.hidden=true;send('error')})});
 video.addEventListener('play',()=>{button.hidden=true;send('play')});
@@ -21,5 +23,14 @@ video.addEventListener('pause',()=>send('pause'));
 video.addEventListener('ended',()=>{button.hidden=false;send('ended')});
 video.addEventListener('timeupdate',()=>send('time'));
 video.addEventListener('error',()=>{notice.textContent='The video could not load. Use Open video directly below to continue.';button.hidden=false;send('error')});
+// Only expose diagnostics when requested or playback fails to make progress.
+let watchdog;
+const detail=document.createElement('details');detail.style.cssText='position:absolute;left:8px;bottom:45px;max-width:calc(100% - 16px);padding:8px;background:#142018ee;color:#fff;font:10px monospace';detail.hidden=true;
+const summary=document.createElement('summary');summary.textContent='Playback details';const output=document.createElement('div');detail.append(summary,output);document.body.append(detail);
+function diagnose(){output.textContent='Source '+(video.currentSrc.includes('m3u8')?'HLS':'MP4')+' · ready '+video.readyState+' · network '+video.networkState+' · time '+video.currentTime.toFixed(1)+' · buffered '+(video.buffered.length?video.buffered.end(video.buffered.length-1).toFixed(1):'0')+' · error '+(video.error?video.error.code+': '+video.error.message:'none');}
+video.addEventListener('play',()=>{clearTimeout(watchdog);watchdog=setTimeout(()=>{if(video.currentTime<.1){detail.hidden=false;diagnose();}},10000)});
+video.addEventListener('error',()=>{detail.hidden=false;diagnose()});
+video.addEventListener('timeupdate',()=>{if(video.currentTime>.1)detail.hidden=true});
+summary.addEventListener('click',diagnose);
 </script>
 </body></html>

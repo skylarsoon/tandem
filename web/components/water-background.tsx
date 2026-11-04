@@ -60,7 +60,8 @@ void main() {
 export function WaterBackground({ active, className }: { active: boolean; className: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const running = useRef(active);
-  useEffect(() => { running.current = active; }, [active]);
+  const wake = useRef<() => void>(() => {});
+  useEffect(() => { running.current = active; wake.current(); }, [active]);
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
@@ -86,6 +87,7 @@ export function WaterBackground({ active, className }: { active: boolean; classN
     const position=gl.getAttribLocation(program,'position'); gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
     const size=gl.getUniformLocation(program,'resolution'), clock=gl.getUniformLocation(program,'time'), touch=gl.getUniformLocation(program,'ripples[0]');
     let frame=0, last=0, elapsed=0, dirty=true, pointerAt=-10, nextRipple=0;
+    let animateUntil=performance.now()+2500;
     let previous: { x: number; y: number; at: number } | null = null;
     const ripples=new Float32Array(12*4);
     for(let i=0;i<12;i++) ripples[i*4+2]=-10;
@@ -95,9 +97,9 @@ export function WaterBackground({ active, className }: { active: boolean; classN
     };
     const resize=()=>{
       // Cap shader work independently of device pixel ratio / Retina resolution.
-      const scale=Math.min(1,1200/innerWidth);
+      const scale=Math.min(1,800/Math.max(innerWidth,innerHeight));
       element.width=Math.round(innerWidth*scale); element.height=Math.round(innerHeight*scale);
-      gl.viewport(0,0,element.width,element.height); dirty=true;
+      gl.viewport(0,0,element.width,element.height); dirty=true; schedule();
     };
     const move=(event: PointerEvent)=>{
       if (!running.current) return;
@@ -106,7 +108,7 @@ export function WaterBackground({ active, className }: { active: boolean; classN
       if(event.type==='pointerdown') {
         emit(event.clientX,event.clientY,.75);
       } else {
-        if(elapsed-pointerAt<.12 || (previous && distance<12)) return;
+        if((previous && now-previous.at<120) || (previous && distance<12)) return;
         const speed=previous ? distance/Math.max(now-previous.at,16) : .3;
         const strength=Math.min(.65,.3+speed*.12);
         if(previous && distance>45 && now-previous.at<200) {
@@ -115,21 +117,25 @@ export function WaterBackground({ active, className }: { active: boolean; classN
         emit(event.clientX,event.clientY,strength);
       }
       pointerAt=elapsed; previous={x:event.clientX,y:event.clientY,at:now};
+      animateUntil=now+3500; schedule();
     };
+    const schedule=()=>{ if(!frame) frame=requestAnimationFrame(draw); };
     const draw=(now:number)=>{
-      frame=requestAnimationFrame(draw);
-      if(now-last<40) return; // At most 25 fps for a slow decorative surface.
+      frame=0;
+      if(document.hidden || (!running.current && !dirty)) return;
+      if(now-last<65) { schedule(); return; } // At most ~15fps while ripples settle.
       const delta=Math.min((now-last)/1000,.08); last=now;
-      if(!running.current && !dirty) return;
       if(running.current) elapsed+=delta;
       gl.uniform2f(size,element.width,element.height); gl.uniform1f(clock,elapsed); gl.uniform4fv(touch,ripples);
       gl.drawArrays(gl.TRIANGLES,0,6); element.style.opacity='1'; dirty=false;
+      if(running.current && now<animateUntil) schedule();
     };
+    wake.current=()=>{if(running.current){animateUntil=performance.now()+2500;schedule();}};
     const lost=(event:Event)=>{event.preventDefault();cancelAnimationFrame(frame);element.style.opacity='0';};
-    resize(); frame=requestAnimationFrame(draw);
+    resize(); schedule();
     window.addEventListener('resize',resize); window.addEventListener('pointermove',move,{passive:true}); window.addEventListener('pointerdown',move,{passive:true});
     element.addEventListener('webglcontextlost',lost);
-    return()=>{cancelAnimationFrame(frame);window.removeEventListener('resize',resize);window.removeEventListener('pointermove',move);window.removeEventListener('pointerdown',move);element.removeEventListener('webglcontextlost',lost);gl.deleteBuffer(buffer);dispose();};
+    return()=>{wake.current=()=>{};cancelAnimationFrame(frame);window.removeEventListener('resize',resize);window.removeEventListener('pointermove',move);window.removeEventListener('pointerdown',move);element.removeEventListener('webglcontextlost',lost);gl.deleteBuffer(buffer);dispose();};
   },[]);
   return <canvas ref={canvas} className={className} aria-hidden="true" />;
 }

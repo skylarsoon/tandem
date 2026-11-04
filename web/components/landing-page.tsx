@@ -141,7 +141,7 @@ export function LandingPage() {
       </section>
       <section id="demo" className={styles.demo}>
         <div className={styles.sectionHead}><div><div className={styles.eyebrow}>REAL PEOPLE’S NEEDS. A REAL WORKFLOW.</div><h2>Watch a little<br />common ground happen.</h2></div><p>From the first hello to everyone’s yes.<br />A real trip: flights, stays, activities, and dinner.</p></div>
-        <iframe ref={videoFrame} className={styles.videoFrame} src="/demo-player.html?v=3" title="Tandem demo video player" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen onLoad={event => {
+        <iframe ref={videoFrame} className={styles.videoFrame} src="/demo-player.html?v=4" title="Tandem demo video player" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen onLoad={event => {
           const player = event.currentTarget.contentDocument?.querySelector('video');
           if (player) { video.current = player; player.addEventListener('loadedmetadata', () => { if (pendingSeek.current !== null) { player.currentTime = pendingSeek.current; pendingSeek.current = null; } }); }
         }}/>
