@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
 import { PipCompanion } from './pip-companion';
+import { WaterBackground } from './water-background';
 import styles from './landing-page.module.css';
 import type { Gaze } from '../lib/face-presence';
 const crew = [
@@ -54,6 +55,7 @@ export function LandingPage() {
     void player.play().catch(() => setVideoNotice('Press play on the video to continue.'));
   }
   return <div ref={root} className={`${styles.landing} ${!motion ? styles.paused : ''}`}>
+    <WaterBackground active={motion && pageVisible} className={styles.water}/><div className={styles.waterVeil} aria-hidden="true"/>
     <a href="#content" className={styles.skip}>Skip to content</a>
     <nav className={styles.nav} aria-label="Main navigation">
       <a href="/" aria-label="Tandem home" className={styles.logo}><img src="/brand/tandem.svg" alt="tandem" width="215" height="46" /></a>

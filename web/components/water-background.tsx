@@ -1,0 +1,102 @@
+'use client';
+
+import { useEffect, useRef } from 'react';
+
+// A decorative, low-resolution water surface. All rendering stays on the GPU;
+// pointer positions are ephemeral and never leave the page.
+const fragment = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec2 resolution;
+uniform float time;
+uniform vec3 ripple;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.)),f.x),f.y);
+}
+void main() {
+  vec2 uv=gl_FragCoord.xy/resolution;
+  vec2 p=gl_FragCoord.xy/min(resolution.x,resolution.y)*5.0;
+  float t=time*.12;
+  vec2 q=p;
+  for(int i=0;i<3;i++) {
+    float k=float(i)+1.;
+    q += vec2(sin(q.y*1.25+t*k),cos(q.x*1.1-t*k))*.36;
+  }
+  float n=noise(q*1.3+t*.15);
+  float light=pow(1.0-abs(sin(q.x*2.4+sin(q.y*2.1)+n*2.)),14.);
+  float light2=pow(1.0-abs(sin(q.y*2.5+cos(q.x*1.7)-n)),18.);
+  float depth=noise(p*.65+vec2(t*.12,-t*.1));
+  vec3 water=mix(vec3(.76,.87,.83),vec3(.91,.95,.88),depth);
+  water += (light*.065+light2*.045);
+  float age=time-ripple.z;
+  vec2 delta=(uv-ripple.xy)*resolution/min(resolution.x,resolution.y);
+  float d=length(delta);
+  float ring=sin(d*65.-age*4.)*exp(-pow((d-age*.065)*12.,2.))*exp(-age*.9);
+  if(age>=0. && age<5.) water+=ring*.035;
+  // Broad, quiet light behind typography, with visible caustics around it.
+  water=mix(water,vec3(.97,.97,.92),.22);
+  gl_FragColor=vec4(water,1.);
+}`;
+
+export function WaterBackground({ active, className }: { active: boolean; className: string }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const running = useRef(active);
+  useEffect(() => { running.current = active; }, [active]);
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element) return;
+    const gl = element.getContext('webgl', { alpha: false, antialias: false, depth: false, powerPreference: 'low-power' });
+    if (!gl) return; // The CSS water gradient is also the no-WebGL fallback.
+    const shaders: WebGLShader[] = [];
+    const compile = (type: number, source: string) => {
+      const shader = gl.createShader(type);
+      if (!shader) return null;
+      shaders.push(shader); gl.shaderSource(shader, source); gl.compileShader(shader);
+      return gl.getShaderParameter(shader, gl.COMPILE_STATUS) ? shader : null;
+    };
+    const vertex = compile(gl.VERTEX_SHADER, 'attribute vec2 position; void main(){gl_Position=vec4(position,0.,1.);}');
+    const pixel = compile(gl.FRAGMENT_SHADER, fragment);
+    const program = gl.createProgram();
+    const dispose = () => { shaders.forEach(shader => gl.deleteShader(shader)); if (program) gl.deleteProgram(program); };
+    if (!vertex || !pixel || !program) { dispose(); return; }
+    gl.attachShader(program, vertex); gl.attachShader(program, pixel); gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) { dispose(); return; }
+    gl.useProgram(program);
+    const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+    const position=gl.getAttribLocation(program,'position'); gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
+    const size=gl.getUniformLocation(program,'resolution'), clock=gl.getUniformLocation(program,'time'), touch=gl.getUniformLocation(program,'ripple');
+    let frame=0, last=0, elapsed=0, dirty=true, pointerAt=-10;
+    let pointer=[.5,.5,-10];
+    const resize=()=>{
+      // Cap shader work independently of device pixel ratio / Retina resolution.
+      const scale=Math.min(1,1200/innerWidth);
+      element.width=Math.round(innerWidth*scale); element.height=Math.round(innerHeight*scale);
+      gl.viewport(0,0,element.width,element.height); dirty=true;
+    };
+    const move=(event: PointerEvent)=>{
+      if (!running.current || elapsed-pointerAt<.45) return;
+      pointerAt=elapsed; pointer=[event.clientX/innerWidth,1-event.clientY/innerHeight,elapsed];
+    };
+    const draw=(now:number)=>{
+      frame=requestAnimationFrame(draw);
+      if(now-last<40) return; // At most 25 fps for a slow decorative surface.
+      const delta=Math.min((now-last)/1000,.08); last=now;
+      if(!running.current && !dirty) return;
+      if(running.current) elapsed+=delta;
+      gl.uniform2f(size,element.width,element.height); gl.uniform1f(clock,elapsed); gl.uniform3fv(touch,pointer);
+      gl.drawArrays(gl.TRIANGLES,0,6); element.style.opacity='1'; dirty=false;
+    };
+    const lost=(event:Event)=>{event.preventDefault();cancelAnimationFrame(frame);element.style.opacity='0';};
+    resize(); frame=requestAnimationFrame(draw);
+    window.addEventListener('resize',resize); window.addEventListener('pointermove',move,{passive:true}); window.addEventListener('pointerdown',move,{passive:true});
+    element.addEventListener('webglcontextlost',lost);
+    return()=>{cancelAnimationFrame(frame);window.removeEventListener('resize',resize);window.removeEventListener('pointermove',move);window.removeEventListener('pointerdown',move);element.removeEventListener('webglcontextlost',lost);gl.deleteBuffer(buffer);dispose();};
+  },[]);
+  return <canvas ref={canvas} className={className} aria-hidden="true" />;
+}

@@ -18,3 +18,19 @@
 @media(prefers-reduced-motion:reduce){.worldArt{transform:none!important}.steps article:hover,.primary:hover,.pip:hover{transform:none!important}}
 /* Keep hit targets stationary while the postcard follows the pointer. */
 .worldArt{transform:none}.tripCard{rotate:y var(--tilt-x,0deg);transition:rotate .4s ease-out}.landing .pip[aria-pressed=true]{color:var(--ink)}.paused .tripCard{rotate:none}@media(prefers-reduced-motion:reduce){.tripCard{rotate:none!important}}
+
+/* Shallow-water light, with quiet translucent surfaces for reading. */
+.landing{position:relative;isolation:isolate;background:linear-gradient(135deg,#d9e9dd,#c9e2dc 50%,#e5ecda);--line:#bccfc14d}
+.water,.waterVeil{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-2}
+.waterVeil{z-index:-1;background:linear-gradient(90deg,#faf9ef80,transparent 70%)}
+.nav{background:#f4f7edc9;border-bottom-color:#adbfac40}
+.world{background:radial-gradient(ellipse,#edf2df55,transparent 67%)}
+.sponsors{border-color:#839d8130}.sponsorLogos>a{opacity:.78}
+.steps article{background:#fffdf1d9;border-color:#fffdf080;backdrop-filter:blur(8px)}
+.activityExample{background:#f0f5e4c9;border-color:#fffdf0a0;backdrop-filter:blur(12px)}
+.manifesto{background:linear-gradient(135deg,#244e46f5,#283e32e6);box-shadow:0 30px 70px #1a48451a}
+.finalCta{background:linear-gradient(120deg,#edf3dfcf,#dcebd8c9);border-color:#fffef18a;backdrop-filter:blur(12px)}
+.questions details{border-color:#839d8140}.footer>small{border-color:#839d8130}
+@media(prefers-reduced-motion:reduce){.water{opacity:.8}}
+
+.water{opacity:0}
