@@ -23,7 +23,7 @@
 .landing{position:relative;isolation:isolate;background:linear-gradient(135deg,#d9e9dd,#c9e2dc 50%,#e5ecda);--line:#bccfc14d}
 .water,.waterVeil{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:-2}
 .waterVeil{z-index:-1;background:linear-gradient(90deg,#faf9ef80,transparent 70%)}
-.nav{background:#f4f7edc9;border-bottom-color:#adbfac40}
+.nav{background:#f4f7ed26;backdrop-filter:blur(4px);border-bottom-color:#ffffff38;box-shadow:0 1px 0 #8aa89810}
 .world{background:radial-gradient(ellipse,#edf2df55,transparent 67%)}
 .sponsors{border-color:#839d8130}.sponsorLogos>a{opacity:.78}
 .steps article{background:#fffdf1d9;border-color:#fffdf080;backdrop-filter:blur(8px)}
