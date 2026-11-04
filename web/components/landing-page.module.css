@@ -34,3 +34,6 @@
 @media(prefers-reduced-motion:reduce){.water{opacity:.8}}
 
 .water{opacity:0}
+
+.faqIntro{max-width:290px;color:#66735f;font-size:14px;line-height:1.8}
+.landing .faq{scroll-margin-top:110px}
