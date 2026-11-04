@@ -36,7 +36,7 @@ void main() {
       float envelope=exp(-pow((d-radius)/width,2.))*exp(-age*.85)*ripples[i].w;
       float phase=(d-radius)*100.;
       float slope=cos(phase)*envelope;
-      displacement+=delta/max(d,.001)*slope*.035;
+      displacement+=delta/max(d,.001)*slope*.010;
       crest+=slope;
     }
   }
@@ -51,7 +51,7 @@ void main() {
   float depth=noise(p*.65+vec2(t*.12,-t*.1));
   vec3 water=mix(vec3(.76,.87,.83),vec3(.91,.95,.88),depth);
   water += (light*.065+light2*.045);
-  water += clamp(crest,-1.,1.)*vec3(.10,.115,.12);
+  water += clamp(crest,-1.,1.)*vec3(.025,.032,.035);
   // Broad, quiet light behind typography, with visible caustics around it.
   water=mix(water,vec3(.97,.97,.92),.22);
   gl_FragColor=vec4(water,1.);
@@ -104,11 +104,11 @@ export function WaterBackground({ active, className }: { active: boolean; classN
       const now=performance.now();
       const distance=previous ? Math.hypot(event.clientX-previous.x,event.clientY-previous.y) : 0;
       if(event.type==='pointerdown') {
-        emit(event.clientX,event.clientY,1.35);
+        emit(event.clientX,event.clientY,.75);
       } else {
-        if(elapsed-pointerAt<.07 || (previous && distance<12)) return;
+        if(elapsed-pointerAt<.12 || (previous && distance<12)) return;
         const speed=previous ? distance/Math.max(now-previous.at,16) : .3;
-        const strength=Math.min(1.1,.48+speed*.28);
+        const strength=Math.min(.65,.3+speed*.12);
         if(previous && distance>45 && now-previous.at<200) {
           emit((previous.x+event.clientX)/2,(previous.y+event.clientY)/2,strength*.7);
         }
