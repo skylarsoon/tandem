@@ -39,3 +39,5 @@
 .landing .faq{scroll-margin-top:110px}
 
 .arrowIcon{display:inline-block;flex-shrink:0;vertical-align:middle}.heroFoot>span{display:flex}.sparkOne svg,.finalSprout svg{width:1em;height:1em}.check svg{width:16px;height:16px}.demoCaption .arrowIcon{width:11px;height:11px}
+
+.videoActions{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:16px 0;font-size:12px;flex-wrap:wrap}.videoActions button{border:0;border-radius:30px;background:#293d32;color:#fff;padding:13px 20px;min-height:44px}.videoActions a{display:inline-flex;align-items:center;gap:8px;text-decoration:underline;text-underline-offset:4px}
