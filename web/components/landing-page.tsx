@@ -2,15 +2,32 @@
 import { useEffect, useRef, useState } from 'react';
 import { PipCompanion } from './pip-companion';
 import styles from './landing-page.module.css';
+import type { Gaze } from '../lib/face-presence';
 const crew = [
   { color: 'lavender' as const, name: 'Skylar’s Pip', note: 'A little more adventure.', className: 'one' },
   { color: 'peach' as const, name: 'Ronit’s Pip', note: 'A little room in the budget.', className: 'two' },
   { color: 'mint' as const, name: 'Anna’s Pip', note: 'A little less rushing.', className: 'three' },
   { color: 'yellow' as const, name: 'Elena’s Pip', note: 'A little time together.', className: 'four' },
 ];
+const places = [
+  { name: 'Kyoto', country: 'JAPAN', image: 'kyoto', theme: 'A little discovery', alt: 'A traditional Kyoto street and pagoda at sunset' },
+  { name: 'The Dolomites', country: 'ITALY', image: 'dolomites', theme: 'A little fresh air', alt: 'A boat on a turquoise lake below the Dolomites' },
+  { name: 'Bali', country: 'INDONESIA', image: 'bali', theme: 'A little slower', alt: 'A Balinese temple surrounded by tropical greenery' },
+];
+const chapters = [{ label: 'Meet your Pip', time: 0, stamp: '00:00' }, { label: 'Your preferences', time: 75.5, stamp: '01:15' }, { label: 'Live research', time: 93.5, stamp: '01:33' }, { label: 'Agent discussion', time: 157, stamp: '02:37' }, { label: 'Your approval', time: 178, stamp: '02:58' }];
+const activitySteps = [
+  { label: 'Research', title: 'The search, with the details.', description: 'See the route, dates and traveller count sent to the provider. Follow its actual status and open the source behind a result.', detail: 'SFO → SAN', meta: '20–22 NOV · ROUND TRIP', rows: ['Route & dates', 'Provider reference', 'Returned options'], icon: '⌕' },
+  { label: 'Discuss', title: 'The give-and-take, out loud.', description: 'Follow shared messages between personal agents and the mediator. When a tradeoff needs your permission, your Pip comes back to you privately.', detail: 'Every traveller has a voice.', meta: 'PERSONAL AGENTS ↔ MEDIATOR', rows: ['Compare the actual options', 'Check everyone’s requirements', 'Ask before a compromise'], icon: '↔' },
+  { label: 'Review', title: 'The final decision is yours.', description: 'Review the exact proposal and your share of the cost. Each traveller approves for themselves. Agreeing to a plan does not make a booking.', detail: 'Your yes. Their yes.', meta: 'SEPARATE HUMAN APPROVALS', rows: ['The exact itinerary', 'Your own cost breakdown', 'Everyone’s recorded decision'], icon: '✓' },
+];
 const Arrow = () => <span aria-hidden="true">↗</span>;
 export function LandingPage() {
   const root = useRef<HTMLDivElement>(null);
+  const video = useRef<HTMLVideoElement>(null);
+  const [destination, setDestination] = useState(0), [activity, setActivity] = useState(0);
+  const [videoTime, setVideoTime] = useState(0), [videoNotice, setVideoNotice] = useState('');
+  const [pageVisible, setPageVisible] = useState(true);
+  const place = places[destination], stage = activitySteps[activity];
   const [motion, setMotion] = useState(true);
   const [selected, setSelected] = useState(0);
   const [wave, setWave] = useState(0);
@@ -23,36 +40,45 @@ export function LandingPage() {
     { name: 'Skylar’s Pip', line: 'That compromise works. Ready for everyone to review?', reply: 'Elena’s Pip: One shared plan. Four final decisions.', color: 'lavender' as const },
   ];
   useEffect(() => {
+    const visibility = () => setPageVisible(!document.hidden);
+    document.addEventListener('visibilitychange', visibility); visibility();
     const media = matchMedia('(prefers-reduced-motion: reduce)');
     const update = () => setMotion(!media.matches); update(); media.addEventListener('change', update);
     const observer = new IntersectionObserver(entries => entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add(styles.visible); observer.unobserve(e.target); } }), { threshold: .12 });
     root.current?.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
-    return () => { observer.disconnect(); media.removeEventListener('change', update); };
+    return () => { observer.disconnect(); media.removeEventListener('change', update); document.removeEventListener('visibilitychange', visibility); };
   }, []);
+  function playChapter(time: number) {
+    const player = video.current; if (!player) return;
+    setVideoNotice(''); player.currentTime = time;
+    void player.play().catch(() => setVideoNotice('Press play on the video to continue.'));
+  }
   return <div ref={root} className={`${styles.landing} ${!motion ? styles.paused : ''}`}>
     <a href="#content" className={styles.skip}>Skip to content</a>
     <nav className={styles.nav} aria-label="Main navigation">
       <a href="/" aria-label="Tandem home" className={styles.logo}><img src="/brand/tandem.svg" alt="tandem" width="215" height="46" /></a>
       <div className={styles.navLinks}><a href="#how-it-works">How it works</a><a href="#meet-pip">Meet Pip</a><a href="#demo">The demo</a></div>
-      <a className={styles.navCta} href="/app">Open Tandem <Arrow /></a>
+      <div className={styles.navActions}><a className={styles.signIn} href="/account">Sign in</a><a className={styles.navCta} href="/waitlist">Join the waitlist <Arrow /></a></div>
     </nav>
     <main id="content" className={styles.main}>
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
           <div className={styles.eyebrow}><span className={styles.dot} /> A LITTLE COMMON GROUND</div>
-          <h1>Good trips.<br />Different people.<br /><span>One happy plan.</span></h1>
+          <h1>Good trips.<br />Different people.<br /><span>One happy plan.<svg viewBox="0 0 480 18" aria-hidden="true"><path d="M4 12 Q230 -2 475 8 M85 17 Q280 7 432 12"/></svg></span></h1>
           <p>Your budget. Their must-sees. Everyone’s little preferences. Meet the AI companions that bring it all together.</p>
           <div className={styles.actions}><a className={styles.primary} href="/waitlist">Join the waitlist <Arrow /></a><a className={styles.secondary} href="#demo"><span aria-hidden="true">▷</span> See it in action</a></div>
           <div className={styles.heroFoot}><span aria-hidden="true">✳</span> A voice for everyone. The final say stays yours.</div>
         </div>
-        <div className={styles.world} aria-label="Four personal companions coming together around one trip">
+        <div className={styles.world} aria-label="Interactive illustration of four companions planning a trip" onPointerMove={event => { if (!motion || event.pointerType !== 'mouse') return; const box = event.currentTarget.getBoundingClientRect(); event.currentTarget.style.setProperty('--tilt-x', `${((event.clientX-box.left)/box.width-.5)*6}deg`); event.currentTarget.style.setProperty('--tilt-y', `${((event.clientY-box.top)/box.height-.5)*-4}deg`); }} onPointerLeave={event => { event.currentTarget.style.setProperty('--tilt-x','0deg'); event.currentTarget.style.setProperty('--tilt-y','0deg'); }}>
+          <div className={styles.destinationPicker} aria-label="Choose an illustrative destination">{places.map((p,i) => <button key={p.name} aria-pressed={destination === i} onClick={() => setDestination(i)}>{p.name}</button>)}</div>
+          <div className={styles.worldArt}>
           <div className={styles.orbit} /><div className={styles.orbitTwo} />
-          <svg className={styles.connections} viewBox="0 0 620 580" aria-hidden="true"><path d="M150 130 Q310 180 310 300 M480 130 Q400 230 310 300 M140 450 Q230 350 310 300 M490 440 Q420 340 310 300" /></svg>
-          <div className={styles.tripCard}><div className={styles.ticketTop}><span>OUR NEXT CHAPTER</span><span>↗</span></div><h2>San Diego,<br />together.</h2><div className={styles.ticketLine} /><div className={styles.ticketBottom}><span>4 PEOPLE · 1 GETAWAY</span><span className={styles.check}>✓</span></div></div>
-          {crew.map((p,i) => <button key={p.color} className={`${styles.pip} ${styles[p.className]} ${selected === i ? styles.selected : ''}`} onClick={() => { setSelected(i); setWave(v => v + 1); }} aria-pressed={selected === i} aria-label={`Meet ${p.name}`}><span className={styles.pipVisual}><PipCompanion active={motion} waveToken={selected === i ? wave : 0} variant={p.color} /></span><span className={styles.pipName}>{p.name}</span></button>)}
-          <div key={selected} className={styles.bubble}><span className={styles.bubbleDot} />{crew[selected].note}</div>
+          <svg className={styles.connections} viewBox="0 0 620 580" aria-hidden="true">{['M150 130 Q310 180 310 300','M480 130 Q400 230 310 300','M140 450 Q230 350 310 300','M490 440 Q420 340 310 300'].map((d,i) => <path key={d} d={d} className={selected === i ? styles.activePath : ''}/>)}</svg>
+          <div className={styles.tripCard}><div className={styles.postcardImage}><img key={place.image} src={`/destinations/${place.image}.jpg`} alt={place.alt} width="380" height="240" fetchPriority="high"/><span>{place.country} / WITH YOUR PEOPLE</span></div><div className={styles.postcardCopy} aria-live="polite"><div className={styles.ticketTop}><span>{place.theme}</span><span>↗</span></div><h2>{place.name},<br/>together.</h2><div className={styles.ticketLine}/><div className={styles.ticketBottom}><span>4 PERSPECTIVES · 1 GETAWAY</span><span className={styles.check}>✳</span></div></div></div>
+          {crew.map((p,i) => <button key={p.color} className={`${styles.pip} ${styles[p.className]} ${selected === i ? styles.selected : ''}`} onClick={() => { setSelected(i); setWave(v => v + 1); }} aria-pressed={selected === i} aria-label={`Meet ${p.name}`}><span className={styles.pipVisual}><PipCompanion active={motion && pageVisible} waveToken={selected === i ? wave : 0} variant={p.color} /></span><span className={styles.pipName}>{p.name}</span></button>)}
+          <div key={selected} className={styles.bubble} aria-live="polite"><span className={styles.bubbleDot} />{crew[selected].note}</div>
           <span className={styles.sparkOne}>✳</span><span className={styles.sparkTwo}>✧</span>
-          <div className={styles.sceneBottom}><span>ILLUSTRATIVE TRIP</span><button onClick={() => setMotion(m => !m)} aria-label={motion ? 'Pause animations' : 'Play animations'}>{motion ? 'Ⅱ' : '▷'} Motion {motion ? 'on' : 'off'}</button></div>
+          </div><div className={styles.sceneBottom}><span>ILLUSTRATIVE TRIP · TAP A PIP TO SAY HELLO</span><button onClick={() => setMotion(m => !m)} aria-label={motion ? 'Pause animations' : 'Play animations'}>{motion ? 'Ⅱ' : '▷'} Motion {motion ? 'on' : 'off'}</button></div>
         </div>
       </section>
       <section className={styles.sponsors} aria-label="Sponsors"><div className={styles.sponsorCaption}>BUILT AT CAL HACKS 13 <span>WITH THANKS TO OUR SPONSORS</span></div><div className={styles.sponsorLogos}>
@@ -65,27 +91,43 @@ export function LandingPage() {
       <section id="how-it-works" className={styles.how} data-reveal>
         <div className={styles.sectionHead}><div><div className={styles.eyebrow}>LESS BACK-AND-FORTH. MORE LOOKING FORWARD.</div><h2>From “we should go”<br />to “see you there.”</h2></div><p>Let your companions handle the coordination.<br />Keep the part you actually came for.</p></div>
         <div className={styles.steps}>
-          <article><div className={`${styles.stepArt} ${styles.chatArt}`}><div className={styles.smallPip}><PipCompanion active={motion} variant="lavender" /></div><div className={styles.privateNote}><span>PRIVATE CHAT · EXAMPLE</span>“Let’s keep it<br />under ${budget}.”<i>✓ Only you and Pip</i></div><div className={styles.budgetChoices} aria-label="Try a private budget preference"><button aria-pressed={budget === 350} onClick={() => setBudget(350)}>$350</button><button aria-pressed={budget === 500} onClick={() => setBudget(500)}>$500</button><span aria-live="polite">Pip remembers.</span></div></div><span className={styles.stepNumber}>01 / TRY A PRIVATE CONVERSATION</span><h3>A companion who gets you.</h3><p>Tell Pip what matters, by voice or text. Your personal reasons stay private; you decide what your agent can act on.</p></article>
-          <article><div className={`${styles.stepArt} ${styles.discussionArt}`}><span className={styles.exampleLabel}>AGENT DISCUSSION · EXAMPLE</span><div className={styles.turnHead}><div className={styles.turnPip}><PipCompanion active={motion} variant={turns[discussion].color} /></div><span>{turns[discussion].name}</span><i>•••</i></div><div className={styles.turnText} aria-live="polite">{turns[discussion].line}</div><div className={styles.turnReply}>{turns[discussion].reply}</div><button className={styles.nextTurn} onClick={() => setDiscussion(v => (v + 1) % turns.length)}>Follow the conversation <span>→</span></button></div><span className={styles.stepNumber}>02 / FOLLOW THE GIVE-AND-TAKE</span><h3>Many voices. Common ground.</h3><p>Your companions research options and compare needs together. If a compromise needs your say, Pip asks you privately.</p></article>
+          <article><div className={`${styles.stepArt} ${styles.chatArt}`}><div className={styles.smallPip}><PipCompanion active={motion && pageVisible} variant="lavender" /></div><div className={styles.privateNote}><span>PRIVATE CHAT · EXAMPLE</span>“Let’s keep it<br />under ${budget}.”<i>✓ Only you and Pip</i></div><div className={styles.budgetChoices} aria-label="Try a private budget preference"><button aria-pressed={budget === 350} onClick={() => setBudget(350)}>$350</button><button aria-pressed={budget === 500} onClick={() => setBudget(500)}>$500</button><span aria-live="polite">Pip remembers.</span></div></div><span className={styles.stepNumber}>01 / TRY A PRIVATE CONVERSATION</span><h3>A companion who gets you.</h3><p>Tell Pip what matters, by voice or text. Your personal reasons stay private; you decide what your agent can act on.</p></article>
+          <article><div className={`${styles.stepArt} ${styles.discussionArt}`}><span className={styles.exampleLabel}>AGENT DISCUSSION · EXAMPLE</span><div className={styles.turnHead}><div className={styles.turnPip}><PipCompanion active={motion && pageVisible} variant={turns[discussion].color} /></div><span>{turns[discussion].name}</span><i>•••</i></div><div className={styles.turnText} aria-live="polite">{turns[discussion].line}</div><div className={styles.turnReply}>{turns[discussion].reply}</div><button className={styles.nextTurn} onClick={() => setDiscussion(v => (v + 1) % turns.length)}>Follow the conversation <span>→</span></button></div><span className={styles.stepNumber}>02 / FOLLOW THE GIVE-AND-TAKE</span><h3>Many voices. Common ground.</h3><p>Your companions research options and compare needs together. If a compromise needs your say, Pip asks you privately.</p></article>
           <article><div className={`${styles.stepArt} ${styles.approvalArt}`}><div className={styles.approvalCard}><span>YOUR FINAL SAY · EXAMPLE</span><strong>{approvals === 4 ? 'Everyone is on board.' : 'A plan for all of us.'}</strong><div className={styles.approvalDots}>{colors().map((c,i)=><i key={c} style={{background:i < approvals ? c : '#efeee7',color:i < approvals ? '#354f34' : '#b9beb0'}}>{i < approvals ? '✓' : '·'}</i>)}</div><small aria-live="polite">{approvals} of 4 people approved.</small><button className={styles.approveExample} onClick={() => setApprovals(v => v === 4 ? 0 : v + 1)}>{approvals === 4 ? 'Try again ↺' : 'Add an approval ✓'}</button></div></div><span className={styles.stepNumber}>03 / GIVE EVERYONE A SAY</span><h3>Nothing agreed without you.</h3><p>Review the exact plan and give your own approval. Your agent helps you decide. It never makes the final decision for you.</p></article>
         </div>
       </section>
       <section className={styles.transparency} data-reveal>
         <div className={styles.transparencyCopy}><div className={styles.eyebrow}>A PLAN YOU CAN FOLLOW</div><h2>See the work.<br/><span>Not just the wait.</span></h2><p>Follow your companions from the first search to the final decision. Open the activity panel to see provider updates, results, and what needs attention.</p><a href="/app">Step inside your trip <Arrow /></a></div>
-        <div className={styles.activityExample} aria-label="Illustration of the activity panel, not a live search"><div className={styles.activityExampleTop}><span>BEHIND THE PLAN</span><small>ILLUSTRATIVE EXAMPLE</small></div><h3>Every step, out in the open.</h3><ol><li><i>01</i><div><strong>Searching flights</strong><span>Provider status, search progress, and results</span></div><b>Research</b></li><li><i>02</i><div><strong>Finding common ground</strong><span>Shared discussion, with private follow-ups for you</span></div><b>Discuss</b></li><li><i>03</i><div><strong>Your plan, your decision</strong><span>Exact itinerary, your share, and your approval</span></div><b>Review</b></li></ol><p>Real updates in the app. Your private reasons stay private.</p></div>
+        <div className={styles.activityExample} aria-label="Interactive activity preview, not a live search"><div className={styles.activityExampleTop}><span>BEHIND THE PLAN</span><small>INTERACTIVE EXAMPLE</small></div><div className={styles.activityTabs} aria-label="Explore planning stages">{activitySteps.map((s,i) => <button key={s.label} aria-pressed={activity === i} onClick={() => setActivity(i)}><span>0{i+1}</span>{s.label}</button>)}</div><div key={activity} className={styles.activityPreview} aria-live="polite"><div className={styles.previewDetail}><span className={styles.previewIcon} aria-hidden="true">{stage.icon}</span><div><small>{stage.meta}</small><strong>{stage.detail}</strong></div></div><h3>{stage.title}</h3><p>{stage.description}</p><ul>{stage.rows.map(row => <li key={row}><span>↗</span>{row}</li>)}</ul></div><p className={styles.exampleFoot}>A guided preview. The app shows actual searches and agent messages.</p></div>
       </section>
       <section id="meet-pip" className={styles.manifesto} data-reveal>
-        <div className={styles.manifestoArt}><div className={styles.pipHalo}/><PipCompanion active={motion} variant="lavender" /><span className={styles.hello}>Hi. I’m in your corner.</span><div className={styles.privateBadge}>⌁ A LITTLE TRUST GOES A LONG WAY</div></div>
+        <PipShowcase motion={motion && pageVisible}/>
         <div className={styles.manifestoCopy}><div className={styles.eyebrow}>SMALL COMPANION. BIG DIFFERENCE.</div><h2>For the things<br />you don’t want<br />to say in the<br /><span>group chat.</span></h2><p>Maybe the budget’s a stretch. Maybe you need a slower pace. Pip helps your needs be heard, without making you explain yourself to everyone.</p><a href="/profile">Meet your Pip <Arrow /></a></div>
       </section>
       <section id="demo" className={styles.demo} data-reveal>
         <div className={styles.sectionHead}><div><div className={styles.eyebrow}>REAL PEOPLE’S NEEDS. A REAL WORKFLOW.</div><h2>Watch a little<br />common ground happen.</h2></div><p>From the first hello to everyone’s yes.<br />A real trip: flights, stays, activities, and dinner.</p></div>
-        <video controls playsInline preload="none" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><source src="/media/tandem-demo.mp4" type="video/mp4" /><track kind="captions" src="/media/tandem-demo-narration.vtt" srcLang="en" label="English narration" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>
+        <video ref={video} onTimeUpdate={event => setVideoTime(event.currentTarget.currentTime)} controls playsInline preload="metadata" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><source src="/media/tandem-demo.mp4" type="video/mp4" /><track kind="captions" src="/media/tandem-demo-narration.vtt" srcLang="en" label="English narration" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>
+        <div className={styles.chapters} aria-label="Video chapters">{chapters.map((chapter,i) => <button key={chapter.time} aria-current={videoTime >= chapter.time && (i === chapters.length-1 || videoTime < chapters[i+1].time) ? 'true' : undefined} onClick={() => playChapter(chapter.time)}><span>{chapter.stamp}</span>{chapter.label}<i aria-hidden="true">↗</i></button>)}</div>{videoNotice && <p role="status">{videoNotice}</p>}
         <div className={styles.demoCaption}><span>05:26 / REAL END-TO-END WALKTHROUGH</span><span>Edited production recording · added narration · <a href="/media/tandem-demo-transcript.txt">Narration transcript ↗</a></span></div>
       </section>
+      <section className={styles.faq} data-reveal><div><p className={styles.eyebrow}>A FEW THINGS YOU MIGHT WONDER</p><h2>Good questions.<br/><span>Clear answers.</span></h2></div><div className={styles.questions}>
+        <details><summary>How do I get an invitation?<span>+</span></summary><p><a href="/waitlist">Join the waitlist</a> with your email. The team reviews requests and shares a single-use invitation when a place is available. Already invited? Use your link to create an account.</p></details>
+        <details><summary>Can everyone see my private preferences?<span>+</span></summary><p>Your personal conversation stays between you and your Pip. Shared agent messages help the group coordinate; your private reasons are not part of the group conversation.</p></details>
+        <details><summary>Does Tandem book anything for me?<span>+</span></summary><p>No. Your agent researches and helps coordinate a proposal. Each traveller approves separately, and agreeing to a plan does not purchase or book anything.</p></details>
+        <details><summary>Can I follow what the agents are doing?<span>+</span></summary><p>Yes. Your trip’s activity panel shows actual searches, provider status and results. The agent discussion shows shared messages, and your own Pip can answer questions while planning continues.</p></details>
+      </div></section>
       <section className={styles.finalCta} data-reveal><div className={styles.eyebrow}>YOUR NEXT CHAPTER STARTS HERE</div><h2>A little less planning.<br /><span>A lot more together.</span></h2><a href="/waitlist" className={styles.primary}>Join the waitlist <Arrow /></a><div className={styles.finalSprout}>✳</div></section>
     </main>
     <footer className={styles.footer}><a href="/" aria-label="Tandem home"><img src="/brand/tandem.svg" alt="Tandem" width="178" height="38" /></a><span>A little common ground.</span><div><a href="https://github.com/skylarsoon/tandem">GitHub <Arrow /></a><a href="/waitlist">Join the waitlist <Arrow /></a><a href="/app">Open the app <Arrow /></a></div><small>Made together at Cal Hacks 13.</small></footer>
   </div>;
 }
 function colors(){return ['#dfd2f3','#f1d8c6','#c5e4d6','#e4e5bc'];}
+
+function PipShowcase({ motion }: { motion: boolean }) {
+  const [color, setColor] = useState(0), [greeting, setGreeting] = useState(0);
+  const [gaze, setGaze] = useState<Gaze>({x:0,y:0,present:false});
+  return <div className={styles.manifestoArt} onPointerMove={event => { if (!motion || event.pointerType !== 'mouse') return; const box=event.currentTarget.getBoundingClientRect(); setGaze({x:((event.clientX-box.left)/box.width-.5)*.7,y:((event.clientY-box.top)/box.height-.5)*.5,present:true}); }} onPointerLeave={() => setGaze({x:0,y:0,present:false})}>
+    <div className={styles.pipHalo}/><PipCompanion active={motion} variant={crew[color].color} waveToken={greeting} gaze={gaze}/><span key={greeting} className={styles.hello}>{greeting ? 'Good to see you, too.' : 'Hi. I’m in your corner.'}</span>
+    <div className={styles.pipControls}><div aria-label="Preview companion colours">{crew.map((p,i) => <button key={p.color} aria-label={`Preview ${p.color} Pip`} aria-pressed={color===i} onClick={() => setColor(i)} style={{background:colors()[i]}} />)}</div><button className={styles.sayHello} onClick={() => setGreeting(v => v+1)}>Say hello <span aria-hidden="true">↗</span></button></div><div className={styles.privateBadge}>TRY A COLOUR. SAY HELLO. MOVE YOUR POINTER.</div>
+  </div>;
+}
