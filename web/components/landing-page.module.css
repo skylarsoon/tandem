@@ -41,3 +41,6 @@
 .arrowIcon{display:inline-block;flex-shrink:0;vertical-align:middle}.heroFoot>span{display:flex}.sparkOne svg,.finalSprout svg{width:1em;height:1em}.check svg{width:16px;height:16px}.demoCaption .arrowIcon{width:11px;height:11px}
 
 .videoActions{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:16px 0;font-size:12px;flex-wrap:wrap}.videoActions button{border:0;border-radius:30px;background:#293d32;color:#fff;padding:13px 20px;min-height:44px}.videoActions a{display:inline-flex;align-items:center;gap:8px;text-decoration:underline;text-underline-offset:4px}
+
+/* Keep the native media surface outside reveal transforms on iOS. */
+.videoFrame{position:relative;isolation:isolate;transform:none;animation:none}.videoFrame video{position:relative;z-index:0;pointer-events:auto;touch-action:manipulation}.videoPlay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;display:flex;align-items:center;gap:10px;min-height:52px;white-space:nowrap;padding:16px 24px;border:1px solid #ffffff70;border-radius:50px;background:#293d32f5;color:#fff;box-shadow:0 8px 30px #0003;font-size:14px}.videoPlay:active{background:#435740}

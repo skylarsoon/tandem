@@ -28,6 +28,7 @@ export function LandingPage() {
   const video = useRef<HTMLVideoElement>(null);
   const pendingSeek = useRef<number | null>(null);
   const [videoPlaying, setVideoPlaying] = useState(false);
+  const [videoStarted, setVideoStarted] = useState(false);
   const [destination, setDestination] = useState(0), [activity, setActivity] = useState(0);
   const [videoTime, setVideoTime] = useState(0), [videoNotice, setVideoNotice] = useState('');
   const [pageVisible, setPageVisible] = useState(true);
@@ -52,6 +53,14 @@ export function LandingPage() {
     root.current?.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
     return () => { observer.disconnect(); media.removeEventListener('change', update); document.removeEventListener('visibilitychange', visibility); };
   }, []);
+  function playInline() {
+    const player = video.current; if (!player) return;
+    pendingSeek.current = null; setVideoNotice('');
+    player.playsInline = true; player.muted = false;
+    if (player.error) player.load();
+    // Do not seek or await metadata before play: preserve the original tap.
+    void player.play().catch(() => setVideoNotice('Playback could not start. Tap Play again or use the direct video link.'));
+  }
   function playChapter(time: number) {
     const player = video.current; if (!player) return;
     setVideoNotice(''); pendingSeek.current = time;
@@ -113,10 +122,10 @@ export function LandingPage() {
         <PipShowcase motion={motion && pageVisible && !videoPlaying}/>
         <div className={styles.manifestoCopy}><div className={styles.eyebrow}>SMALL COMPANION. BIG DIFFERENCE.</div><h2>For the things<br />you don’t want<br />to say in the<br /><span>group chat.</span></h2><p>Maybe the budget’s a stretch. Maybe you need a slower pace. Pip helps your needs be heard, without making you explain yourself to everyone.</p><a href="/profile">Meet your Pip <Arrow /></a></div>
       </section>
-      <section id="demo" className={styles.demo} data-reveal>
+      <section id="demo" className={styles.demo}>
         <div className={styles.sectionHead}><div><div className={styles.eyebrow}>REAL PEOPLE’S NEEDS. A REAL WORKFLOW.</div><h2>Watch a little<br />common ground happen.</h2></div><p>From the first hello to everyone’s yes.<br />A real trip: flights, stays, activities, and dinner.</p></div>
-        <video ref={video} onPlay={() => { setVideoPlaying(true); setVideoNotice(''); }} onPause={() => setVideoPlaying(false)} onEnded={() => setVideoPlaying(false)} onError={() => { setVideoPlaying(false); setVideoNotice('The video could not load. Try opening it directly below.'); }} onLoadedMetadata={event => { if (pendingSeek.current !== null) { event.currentTarget.currentTime = pendingSeek.current; pendingSeek.current = null; } }} onTimeUpdate={event => setVideoTime(event.currentTarget.currentTime)} controls playsInline preload="metadata" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><source src="/media/tandem-demo-compatible.mp4" media="(max-width: 760px)" type="video/mp4" /><source src="/media/tandem-demo.mp4" type="video/mp4" /><track kind="captions" src="/media/tandem-demo-narration.vtt" srcLang="en" label="English narration" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>
-        <div className={styles.videoActions}><button onClick={() => { if (videoPlaying) video.current?.pause(); else playChapter(video.current?.currentTime || 0); }}>{videoPlaying ? 'Pause demo' : 'Play demo with sound'}</button><a href="/media/tandem-demo-compatible.mp4" target="_blank" rel="noopener noreferrer">Open video directly <Arrow /></a></div>
+        <div className={styles.videoFrame}><video ref={video} src="/media/tandem-demo-compatible.mp4" onPlaying={() => { setVideoStarted(true); setVideoPlaying(true); setVideoNotice(''); }} onPlay={() => { setVideoPlaying(true); setVideoNotice(''); }} onPause={() => setVideoPlaying(false)} onEnded={() => { setVideoPlaying(false); setVideoStarted(false); }} onError={() => { setVideoPlaying(false); setVideoNotice('The video could not load. Try opening it directly below.'); }} onLoadedMetadata={event => { if (pendingSeek.current !== null) { event.currentTarget.currentTime = pendingSeek.current; pendingSeek.current = null; } }} onTimeUpdate={event => setVideoTime(event.currentTarget.currentTime)} controls playsInline preload="metadata" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><track kind="captions" src="/media/tandem-demo-narration.vtt" srcLang="en" label="English narration" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>{!videoStarted && <button className={styles.videoPlay} onClick={playInline} aria-label="Play demo inline with sound"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7Z"/></svg><span>Play the demo</span></button>}</div>
+        <div className={styles.videoActions}><button onClick={() => { if (videoPlaying) video.current?.pause(); else playInline(); }}>{videoPlaying ? 'Pause demo' : 'Play demo with sound'}</button><a href="/media/tandem-demo-compatible.mp4" target="_blank" rel="noopener noreferrer">Open video directly <Arrow /></a></div>
         <div className={styles.chapters} aria-label="Video chapters">{chapters.map((chapter,i) => <button key={chapter.time} aria-current={videoTime >= chapter.time && (i === chapters.length-1 || videoTime < chapters[i+1].time) ? 'true' : undefined} onClick={() => playChapter(chapter.time)}><span>{chapter.stamp}</span>{chapter.label}<i aria-hidden="true"><Arrow /></i></button>)}</div>{videoNotice && <p role="status">{videoNotice}</p>}
         <div className={styles.demoCaption}><span>05:26 / REAL END-TO-END WALKTHROUGH</span><span>Edited production recording · added narration · <a href="/media/tandem-demo-transcript.txt">Narration transcript <Arrow /></a></span></div>
       </section>
