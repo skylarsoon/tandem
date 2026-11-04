@@ -114,6 +114,34 @@ export const changeAdminPassword = spacetimedb.procedure(
   }))
 );
 
+// Only the server gateway can submit requests. A waitlist entry grants no access.
+export const joinInvitationWaitlist = spacetimedb.procedure(
+  { email: t.string(), displayName: t.string(), clientHash: t.string() }, t.string(),
+  (ctx, args) => runProcedure(() => ctx.withTx(tx => {
+    gateway(tx); hash(args.clientHash);
+    const email = args.email.trim().toLowerCase(), name = args.displayName.trim();
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || name.length > 80 || /[\x00-\x1f\x7f]/.test(name))
+      fail('INVALID_ARGUMENT', 'valid email and name required');
+    const now = tx.timestamp.microsSinceUnixEpoch;
+    for (const row of tx.db.waitlistLimit.iter()) {
+      if (now - row.windowStart.microsSinceUnixEpoch >= hour) tx.db.waitlistLimit.key.delete(row.key);
+    }
+    const limits: [string, number][] = [['global', 200], [`ip:${args.clientHash}`, 5]];
+    if (limits.some(([key, cap]) => (tx.db.waitlistLimit.key.find(key)?.count ?? 0) >= cap)) return { limited: true };
+    for (const [key] of limits) {
+      const current = tx.db.waitlistLimit.key.find(key);
+      if (current) tx.db.waitlistLimit.key.update({ ...current, count: current.count + 1 });
+      else tx.db.waitlistLimit.insert({ key, windowStart: tx.timestamp, count: 1 });
+    }
+    // Identical response for existing entries; never replace their name/status.
+    if (!tx.db.invitationWaitlist.email.find(email)) {
+      if ([...tx.db.invitationWaitlist.iter()].length >= 10000) return { unavailable: true };
+      tx.db.invitationWaitlist.insert({ email, name, createdAt: tx.timestamp, invitationHash: undefined });
+    }
+    return { accepted: true };
+  }))
+);
+
 export const adminOverview = spacetimedb.procedure({ sessionHash: t.string() }, t.string(), (ctx, args) =>
   runProcedure(() => ctx.withTx(tx => {
     const account = session(tx, args.sessionHash);
@@ -126,6 +154,14 @@ export const adminOverview = spacetimedb.procedure({ sessionHash: t.string() }, 
       identity: a.identity.toHexString(), name: tx.db.profile.owner.find(a.identity)?.displayName || 'Traveller', revoked: a.revoked,
       grantedAt: a.grantedAt.microsSinceUnixEpoch.toString(),
     }));
+    const requests = [...tx.db.invitationWaitlist.iter()];
+    const waiting = requests.filter(r => !r.invitationHash).sort((a,b) => Number(a.createdAt.microsSinceUnixEpoch - b.createdAt.microsSinceUnixEpoch));
+    const issued = requests.filter(r => r.invitationHash).sort((a,b) => Number(b.createdAt.microsSinceUnixEpoch - a.createdAt.microsSinceUnixEpoch));
+    const waitlist = [...waiting.slice(0,100), ...issued.slice(0,100)].map(r => {
+      const invitation = r.invitationHash ? tx.db.appInvitation.tokenHash.find(r.invitationHash) : undefined;
+      return { email: r.email, name: r.name, createdAt: r.createdAt.microsSinceUnixEpoch.toString(),
+        status: !r.invitationHash ? 'waiting' : !invitation || invitation.revoked ? 'revoked' : invitation.redeemedBy ? 'used' : invitation.expiresAt.microsSinceUnixEpoch <= tx.timestamp.microsSinceUnixEpoch ? 'expired' : 'link created' };
+    });
     const jobs = [...tx.db.job.iter()];
     const counts: Record<string, number> = {};
     for (const job of jobs) counts[job.status] = (counts[job.status] || 0) + 1;
@@ -135,7 +171,7 @@ export const adminOverview = spacetimedb.procedure({ sessionHash: t.string() }, 
     const events = [...tx.db.adminAudit.iter()].sort((a,b) => Number(b.id-a.id)).slice(0,30).map(a => ({
       id: a.id.toString(), email: a.email, action: a.action, at: a.at.microsSinceUnixEpoch.toString(),
     }));
-    return { email: account.email, mustChangePassword: false, asOf: tx.timestamp.microsSinceUnixEpoch.toString(), invitations, users, counts, recentJobs, events,
+    return { email: account.email, mustChangePassword: false, asOf: tx.timestamp.microsSinceUnixEpoch.toString(), invitations, users, counts, recentJobs, events, waitlist, waitlistPending: waiting.length,
       limits: { invitations: 100, users: 100, jobs: 30 } };
   }))
 );
@@ -161,9 +197,18 @@ export const adminAction = spacetimedb.procedure(
         hash(payload.tokenHash);
         if (typeof payload.label !== 'string' || !payload.label.trim() || payload.label.length > 100 ||
             !Number.isInteger(payload.hours) || payload.hours < 1 || payload.hours > 168) fail('INVALID_ARGUMENT', 'invalid invitation');
+        const request = typeof payload.waitlistEmail === 'string' ? tx.db.invitationWaitlist.email.find(payload.waitlistEmail) : undefined;
+        if (payload.waitlistEmail !== undefined && !request) fail('NOT_FOUND', 'waitlist request not found');
+        if (request?.invitationHash) {
+          const previous = tx.db.appInvitation.tokenHash.find(request.invitationHash);
+          if (previous?.redeemedBy) fail('INVALID_ARGUMENT', 'this request already has a used invitation');
+          // Reissuing invalidates the prior link, so only one invitation is active.
+          if (previous) tx.db.appInvitation.tokenHash.update({ ...previous, revoked: true });
+        }
         tx.db.appInvitation.insert({ tokenHash: payload.tokenHash, label: payload.label.trim(),
           expiresAt: new Timestamp(tx.timestamp.microsSinceUnixEpoch + BigInt(payload.hours) * hour),
           redeemedBy: undefined, redeemedAt: undefined, revoked: false });
+        if (request) tx.db.invitationWaitlist.email.update({ ...request, invitationHash: payload.tokenHash });
         audit(tx, account.email, 'INVITATION_CREATED', payload.tokenHash); break;
       }
       case 'revoke_invitation': {

@@ -72,6 +72,13 @@ export const adminSessionExpiry = table({ name: 'admin_session_expiry' }, {
 const adminLoginLimit = table({ name: 'admin_login_limit' }, {
   key: t.string().primaryKey(), windowStart: t.timestamp(), count: t.u32(),
 });
+const invitationWaitlist = table({ name: 'invitation_waitlist' }, {
+  email: t.string().primaryKey(), name: t.string(), createdAt: t.timestamp(),
+  invitationHash: t.option(t.string()),
+});
+const waitlistLimit = table({ name: 'waitlist_limit' }, {
+  key: t.string().primaryKey(), windowStart: t.timestamp(), count: t.u32(),
+});
 const adminAudit = table({ name: 'admin_audit' }, {
   id: t.u64().primaryKey().autoInc(), email: t.string(), action: t.string(), subject: t.string(), at: t.timestamp(),
 });
@@ -843,6 +850,8 @@ const spacetimedb = schema({
   participantDevice,
   adminSessionExpiry,
   adminLoginLimit,
+  invitationWaitlist,
+  waitlistLimit,
   adminAudit,
   travellerCredential,
   travellerSession,

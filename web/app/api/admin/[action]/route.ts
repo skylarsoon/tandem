@@ -66,7 +66,7 @@ export async function POST(request: Request, context: Context) {
     }
     if (action === 'invitations') {
       const token = secret();
-      await callAdmin('admin_action', { sessionHash: hash, action: 'create_invitation', payloadJson: JSON.stringify({ tokenHash: digest(token), label: body.label, hours: body.hours }) });
+      await callAdmin('admin_action', { sessionHash: hash, action: 'create_invitation', payloadJson: JSON.stringify({ tokenHash: digest(token), label: body.label, hours: body.hours, waitlistEmail: body.waitlistEmail }) });
       return NextResponse.json({ invitation: `${origin(request)}/invite#invite=${token}` }, { headers });
     }
     if (action === 'revoke-invitation' || action === 'access') {

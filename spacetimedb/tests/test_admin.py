@@ -193,3 +193,42 @@ def test_different_accounts_on_same_device_never_inherit_each_others_data(admin)
         b=c.mint_identity();open_app(c,g,other,b)
         assert c.view(b,'my_profile')[0]['display_name']=='Account two private profile'
     finally: owner('configure_admin_account',second_email,False,'a'*128,'b'*64)
+
+
+def test_waitlist_private_deduplicated_and_invitation_only(admin, worker):
+    c,g,email=admin; stranger=c.mint_identity(); target=f'{secrets.token_hex(8)}@example.test'
+    args=dict(email=target.upper(),display_name=' Alex ',client_hash=digest())
+    for who in [stranger, worker]:
+        expect_error('NOT_AUTHORIZED',c.procedure,who,'join_invitation_waitlist',**args)
+    assert c.procedure(g,'join_invitation_waitlist',**args)['accepted']
+    assert c.procedure(g,'join_invitation_waitlist',email=target,display_name='Replacement',client_hash=digest())['accepted']
+    for who in [stranger,g,worker]:
+        with pytest.raises(StdbError): c.sql(who,'SELECT * FROM invitation_waitlist')
+    expect_error('INVITATION_REQUIRED',c.call,stranger,'create_room',goal='waitlisted only',display_name='Alex')
+    session_hash=login(c,g,email)
+    rows=c.procedure(g,'admin_overview',session_hash=session_hash)['waitlist']
+    matches=[x for x in rows if x['email']==target]
+    assert len(matches)==1 and matches[0]['name']=='Alex' and matches[0]['status']=='waiting'
+    old=secrets.token_urlsafe(32); old_hash=hashlib.sha256(old.encode()).hexdigest()
+    action(c,g,session_hash,'create_invitation',tokenHash=old_hash,label='Waitlist Alex',hours=24,waitlistEmail=target)
+    token=secrets.token_urlsafe(32); token_hash=hashlib.sha256(token.encode()).hexdigest()
+    action(c,g,session_hash,'create_invitation',tokenHash=token_hash,label='Reissued',hours=24,waitlistEmail=target)
+    snapshot=c.procedure(g,'admin_overview',session_hash=session_hash)
+    assert next(i for i in snapshot['invitations'] if i['hash']==old_hash)['status']=='revoked'
+    assert next(i for i in snapshot['waitlist'] if i['email']==target)['status']=='link created'
+    person=c.mint_identity();register_test_identity(c,person,token)
+    snapshot=c.procedure(g,'admin_overview',session_hash=session_hash)
+    assert next(i for i in snapshot['waitlist'] if i['email']==target)['status']=='used'
+    expect_error('INVALID_ARGUMENT',action,c,g,session_hash,'create_invitation',tokenHash=digest(),label='Cannot duplicate',hours=24,waitlistEmail=target)
+    expect_error('NOT_FOUND',action,c,g,session_hash,'create_invitation',tokenHash=digest(),label='Missing',hours=24,waitlistEmail='missing@example.test')
+
+
+def test_waitlist_persistent_rate_limit_and_validation(admin):
+    c,g,email=admin;ip=digest()
+    expect_error('INVALID_ARGUMENT',c.procedure,g,'join_invitation_waitlist',email='bad',display_name='',client_hash=ip)
+    for i in range(5):
+        result=c.procedure(g,'join_invitation_waitlist',email=f'{secrets.token_hex(8)}@example.test',display_name='',client_hash=ip)
+        assert result['accepted']
+    assert c.procedure(g,'join_invitation_waitlist',email='limited@example.test',display_name='',client_hash=ip)['limited']
+    session_hash=login(c,g,email)
+    assert not any(r['email']=='limited@example.test' for r in c.procedure(g,'admin_overview',session_hash=session_hash)['waitlist'])

@@ -42,7 +42,7 @@ export function LandingPage() {
           <div className={styles.eyebrow}><span className={styles.dot} /> A LITTLE COMMON GROUND</div>
           <h1>Good trips.<br />Different people.<br /><span>One happy plan.</span></h1>
           <p>Your budget. Their must-sees. Everyone’s little preferences. Meet the AI companions that bring it all together.</p>
-          <div className={styles.actions}><a className={styles.primary} href="/profile">Find your common ground <Arrow /></a><a className={styles.secondary} href="#demo"><span aria-hidden="true">▷</span> See it in action</a></div>
+          <div className={styles.actions}><a className={styles.primary} href="/waitlist">Join the waitlist <Arrow /></a><a className={styles.secondary} href="#demo"><span aria-hidden="true">▷</span> See it in action</a></div>
           <div className={styles.heroFoot}><span aria-hidden="true">✳</span> A voice for everyone. The final say stays yours.</div>
         </div>
         <div className={styles.world} aria-label="Four personal companions coming together around one trip">
@@ -83,9 +83,9 @@ export function LandingPage() {
         <video controls playsInline preload="none" poster="/media/demo-poster.png" aria-label="Tandem end-to-end product demonstration"><source src="/media/tandem-demo.mp4" type="video/mp4" /><track kind="captions" src="/media/tandem-demo-narration.vtt" srcLang="en" label="English narration" />Your browser does not support video. <a href="/media/tandem-demo.mp4">Download the demo.</a></video>
         <div className={styles.demoCaption}><span>05:26 / REAL END-TO-END WALKTHROUGH</span><span>Edited production recording · added narration · <a href="/media/tandem-demo-transcript.txt">Narration transcript ↗</a></span></div>
       </section>
-      <section className={styles.finalCta} data-reveal><div className={styles.eyebrow}>YOUR NEXT CHAPTER STARTS HERE</div><h2>A little less planning.<br /><span>A lot more together.</span></h2><a href="/profile" className={styles.primary}>Let’s go somewhere <Arrow /></a><div className={styles.finalSprout}>✳</div></section>
+      <section className={styles.finalCta} data-reveal><div className={styles.eyebrow}>YOUR NEXT CHAPTER STARTS HERE</div><h2>A little less planning.<br /><span>A lot more together.</span></h2><a href="/waitlist" className={styles.primary}>Join the waitlist <Arrow /></a><div className={styles.finalSprout}>✳</div></section>
     </main>
-    <footer className={styles.footer}><a href="/" aria-label="Tandem home"><img src="/brand/tandem.svg" alt="Tandem" width="178" height="38" /></a><span>A little common ground.</span><div><a href="https://github.com/skylarsoon/tandem">GitHub <Arrow /></a><a href="/app">Open the app <Arrow /></a></div><small>Made together at Cal Hacks 13.</small></footer>
+    <footer className={styles.footer}><a href="/" aria-label="Tandem home"><img src="/brand/tandem.svg" alt="Tandem" width="178" height="38" /></a><span>A little common ground.</span><div><a href="https://github.com/skylarsoon/tandem">GitHub <Arrow /></a><a href="/waitlist">Join the waitlist <Arrow /></a><a href="/app">Open the app <Arrow /></a></div><small>Made together at Cal Hacks 13.</small></footer>
   </div>;
 }
 function colors(){return ['#dfd2f3','#f1d8c6','#c5e4d6','#e4e5bc'];}

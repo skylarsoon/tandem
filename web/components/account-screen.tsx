@@ -117,7 +117,7 @@ function AccountForm({ client, invitation }: { client: Client; invitation: boole
       </form>
       <button className={styles.secondary} disabled={busy} onClick={() => { setMode(mode === 'register' ? 'login' : 'register'); setPassword(''); setConfirmation(''); setError(''); }}>{mode === 'register' ? 'Already have an account? Sign in' : 'Have an invitation? Create an account'}</button>
       {legacyAccess && <p className={styles.fine}>Used an invitation before accounts were introduced? Create your login here to keep your existing profile and trips.</p>}
-      <p className={styles.fine}>Need an invitation or a password reset? Contact the person who invited you.</p>
+      <p className={styles.fine}>Don’t have an invitation yet? <a href="/waitlist">Join the waitlist →</a></p><p className={styles.fine}>For a password reset, contact the person who invited you.</p>
       <a href="/admin">Admin sign-in →</a>
     </>}
     {error && <p className={styles.error} role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
