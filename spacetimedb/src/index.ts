@@ -19,3 +19,5 @@ export * from './admin';
 
 export * from './account_registration';
 export * from './account_sessions';
+
+export * from './simulation';

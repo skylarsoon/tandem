@@ -17,6 +17,7 @@ import * as CheckLeaseProcedure from "../check_lease_procedure";
 import * as ClaimJobProcedure from "../claim_job_procedure";
 import * as CreateAdminSessionProcedure from "../create_admin_session_procedure";
 import * as CreateTravellerSessionProcedure from "../create_traveller_session_procedure";
+import * as JoinInvitationWaitlistProcedure from "../join_invitation_waitlist_procedure";
 import * as LoadExecutionContextProcedure from "../load_execution_context_procedure";
 import * as LoadProfileContextProcedure from "../load_profile_context_procedure";
 import * as PrepareTravellerRegistrationProcedure from "../prepare_traveller_registration_procedure";
@@ -48,6 +49,8 @@ export type CreateAdminSessionArgs = __Infer<typeof CreateAdminSessionProcedure.
 export type CreateAdminSessionResult = __Infer<typeof CreateAdminSessionProcedure.returnType>;
 export type CreateTravellerSessionArgs = __Infer<typeof CreateTravellerSessionProcedure.params>;
 export type CreateTravellerSessionResult = __Infer<typeof CreateTravellerSessionProcedure.returnType>;
+export type JoinInvitationWaitlistArgs = __Infer<typeof JoinInvitationWaitlistProcedure.params>;
+export type JoinInvitationWaitlistResult = __Infer<typeof JoinInvitationWaitlistProcedure.returnType>;
 export type LoadExecutionContextArgs = __Infer<typeof LoadExecutionContextProcedure.params>;
 export type LoadExecutionContextResult = __Infer<typeof LoadExecutionContextProcedure.returnType>;
 export type LoadProfileContextArgs = __Infer<typeof LoadProfileContextProcedure.params>;

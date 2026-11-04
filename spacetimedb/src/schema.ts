@@ -103,6 +103,15 @@ export const travellerSessionExpiry = table({ name: 'traveller_session_expiry' }
   scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt(), sessionHash: t.string(),
 });
 
+// Isolated demo rooms belong to the initiating account, never to its real profile.
+const planningSimulation = table({ name: 'planning_simulation', indexes: [
+  { accessor: 'byOwner', algorithm: 'btree', columns: ['owner'] },
+  { accessor: 'byDay', algorithm: 'btree', columns: ['day'] },
+] }, {
+  roomId: t.u64().primaryKey(), owner: t.identity(), requestKey: t.string(), day: t.string(),
+  state: t.string(), retries: t.u32(), createdAt: t.timestamp(),
+});
+
 // ---------- Rooms and people ----------
 
 const room = table(
@@ -839,6 +848,7 @@ const milestone = table(
 
 const spacetimedb = schema({
   config,
+  planningSimulation,
   worker,
   appInvitation,
   appAccess,

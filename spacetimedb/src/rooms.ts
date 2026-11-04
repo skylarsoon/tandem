@@ -136,6 +136,7 @@ export const joinRoom = spacetimedb.reducer(
     let roomId: bigint | undefined;
     for (const r of ctx.db.room.byInviteCode.filter(inviteCode.trim().toUpperCase())) roomId = r.id;
     if (roomId === undefined) fail('NOT_FOUND', 'invalid invite code');
+    if (ctx.db.planningSimulation.roomId.find(roomId)) fail('SIMULATION_ONLY', 'demo rooms cannot be joined as a real traveller');
     const existing = findMembership(ctx, roomId, participantIdentity(ctx.db, ctx.sender));
     if (existing?.active) fail('INVALID_STATE', 'already a member of this room');
     ensureProfile(ctx, displayName);

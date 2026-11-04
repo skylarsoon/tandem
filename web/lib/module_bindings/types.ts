@@ -386,6 +386,14 @@ export const IntakeProgressRow = __t.object("IntakeProgressRow", {
 });
 export type IntakeProgressRow = __Infer<typeof IntakeProgressRow>;
 
+export const InvitationWaitlist = __t.object("InvitationWaitlist", {
+  email: __t.string(),
+  name: __t.string(),
+  createdAt: __t.timestamp(),
+  invitationHash: __t.option(__t.string()),
+});
+export type InvitationWaitlist = __Infer<typeof InvitationWaitlist>;
+
 export const Job = __t.object("Job", {
   id: __t.u64(),
   roomId: __t.u64(),
@@ -487,6 +495,9 @@ export type MyIntake = __Infer<typeof MyIntake>;
 
 export const MyParticipationPreferences = __t.object("MyParticipationPreferences", {});
 export type MyParticipationPreferences = __Infer<typeof MyParticipationPreferences>;
+
+export const MyPlanningSimulations = __t.object("MyPlanningSimulations", {});
+export type MyPlanningSimulations = __Infer<typeof MyPlanningSimulations>;
 
 export const MyPrivateMessages = __t.object("MyPrivateMessages", {});
 export type MyPrivateMessages = __Infer<typeof MyPrivateMessages>;
@@ -608,6 +619,17 @@ export const ParticipationPreferences = __t.object("ParticipationPreferences", {
   revision: __t.u64(),
 });
 export type ParticipationPreferences = __Infer<typeof ParticipationPreferences>;
+
+export const PlanningSimulation = __t.object("PlanningSimulation", {
+  roomId: __t.u64(),
+  owner: __t.identity(),
+  requestKey: __t.string(),
+  day: __t.string(),
+  state: __t.string(),
+  retries: __t.u32(),
+  createdAt: __t.timestamp(),
+});
+export type PlanningSimulation = __Infer<typeof PlanningSimulation>;
 
 export const Presence = __t.object("Presence", {
   identity: __t.identity(),
@@ -851,6 +873,14 @@ export const SearchFact = __t.object("SearchFact", {
 });
 export type SearchFact = __Infer<typeof SearchFact>;
 
+export const SimulationRow = __t.object("SimulationRow", {
+  roomId: __t.u64(),
+  state: __t.string(),
+  createdAt: __t.timestamp(),
+  snapshotJson: __t.string(),
+});
+export type SimulationRow = __Infer<typeof SimulationRow>;
+
 export const ThreadOpen = __t.object("ThreadOpen", {
   topicRef: __t.string(),
   participantAgentIds: __t.array(__t.u64()),
@@ -915,6 +945,13 @@ export const TripBrief = __t.object("TripBrief", {
   updatedAt: __t.timestamp(),
 });
 export type TripBrief = __Infer<typeof TripBrief>;
+
+export const WaitlistLimit = __t.object("WaitlistLimit", {
+  key: __t.string(),
+  windowStart: __t.timestamp(),
+  count: __t.u32(),
+});
+export type WaitlistLimit = __Infer<typeof WaitlistLimit>;
 
 export const Worker = __t.object("Worker", {
   identity: __t.identity(),

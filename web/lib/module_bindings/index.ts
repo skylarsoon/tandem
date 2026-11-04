@@ -37,6 +37,7 @@ import {
 import AddRuleReducer from "./add_rule_reducer";
 import AddWorkerReducer from "./add_worker_reducer";
 import AnswerQuestionReducer from "./answer_question_reducer";
+import AnswerSimulationQuestionReducer from "./answer_simulation_question_reducer";
 import AskOwnerReducer from "./ask_owner_reducer";
 import ClearProfileAnswerReducer from "./clear_profile_answer_reducer";
 import CloseThreadsReducer from "./close_threads_reducer";
@@ -75,6 +76,8 @@ import RequestProfileSummaryReducer from "./request_profile_summary_reducer";
 import ResetTravellerPasswordReducer from "./reset_traveller_password_reducer";
 import RespondToProposalReducer from "./respond_to_proposal_reducer";
 import RetryPlanningReducer from "./retry_planning_reducer";
+import RetryPlanningSimulationReducer from "./retry_planning_simulation_reducer";
+import ReviewSimulationProposalReducer from "./review_simulation_proposal_reducer";
 import RevokeAppInvitationReducer from "./revoke_app_invitation_reducer";
 import SaveProfileAnswerReducer from "./save_profile_answer_reducer";
 import SetAgentActivityReducer from "./set_agent_activity_reducer";
@@ -85,6 +88,8 @@ import SetRoomSettingsReducer from "./set_room_settings_reducer";
 import SetRuleStateReducer from "./set_rule_state_reducer";
 import SetTripDescriptionReducer from "./set_trip_description_reducer";
 import SkipProfileQuestionReducer from "./skip_profile_question_reducer";
+import StartPlanningSimulationReducer from "./start_planning_simulation_reducer";
+import StopPlanningSimulationReducer from "./stop_planning_simulation_reducer";
 import SubmitAgentMessageReducer from "./submit_agent_message_reducer";
 import SubmitPrivateMessageReducer from "./submit_private_message_reducer";
 import UpdateIntakeReducer from "./update_intake_reducer";
@@ -104,6 +109,7 @@ import * as CheckLeaseProcedure from "./check_lease_procedure";
 import * as ClaimJobProcedure from "./claim_job_procedure";
 import * as CreateAdminSessionProcedure from "./create_admin_session_procedure";
 import * as CreateTravellerSessionProcedure from "./create_traveller_session_procedure";
+import * as JoinInvitationWaitlistProcedure from "./join_invitation_waitlist_procedure";
 import * as LoadExecutionContextProcedure from "./load_execution_context_procedure";
 import * as LoadProfileContextProcedure from "./load_profile_context_procedure";
 import * as PrepareTravellerRegistrationProcedure from "./prepare_traveller_registration_procedure";
@@ -123,6 +129,7 @@ import MyConstraintPatchesRow from "./my_constraint_patches_table";
 import MyConstraintsRow from "./my_constraints_table";
 import MyIntakeRow from "./my_intake_table";
 import MyParticipationPreferencesRow from "./my_participation_preferences_table";
+import MyPlanningSimulationsRow from "./my_planning_simulations_table";
 import MyPrivateMessagesRow from "./my_private_messages_table";
 import MyProfileRow from "./my_profile_table";
 import MyProfileAnswersRow from "./my_profile_answers_table";
@@ -214,6 +221,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyParticipationPreferencesRow),
+  myPlanningSimulations: __table({
+    name: 'my_planning_simulations',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyPlanningSimulationsRow),
   myPrivateMessages: __table({
     name: 'my_private_messages',
     indexes: [
@@ -382,6 +396,7 @@ const reducersSchema = __reducers(
   __reducerSchema("add_rule", AddRuleReducer),
   __reducerSchema("add_worker", AddWorkerReducer),
   __reducerSchema("answer_question", AnswerQuestionReducer),
+  __reducerSchema("answer_simulation_question", AnswerSimulationQuestionReducer),
   __reducerSchema("ask_owner", AskOwnerReducer),
   __reducerSchema("clear_profile_answer", ClearProfileAnswerReducer),
   __reducerSchema("close_threads", CloseThreadsReducer),
@@ -420,6 +435,8 @@ const reducersSchema = __reducers(
   __reducerSchema("reset_traveller_password", ResetTravellerPasswordReducer),
   __reducerSchema("respond_to_proposal", RespondToProposalReducer),
   __reducerSchema("retry_planning", RetryPlanningReducer),
+  __reducerSchema("retry_planning_simulation", RetryPlanningSimulationReducer),
+  __reducerSchema("review_simulation_proposal", ReviewSimulationProposalReducer),
   __reducerSchema("revoke_app_invitation", RevokeAppInvitationReducer),
   __reducerSchema("save_profile_answer", SaveProfileAnswerReducer),
   __reducerSchema("set_agent_activity", SetAgentActivityReducer),
@@ -430,6 +447,8 @@ const reducersSchema = __reducers(
   __reducerSchema("set_rule_state", SetRuleStateReducer),
   __reducerSchema("set_trip_description", SetTripDescriptionReducer),
   __reducerSchema("skip_profile_question", SkipProfileQuestionReducer),
+  __reducerSchema("start_planning_simulation", StartPlanningSimulationReducer),
+  __reducerSchema("stop_planning_simulation", StopPlanningSimulationReducer),
   __reducerSchema("submit_agent_message", SubmitAgentMessageReducer),
   __reducerSchema("submit_private_message", SubmitPrivateMessageReducer),
   __reducerSchema("update_intake", UpdateIntakeReducer),
@@ -451,6 +470,7 @@ const proceduresSchema = __procedures(
   __procedureSchema("claim_job", ClaimJobProcedure.params, ClaimJobProcedure.returnType),
   __procedureSchema("create_admin_session", CreateAdminSessionProcedure.params, CreateAdminSessionProcedure.returnType),
   __procedureSchema("create_traveller_session", CreateTravellerSessionProcedure.params, CreateTravellerSessionProcedure.returnType),
+  __procedureSchema("join_invitation_waitlist", JoinInvitationWaitlistProcedure.params, JoinInvitationWaitlistProcedure.returnType),
   __procedureSchema("load_execution_context", LoadExecutionContextProcedure.params, LoadExecutionContextProcedure.returnType),
   __procedureSchema("load_profile_context", LoadProfileContextProcedure.params, LoadProfileContextProcedure.returnType),
   __procedureSchema("prepare_traveller_registration", PrepareTravellerRegistrationProcedure.params, PrepareTravellerRegistrationProcedure.returnType),
